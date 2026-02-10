@@ -1,0 +1,279 @@
+T154H7-C12-01 V2 产品规格书
+============================
+厂商：深圳市金逸晨电子有限公司 (ShenZhen GoldenMorning Electronic Co.,Ltd)
+型号：T154H7-C12-01
+版本：V2
+日期：2025-09-23
+
+修订历史：
+- V1 (2022-04-25): First issued
+- V2 (2025-09-23): 更换背光
+
+=====================================
+1. General Parameter（基本参数）
+=====================================
+
+| NO | Features                    | Details                      | Unit   |
+|----|-----------------------------|------------------------------|--------|
+| 1  | Display Size (Diagonal)     | 1.54"                        | Inch   |
+| 2  | LCD type                    | IPS TFT                      | -      |
+| 3  | Display Mode                | Normally black                | -      |
+| 4  | Resolution                  | 240 RGB(H) x 240(V)          | Pixels |
+| 5  | Viewing Direction           | ALL                           | -      |
+| 6  | Module size                 | 31.42(W) x 33.67(H) x 2.17(T) | mm   |
+| 7  | Active Area                 | 27.72(W) x 27.72(H)          | mm     |
+| 8  | Pixel Size                  | 0.1155(W) x 0.1155(H)        | mm     |
+| 9  | Color arrangement           | RGB Vertical stripe           | -      |
+| 10 | Interface                   | 4-Wire SPI                    | -      |
+| 11 | Display Colors              | 262K                          | -      |
+| 12 | Driver IC                   | ST7789                        | -      |
+| 13 | With or Without Touch Panel | Without                       | -      |
+| 14 | Operating Temperature       | -20℃~70℃                     | ℃      |
+| 15 | Storage Temperature         | -30℃~80℃                     | ℃      |
+| 16 | Weight                      | -                             | g      |
+
+=====================================
+3. Mechanical Dimension（机械尺寸）
+=====================================
+
+FPC参数：
+- 引脚数：12pin
+- 间距：0.5mm
+- FPC宽度：P0.5*(12-1)=5.5±0.05mm
+- 引脚宽度：0.35±0.05mm
+- 触点面厚度：0.3±0.05mm (FPC+PI补强)
+- Contact sides（触点面）：0.1±0.05mm
+
+模组尺寸：
+- LCM: 31.42mm (W)
+- LCD TFT: 33.12mm (H) / 33.67mm
+- LCD CF: 30.62mm
+- LCD AA: 27.72mm x 27.72mm (显示区域)
+- 厚度: 2.17mm
+
+背光电路图：
+- A(+) → LED → K(-) (背光LED阳极到阴极)
+
+NOTES:
+1. Display Size (显示尺寸): 1.54" TFT
+2. Viewing Direction (视角方向): ALL
+3. Display Mode (显示模式): Transmissive / Normally Black
+4. Resolution (分辨率): 240 RGB 240
+5. Color (颜色): 262K
+6. Drive IC (驱动IC): ST7789
+7. Interface (接口): 4-Wire SPI
+8. Backlight (背光): White IF=60mA VF=3.0V(TYP)
+9. Luminance (亮度): 300cd/m2(TYP)
+10. Operating temperature (工作温度): -20℃~+70℃
+11. Storage temperature (存储温度): -30℃~+80℃
+12. RoHS (有害物质限制): YES
+* Unspecified Tolerance (未注公差): ±0.1
+
+=====================================
+4. Absolute Maximum Ratings（绝对最大额定值）
+=====================================
+
+| Item                    | Symbol | Min.  | Max. | Unit |
+|-------------------------|--------|-------|------|------|
+| Supply Voltage          | VDD    | -0.3  | 4.6  | V    |
+| Operating temperature   | Top    | -20   | 70   | ℃    |
+| Storage temperature     | Tst    | -30   | 80   | ℃    |
+
+Note 1: If Ambient temperature below 50°C, the maximal humidity is 90%RH,
+        if Ambient temperature over 50°C, absolute humidity should be less than 60%RH.
+Note 2: The response time will be extremely slow when the operating temperature is around -10℃,
+        and the back ground will become darker at high temperature operating.
+Note 3: If one of the above items is exceeded its maximum limitation momentarily,
+        the quality of the product may be degraded.
+
+=====================================
+5. DC Characteristics（直流特性）
+=====================================
+
+| Item                | Symbol | Min.     | Typ. | Max.     | Unit |
+|---------------------|--------|----------|------|----------|------|
+| Supply Voltage      | VDD    | 2.4      | 2.75 | 3.3      | V    |
+| Input high voltage  | VIN    | 0.7*VDDI | -    | VDDI     | V    |
+| Input low voltage   | VIL    | GND      | -    | 0.3*VDDI | V    |
+| Output high voltage | VOH    | 0.8*VDDI | -    | VDDI     | V    |
+| Output low voltage  | VOL    | GND      | -    | 0.2*VDDI | V    |
+| Input Current       | IIN    | -        | 20   | -        | mA   |
+
+=====================================
+6. Backlight Characteristic（背光特性）
+=====================================
+
+| Item               | Symbol | Min. | Typ.  | Max. | Unit | Condition |
+|--------------------|--------|------|-------|------|------|-----------|
+| Forward Voltage    | VF     | -    | 3.0   | -    | V    | -         |
+| Forward Current    | IF     | -    | 60    | -    | mA   | -         |
+| Power dissipation  | Pd     | -    | 180   | -    | mW   | -         |
+| LED Life Time(25℃) | -      | -    | 10000 | -    | Hrs  | -         |
+
+Note: LED life time defined as follows: The final brightness is at 50% of original brightness.
+Typical operating life time is estimated data.
+
+Note: The backlight LED is recommended to be powered independently by constant current drive.
+
+=====================================
+7. Pins Definitions（引脚定义）
+=====================================
+
+| Pin.No | Symbol | Description                                              |
+|--------|--------|----------------------------------------------------------|
+| 1      | GND    | Ground                                                   |
+| 2      | LED-K  | Backlight cathode                                        |
+| 3      | LED-A  | Backlight anode                                          |
+| 4      | VDD    | Power supply                                             |
+| 5      | GND    | Ground                                                   |
+| 6      | GND    | Ground                                                   |
+| 7      | DCX    | Display data/command selection pin                       |
+| 8      | CSX    | Chip select pin signal                                   |
+|        |        | Low: the chip is selected and accessible                 |
+|        |        | High: the chip is not selected and not accessible        |
+| 9      | SCL    | Serial clock input for SPI interface.                    |
+| 10     | SDA    | Serial data input/output pin for SPI Interface.          |
+| 11     | RESX   | The external reset input.                                |
+|        |        | Initializes the chip with a low input.                   |
+|        |        | Be sure to execute a power-on reset after supplying power|
+| 12     | GND    | Ground                                                   |
+
+=====================================
+8. Schematic Diagram（参考原理图）
+=====================================
+
+背光控制电路（参考设计）：
+- MCU BL引脚 → R1(2.2kΩ) → Q1(S8050 NPN三极管) 基极(B)
+- Q1 基极(B) → R2(10kΩ) → GND（基极下拉电阻）
+- Q1 集电极(C) → LED-K (Pin 2)
+- Q1 发射极(E) → GND
+- LED-A (Pin 3) → +3.0V
+
+SPI信号连接（参考设计）：
+- MCU DCX  → Pin 7 (DCX)
+- MCU CSX  → Pin 8 (CSX)
+- MCU SCL  → Pin 9 (SCL)
+- MCU SDA  → Pin 10 (SDA)
+- MCU RESX → Pin 11 (RESX)
+
+电源连接：
+- +3.3V → Pin 4 (VDD/VCI)
+- GND → Pin 1, 5, 6, 12
+
+=====================================
+9. Timing Characteristics（时序特性）
+=====================================
+
+4-Line serial Interface Timing Characteristics
+VDDI=1.65 to 3.3V, VDD=2.4 to 3.3V, AGND=DGND=0V, Ta=25℃
+
+CSX时序：
+| Signal | Symbol | Parameter                     | MIN | MAX | Unit |
+|--------|--------|-------------------------------|-----|-----|------|
+| CSX    | Tcss   | Chip select setup time(write) | 15  |     | ns   |
+| CSX    | Tcsh   | Chip select hold time(write)  | 15  |     | ns   |
+| CSX    | Tcss   | Chip select setup time(read)  | 60  |     | ns   |
+| CSX    | Tscc   | Chip select hold time(read)   | 65  |     | ns   |
+| CSX    | Tchw   | Chip select "H" pulse width   | 40  |     | ns   |
+
+SCL时序：
+| Signal | Symbol | Parameter                     | MIN | MAX | Unit | Description          |
+|--------|--------|-------------------------------|-----|-----|------|----------------------|
+| SCL    | Tscycw | Serial clock cycle(Write)     | 16  |     | ns   | write command & data |
+| SCL    | Tshw   | SCL "H" pulse width(Write)    | 7   |     | ns   | ram                  |
+| SCL    | Tslw   | SCL "L" pulse width(Write)    | 7   |     | ns   |                      |
+| SCL    | Tscycr | Serial clock cycle(Read)      | 150 |     | ns   | read command & data  |
+| SCL    | Tshr   | SCL "H" pulse width(Read)     | 60  |     | ns   | ram                  |
+| SCL    | Tslr   | SCL "L" pulse width(Read)     | 60  |     | ns   |                      |
+
+D/CX时序：
+| Signal | Symbol | Parameter      | MIN | MAX | Unit |
+|--------|--------|----------------|-----|-----|------|
+| D/CX   | Tdcs   | D/CX setup time | 10  |     | ns   |
+| D/CX   | Tdch   | D/CX hold time  | 10  |     | ns   |
+
+SDA时序：
+| Signal     | Symbol | Parameter       | MIN | MAX | Unit |
+|------------|--------|-----------------|-----|-----|------|
+| SDA (DIN)  | Tsds   | Data setup time | 7   |     | ns   |
+| SDA (DIN)  | Tsdh   | Data hold time  | 7   |     | ns   |
+
+DOUT时序：
+| Signal | Symbol | Parameter          | MIN | MAX | Unit | Note                          |
+|--------|--------|--------------------|-----|-----|------|-------------------------------|
+| DOUT   | Tacc   | Access time        | 10  | 50  | ns   | For maximum CL=30pF           |
+| DOUT   | Toh    | Output disable time | 15  | 50  | ns   | For minimum CL=8pF            |
+
+Note: The rising time and falling time (Tr, Tf) of input signal are specified at 15 ns or less.
+Logic high and low levels are specified as 30% and 70% of VDDI for Input signals.
+
+SPI写入最高时钟频率：1/16ns = 62.5MHz
+
+=====================================
+10. Optical Characteristics（光学特性）
+=====================================
+
+| Item                              | Symbol | Condition        | Min.  | Typ.  | Max. | Unit | Note        |
+|-----------------------------------|--------|------------------|-------|-------|------|------|-------------|
+| Transmittance (without Polarizer) | T(%)   | -                | 4.40  | 4.90  | -    | %    | w/o APCF    |
+| Transmittance (with Polarizer)    | T(%)   | -                | 15.8  | 17.6  | -    | %    |             |
+| Contrast Ratio                    | CR     | Θ=0, Normal view | 700   | 900   | -    | -    |             |
+| Response Time                     | TR+TF  | Normal view      | -     | 30    | 40   | msec |             |
+| Color Gamut                       | S(%)   |                  | 43    | 48    | -    | %    |             |
+| Luminance (亮度)                   |        |                  |       | 300   |      |cd/m2 |             |
+
+Viewing Angle (CR>10):
+- Horizontal Left:  70~80°
+- Horizontal Right: 70~80°
+- Vertical Up:      70~80°
+- Vertical Down:    70~80°
+- Optima View Direction: ALL
+
+=====================================
+11. Reliability（可靠性）
+=====================================
+
+MTBF: minimum 50000 hours
+
+Test Conditions:
+1. High Temperature Operating: 70℃*24Hrs
+2. Low Temperature Operating: -20℃*24Hrs
+3. High Humidity Storage: 50℃*90%RH*24Hrs
+4. High Temperature Storage: 80℃*24Hrs
+5. Low Temperature Storage: -30℃*24Hrs
+6. Thermal Cycling Test Storage
+7. Packing vibration
+8. Electrical Static Discharge
+9. Drop Test (Packaged)
+
+Criteria: No Defect Of Operational Function In Room Temperature Are Allowable.
+IDD of LCM in Pre-and Post-Test Should Follow Specification.
+
+=====================================
+12. Precautions（注意事项）
+=====================================
+
+12.1 Storage Conditions:
+- Temperature: 23±5℃, Humidity: below 45±20%RH
+- Store in anti-static electricity container
+- Store in clean environment, free from dust, active gas, and solvent
+- Do not place near organics solvents or corrosive gases
+- Do not crush, shake, or jolt
+- Strong light exposure causes degradation of polarizer and color filter
+
+12.2 Handling Precautions:
+- Avoid static electricity (can damage CMOS LSI)
+- Polarizing plate is very fragile, handle carefully
+- Do not give external shock
+- Do not apply excessive force on surface
+- Do not wipe polarizer with dry cloth (may scratch)
+- Clean with cotton/soft cloth soaked with petroleum IPA
+- Use within ratings
+- Do not remove panel or frame from module
+- Soldering: 320~350℃, within 10s, avoid staying too long to avoid scalding FPC
+
+12.3 Limited Warranty:
+- Warranty period: 12 months from delivery date
+- Complete assembly within 12 months
+- Suggest using all modules within 6 months
+- If storage over 12 months, recheck before use

@@ -1,0 +1,4660 @@
+ESP32-S3 系列芯片
+技术规格书 版本 2.1
+
+ Xtensa® 32 位 LX7 双核微处理器
+ 2.4 GHz Wi-Fi (IEEE 802.11b/g/n) 和 Bluetooth® 5 (LE)
+ 芯片封装内可叠封 1.8 V 或 3.3 V flash 和 PSRAM
+ 45 个 GPIO 管脚
+ QFN56 (7×7 mm) 封装
+
+
+
+
+ 包括：
+    ESP32-S3
+
+    ESP32-S3FN8
+
+    ESP32-S3RH2
+
+    ESP32-S3R8
+
+    ESP32-S3R16V
+
+    ESP32-S3FH4R2
+
+    ESP32-S3R8V – 停产 (EOL)
+
+    ESP32-S3R2 – 停产 (EOL)，已升级为 ESP32-S3RH2
+
+
+
+
+                                   www.espressif.com
+产品概述
+
+ESP32-S3 是一款低功耗的 MCU 系统级芯片 (SoC)，支持 2.4 GHz Wi-Fi 和低功耗蓝牙 (Bluetooth® LE) 无线通
+信。芯片集成了高性能的 Xtensa® 32 位 LX7 双核处理器、超低功耗协处理器、Wi-Fi 基带、蓝牙基带、RF 模块以
+及外设。
+
+芯片的功能框图如下图所示。
+
+
+                              乐鑫 ESP32-S3 Wi-Fi + 低功耗蓝⽛ (Bluetooth® LE) SoC
+                 CPU 和存储                                               RF                         ⽆线数字电路
+                    ®                            2.4 GHz Balun +
+               Xtensa 32 位 LX7
+                                                                                外部主时钟        Wi-Fi MAC         Wi-Fi 基带
+                  双核处理器                               切换器
+
+                                                                                快速 RC
+       Cache        SRAM                                                                      低功耗蓝⽛链路层控制器
+
+
+
+                                                                       RF 合成器
+                                               2.4 GHz
+
+
+                                                         2.4 GHz                振荡器
+                                                接收器
+
+
+                                                          发射器
+                                  中断
+                                  矩阵
+        JTAG        ROM                                                          锁相环              低功耗蓝⽛基带
+
+
+
+                                       外设                                                                安全
+
+                                                            GPIO                RTC GPIO    SHA    RSA     AES      RNG
+        GDMA         系统定时器
+                                   通⽤定时器
+                                                         DIG ADC                RTC ADC       HMAC
+                                                                                                               数字签名
+       SD/MMC
+         主机
+                     脉冲计数器             World             USB 串⼝/                 eFuse
+                                                                                             安全启动
+                                       控制器                 JTAG                  控制器
+
+                                                                                                               Flash 加密
+        SPI0/1           SPI2/3         I2S                主系统                    RTC        权限控制
+                                                           看⻔狗                   看⻔狗
+                                                           定时器                   定时器
+       USB OTG           TWAI®          I2C
+                                                                                                         RTC
+
+        UART            LED PWM     MCPWM                超级看⻔狗                  触摸传感器        RTC 存储器             PMU
+
+
+         RMT            LCD 接⼝     摄像头接⼝                  RTC I2C               温度传感器             ULP 协处理器
+
+
+
+
+      功耗模式
+                 普通模式
+                 低功耗模块，可在 Deep-sleep 模式下运⾏
+
+
+                                                 ESP32-S3 功能框图
+
+
+更多关于功耗的信息，请参考章节 4.1.3.5 电源管理单元 (PMU)。
+
+
+
+
+乐鑫信息科技                                                             2                       ESP32-S3 系列芯片技术规格书 v2.1
+                                                         反馈文档意见
+产品特性
+Wi-Fi
+
+  • 支持 IEEE 802.11b/g/n 协议
+
+  • 在 2.4 GHz 频带支持 20 MHz 和 40 MHz 频宽
+
+  • 支持 1T1R 模式，数据速率高达 150 Mbps
+
+  • 无线多媒体 (WMM)
+
+  • 帧聚合 (TX/RX A-MPDU, TX/RX A-MSDU)
+
+  • 立即块确认 (Immediate Block ACK)
+
+  • 分片和重组 (Fragmentation/defragmentation)
+
+  • Beacon 自动监测（硬件 TSF）
+
+  • 4 个虚拟 Wi-Fi 接口
+
+  • 同时支持基础结构型网络 (Infrastructure BSS) Station 模式、SoftAP 模式和 Station + SoftAP 混杂模式
+     请注意 ESP32-S3 在 Station 模式下扫描时，SoftAP 信道会同时改变
+
+  • 天线分集
+
+  • 802.11mc FTM
+
+
+蓝牙
+
+  • 低功耗蓝牙 (Bluetooth LE)：Bluetooth 5、Bluetooth Mesh
+
+  • 高功率模式，发射功率最高 20 dBm
+
+  • 速率支持 125 Kbps、500 Kbps、1 Mbps、2 Mbps
+
+  • 广播扩展 (LE Advertising Extensions)
+
+  • 多广播 (Multiple Advertising Sets)
+
+  • 信道选择 (LE Channel Selection Algorithm #2)
+
+  • Wi-Fi 与蓝牙共存，共用同一个天线
+
+
+CPU 和存储
+
+  • Xtensa® 32 位 LX7 双核处理器
+
+  • 时钟频率：最高 240 MHz
+
+  • CoreMark® 得分：
+
+        – 双核，主频 240 MHz：1329.92 CoreMark；5.54 CoreMark/MHz
+
+  • 五级流水线架构
+
+  • 128 位数据总线位宽，专用的 SIMD 指令
+
+  • 单精度浮点运算单元 (FPU)
+
+
+
+乐鑫信息科技                                         3             ESP32-S3 系列芯片技术规格书 v2.1
+                                         反馈文档意见
+ • 超低功耗协处理器 (ULP)：
+
+     – ULP-RISC-V 协处理器
+
+     – ULP-FSM 协处理器
+
+ • 通用 DMA 控制器 (简称 GDMA)，5 个接收通道和 5 个发送通道
+
+ • L1 cache
+
+ • ROM：384 KB
+
+ • SRAM：512 KB
+
+ • RTC SRAM：16 KB
+
+ • 4096 位 eFuse 存储器，用户可用的高达 1792 位
+
+ • 支持 SPI 协议：SPI、Dual SPI、Quad SPI、Octal SPI、QPI、OPI，可外接 flash、片外 RAM 和其他 SPI 设备
+
+ • 引入 cache 机制的 flash 控制器
+
+ • 支持 flash 在线编程
+
+
+外设
+
+ • 45 个可编程 GPIO
+
+     – 4 个 strapping 管脚
+
+     – 分配给封装内存储器的 GPIO 管脚
+
+         * 6 个用于连接封装内 封装内 flash 或 PSRAM
+
+         * 7 个用于同时连接封装内 封装内 flash 和 PSRAM
+
+ • 通讯接口：
+
+     – 3 个 UART
+
+     – 2 个 I2C
+
+     – 2 个 I2S
+
+     – LCD 接口
+
+     – DVP 8 位 ~ 16 位摄像头接口
+
+     – 2 个 SPI 接口用于连接 flash 和 RAM
+
+     – 2 个通用 SPI 接口
+
+     – TWAI® 控制器，兼容 ISO11898-1（CAN 规范 2.0）
+
+     – 全速 USB OTG
+
+     – USB 串口/JTAG 控制器
+
+     – SD/MMC 主机接口，具有 2 个卡槽
+
+     – LED PWM 控制器，多达 8 个通道
+
+     – 2 个电机控制脉宽调制器 (MCPWM)
+
+     – RMT (TX/RX)
+
+
+乐鑫信息科技                                4              ESP32-S3 系列芯片技术规格书 v2.1
+                                    反馈文档意见
+     – 脉冲计数器
+
+ • 模拟信号处理：
+
+     – 2 个 12 位 SAR ADC，多达 20 个通道
+
+     – 温度传感器
+
+     – 14 个电容式传感 GPIO
+
+ • 定时器：
+
+     – 4 个 54 位通用定时器
+
+     – 52 位系统定时器
+
+     – 3 个看门狗定时器
+
+
+功耗管理
+
+ • 通过选择时钟频率、占空比、Wi-Fi 工作模式和单独控制内部器件的电源，实现精准电源控制
+
+ • 针对典型场景设计的四种功耗模式：Active、Modem-sleep、Light-sleep、Deep-sleep
+
+ • Deep-sleep 模式下功耗低至 7 µA
+
+ • Deep-sleep 模式下 RTC 存储器仍保持工作
+
+
+安全机制
+
+ • 安全启动 - 内部和外部存储器的权限控制
+
+ • Flash 加密 - 加密和解密存储器
+
+ • 加密硬件加速器：
+
+     – AES-128/256 (FIPS PUB 197)
+
+     – SHA (FIPS PUB 180-4)
+
+     – RSA
+
+     – 随机数生成器 (RNG)
+
+     – HMAC
+
+     – 数字签名
+
+
+RF 模块
+
+ • 天线开关、射频巴伦 (balun)、功率放大器、低噪声放大器
+
+ • 802.11b 传输功率高达 +21 dBm
+
+ • 802.11n 传输功率高达 +19.5 dBm
+
+ • 低功耗蓝牙接收器灵敏度 (125 Kbps) 高达 -104.5 dBm
+
+
+应用
+低功耗芯片 ESP32-S3 专为物联网 (IoT) 设备而设计，应用领域包括：
+
+
+乐鑫信息科技                                5         ESP32-S3 系列芯片技术规格书 v2.1
+                                    反馈文档意见
+ • 智能家居           • 通用低功耗 IoT 传感器集线器
+
+ • 工业自动化          • 通用低功耗 IoT 数据记录器
+
+ • 医疗保健           • 摄像头视频流传输
+
+ • 消费电子产品         • USB 设备
+
+ • 智慧农业           • 语音识别
+
+ • POS 机          • 图像识别
+
+ • 服务机器人          • Wi-Fi + 蓝牙网卡
+
+ • 音频设备           • 触摸和接近感应
+
+
+
+
+乐鑫信息科技        6              ESP32-S3 系列芯片技术规格书 v2.1
+            反馈文档意见
+目录
+
+
+
+      说明：
+
+      点击链接或扫描二维码确保您使用的是最新版本的文档：
+      https://www.espressif.com/documentation/esp32-s3_datasheet_cn.pdf
+
+
+
+
+目录
+
+产品概述                                                                                            2
+产品特性                                                                                            3
+应用                                                                                              5
+
+1       ESP32-S3 系列型号对比                                                                        14
+1.1     命名规则                                                                                   14
+1.2     型号对比                                                                                   14
+1.3     芯片版本                                                                                   15
+
+2       管脚                                                                                     16
+2.1     管脚布局                                                                                   16
+2.2     管脚概述                                                                                   17
+2.3     IO 管脚                                                                                  20
+        2.3.1   IO MUX 功能                                                                      20
+        2.3.2   RTC 功能                                                                         23
+        2.3.3   模拟功能                                                                           24
+        2.3.4   GPIO 和 RTC_GPIO 的限制                                                            25
+        2.3.5   外设管脚分配                                                                         26
+2.4     模拟管脚                                                                                   28
+2.5     电源                                                                                     29
+        2.5.1   电源管脚                                                                           29
+        2.5.2   电源管理                                                                           29
+        2.5.3   芯片上电和复位                                                                        30
+2.6     芯片与 Flash/PSRAM 的管脚对应关系                                                                31
+
+3       启动配置项                                                                                  32
+3.1     芯片启动模式控制                                                                               33
+3.2     VDD_SPI 电压控制                                                                           33
+3.3     ROM 日志打印控制                                                                             34
+3.4     JTAG 信号源控制                                                                             34
+
+4       功能描述                                                                                   35
+4.1     系统                                                                                     35
+        4.1.1   微处理器和主机                                                                        35
+                4.1.1.1   CPU                                                                  35
+                4.1.1.2   处理器指令拓展 (PIE)                                                        35
+
+
+
+乐鑫信息科技                                                 7                  ESP32-S3 系列芯片技术规格书 v2.1
+                                                 反馈文档意见
+目录
+
+
+              4.1.1.3    超低功耗协处理器 (ULP)                                   36
+              4.1.1.4    通用 DMA 控制器 (GDMA)                                36
+      4.1.2   存储器组织结构                                                     36
+              4.1.2.1    内部存储器                                            37
+              4.1.2.2    外部 Flash 和片外 RAM                                 38
+              4.1.2.3    Cache                                            38
+              4.1.2.4    eFuse 控制器                                        39
+      4.1.3   系统组件                                                        39
+              4.1.3.1    IO MUX 和 GPIO 交换矩阵                               39
+              4.1.3.2    复位                                               40
+              4.1.3.3    时钟                                               40
+              4.1.3.4    中断矩阵                                             41
+              4.1.3.5    电源管理单元 (PMU)                                     41
+              4.1.3.6    系统定时器                                            43
+              4.1.3.7    通用定时器                                            43
+              4.1.3.8    看门狗定时器                                           44
+              4.1.3.9    XTAL32K 看门狗定时器                                   44
+              4.1.3.10   权限控制                                             44
+              4.1.3.11   World 控制器                                        45
+              4.1.3.12   系统寄存器                                            45
+      4.1.4   加密和安全组件                                                     46
+              4.1.4.1    SHA 加速器                                          46
+              4.1.4.2    AES 加速器                                          46
+              4.1.4.3    RSA 加速器                                          47
+              4.1.4.4    安全启动                                             47
+              4.1.4.5    HMAC 加速器                                         47
+              4.1.4.6    数字签名                                             48
+              4.1.4.7    片外存储器加密与解密                                       48
+              4.1.4.8    时钟毛刺检测                                           48
+              4.1.4.9    随机数发生器                                           48
+4.2   外设                                                                  49
+      4.2.1   通讯接口                                                        49
+              4.2.1.1    UART 控制器                                         49
+              4.2.1.2    I2C 接口                                           49
+              4.2.1.3    I2S 接口                                           50
+              4.2.1.4    LCD 与 Camera 控制器                                 50
+              4.2.1.5    串行外设接口 (SPI)                                     50
+                                        ®
+              4.2.1.6    双线汽车接口 (TWAI )                                   52
+              4.2.1.7    USB 2.0 OTG 全速接口                                 53
+              4.2.1.8    USB 串口/JTAG 控制器                                  54
+              4.2.1.9    SD/MMC 主机控制器                                     54
+              4.2.1.10   LED PWM 控制器                                      55
+              4.2.1.11   电机控制脉宽调制器 (MCPWM)                                55
+              4.2.1.12   红外遥控 (RMT)                                       55
+              4.2.1.13   脉冲计数控制器 (PCNT)                                   56
+      4.2.2   模拟信号处理                                                      56
+
+
+乐鑫信息科技                                        8      ESP32-S3 系列芯片技术规格书 v2.1
+                                            反馈文档意见
+目录
+
+
+              4.2.2.1   SAR ADC                                     56
+              4.2.2.2   温度传感器                                       57
+              4.2.2.3   触摸传感器                                       57
+4.3   无线通信                                                          58
+      4.3.1   无线电                                                   58
+              4.3.1.1   2.4 GHz 接收器                                 58
+              4.3.1.2   2.4 GHz 发射器                                 58
+              4.3.1.3   时钟生成器                                       58
+      4.3.2   Wi-Fi                                                 58
+              4.3.2.1   Wi-Fi 射频和基带                                 58
+              4.3.2.2   Wi-Fi MAC                                   59
+              4.3.2.3   网络特性                                        59
+      4.3.3   低功耗蓝牙                                                 59
+              4.3.3.1   低功耗蓝牙物理层                                    59
+              4.3.3.2   低功耗蓝牙链路控制器                                  60
+
+5     电气特性                                                          61
+5.1   绝对最大额定值                                                       61
+5.2   建议工作条件                                                        61
+5.3   VDD_SPI 输出特性                                                  62
+5.4   直流电气特性 (3.3 V, 25 °C)                                         62
+5.5   ADC 特性                                                        63
+5.6   功耗特性                                                          63
+      5.6.1   Active 模式下的功耗                                         63
+      5.6.2   其他功耗模式下的功耗                                            64
+5.7   存储器规格                                                         65
+5.8   可靠性                                                           65
+
+6     射频特性                                                          67
+6.1   Wi-Fi 射频                                                      67
+      6.1.1   Wi-Fi 射频发射器 (TX) 规格                                   67
+      6.1.2   Wi-Fi 射频接收器 (RX) 规格                                   68
+6.2   低功耗蓝牙射频                                                       69
+      6.2.1   低功耗蓝牙射频发射器 (TX) 规格                                    69
+      6.2.2   低功耗蓝牙射频接收器 (RX) 规格                                    71
+
+7     封装                                                            74
+
+
+ESP32-S3 管脚总览                                                       76
+
+
+技术规格书版本号管理                                                          77
+
+
+词汇表                                                                 78
+
+
+相关文档和资源                                                             79
+
+
+
+
+乐鑫信息科技                                  9      ESP32-S3 系列芯片技术规格书 v2.1
+                                      反馈文档意见
+目录
+
+
+
+修订历史                                   80
+
+
+
+
+乐鑫信息科技     10     ESP32-S3 系列芯片技术规格书 v2.1
+         反馈文档意见
+表格
+
+
+
+表格
+ 1-1   ESP32-S3 系列芯片对比                                               14
+ 2-1   管脚概述                                                          17
+ 2-2 芯片上电过程中的管脚毛刺                                                    19
+ 2-3 通过 IO MUX 连接的外设信号                                               20
+ 2-4 IO MUX 功能                                                       21
+ 2-5 通过 RTC IO MUX 连接的 RTC 外设信号                                      23
+ 2-6 RTC 功能                                                          23
+ 2-7 连接模拟功能的模拟信号                                                     24
+ 2-8 模拟功能                                                            24
+ 2-9 外设管脚分配                                                          27
+ 2-10 模拟管脚                                                           28
+ 2-11 电源管脚                                                           29
+ 2-12 电压稳压器                                                          29
+ 2-13 上电和复位时序参数说明                                                    30
+ 2-14 芯片与 flash 或 PSRAM 的管脚对应关系                                      31
+ 3-1   Strapping 管脚的默认配置                                             32
+ 3-2 Strapping 管脚的时序参数说明                                             33
+ 3-3 芯片启动模式控制                                                        33
+ 3-4 VDD_SPI 电压控制                                                    34
+ 3-5 JTAG 信号源控制                                                      34
+ 4-1   模块和电源域                                                        43
+ 5-1   绝对最大额定值                                                       61
+ 5-2 建议工作条件                                                          61
+ 5-3 VDD_SPI 内部和输出特性                                                 62
+ 5-4 直流电气特性 (3.3 V, 25 °C)                                           62
+ 5-5 ADC 特性                                                          63
+ 5-6 ADC 校准结果                                                        63
+ 5-7 Active 模式下 Wi-Fi (2.4 GHz) 功耗特性                                 63
+ 5-8 Active 模式下低功耗蓝牙功耗特性                                             64
+ 5-9 Modem-sleep 模式下的功耗                                              64
+ 5-10 低功耗模式下的功耗                                                      65
+ 5-11 Flash 规格                                                       65
+ 5-12 PSRAM 规格                                                       65
+ 5-13 可靠性认证                                                          66
+ 6-1 Wi-Fi 射频规格                                                      67
+ 6-2 频谱模板和 EVM 符合 802.11 标准时的发射功率                                    67
+ 6-3 发射 EVM 测试1                                                      67
+ 6-4 接收灵敏度                                                           68
+ 6-5 最大接收电平                                                          69
+ 6-6 接收邻道抑制                                                          69
+ 6-7 低功耗蓝牙频率                                                         69
+ 6-8 发射器特性 - 低功耗蓝牙 1 Mbps                                            69
+ 6-9 发射器特性 - 低功耗蓝牙 2 Mbps                                            70
+
+
+
+乐鑫信息科技                                   11     ESP32-S3 系列芯片技术规格书 v2.1
+                                       反馈文档意见
+表格
+
+
+ 6-10 发射器特性 - 低功耗蓝牙 125 Kbps                                 70
+ 6-11 发射器特性 - 低功耗蓝牙 500 Kbps                                 71
+ 6-12 接收器特性 - 低功耗蓝牙 1 Mbps                                   71
+ 6-13 接收器特性 - 低功耗蓝牙 2 Mbps                                   72
+ 6-14 接收器特性 - 低功耗蓝牙 125 Kbps                                 72
+ 6-15 接收器特性 - 低功耗蓝牙 500 Kbps                                 73
+ 7-1   管脚总览                                                  76
+
+
+
+
+乐鑫信息科技                           12     ESP32-S3 系列芯片技术规格书 v2.1
+                               反馈文档意见
+插图
+
+
+
+插图
+ 1-1   ESP32-S3 系列芯片命名规则                                          14
+ 2-1   ESP32-S3 管脚布局（俯视图）                                         16
+ 2-2 ESP32-S3 电源管理                                                30
+ 2-3 上电和复位时序参数图                                                   30
+ 3-1   Strapping 管脚的时序参数图                                         33
+ 4-1   地址映射结构                                                     37
+ 4-2 模块和电源域                                                       42
+ 7-1   QFN56 (7×7 mm) 封装                                          74
+ 7-2 QFN56 (7×7 mm) 封装（仅适用于 ESP32-S3FH4R2）                        75
+
+
+
+
+乐鑫信息科技                              13       ESP32-S3 系列芯片技术规格书 v2.1
+                                反馈文档意见
+1 ESP32-S3 系列型号对比
+
+
+
+1 ESP32-S3 系列型号对比
+
+1.1 命名规则
+      ESP32-S3   F    H/N       x       R         H       x       V
+
+
+                                                                               仅支持外部 1.8 V SPI flash
+
+
+
+                                                                               PSRAM 大小 (MB)
+
+
+                                                                               PSRAM 温度
+                                                                               H：高温
+
+
+                                                                               PSRAM
+
+
+
+                                                                               Flash 大小 (MB)
+
+                                                                               Flash 温度
+                                                                               H：高温
+                                                                               N：正常
+
+                                                                               Flash
+
+
+
+                                                                               芯片系列
+
+
+                             图 1-1. ESP32-S3 系列芯片命名规则
+
+
+1.2   型号对比
+
+                                    表 1-1. ESP32-S3 系列芯片对比
+
+ 物料编号1                封装内 Flash2             封装内 PSRAM           环境温度3          VDD_SPI 电压4        芯片版本
+ ESP32-S3                   —                         —         –40 ∼ 105 °C       3.3 V/1.8 V     v0.1/v0.2
+ ESP32-S3FN8         8 MB (Quad SPI)5                 —         –40 ∼ 85 °C            3.3 V       v0.1/v0.2
+ ESP32-S3RH2                —               2 MB (Quad SPI)     –40 ∼ 105 °C           3.3 V           v0.2
+ ESP32-S3R8                 —               8 MB (Octal SPI)    –40 ∼ 65 °C            3.3 V       v0.1/v0.2
+ ESP32-S3R16V               —               16 MB (Octal SPI)   –40 ∼ 65 °C            1.8 V           v0.2
+ ESP32-S3FH4R2       4 MB (Quad SPI)        2 MB (Quad SPI)     –40 ∼ 85 °C            3.3 V       v0.1/v0.2
+ ESP32-S3R8V（停产）            —               8 MB (Octal SPI)    –40 ∼ 65 °C            1.8 V       v0.1/v0.2
+ ESP32-S3R2（停产）6            —               2 MB (Quad SPI)     –40 ∼ 85 °C            3.3 V       v0.1/v0.2
+ 1 更多关于芯片丝印和包装的信息，请参考章节 7 封装。
+ 2 更多关于封装内 flash 的信息，详见章节 4.1.2.1 内部存储器。默认情况下，芯片 SPI flash 支持的最大时钟频率为
+   80 MHz，且不支持自动暂停功能。如需使用 120 MHz 的 flash 时钟频率或需要 flash 自动暂停功能，请 联系我们。
+ 3 环境温度指乐鑫芯片外部的推荐环境温度。针对内置 Octal SPI PSRAM 的芯片（ESP32-S3R8、ESP32-S3R8V 和
+  ESP32-S3R16V），若开启 PSRAM ECC 功能，最大环境温度可以提高到 85 °C，但是 PSRAM 的可用容量将减少
+   1/16。
+ 4 更多关于 VDD_SPI 的信息，请参考章节 2.5 电源。
+ 5 更多关于 SPI 模式的信息，请参考章节 2.6 芯片与 Flash/PSRAM 的管脚对应关系。
+ 6 ESP32-S3R2 已升级为 ESP32-S3RH2，更多信息详见 PCN。
+
+
+乐鑫信息科技                                           14                   ESP32-S3 系列芯片技术规格书 v2.1
+                                            反馈文档意见
+1 ESP32-S3 系列型号对比
+
+
+
+1.3 芯片版本
+如表 1-1 ESP32-S3 系列芯片对比 所示，ESP32-S3 有多个芯片版本投入市场，并使用相同的物料编号。
+
+关于芯片版本的识别方式、支持特定芯片版本的 ESP-IDF 版本和每个芯片版本修复的错误，请参考
+《ESP32-S3 系列芯片勘误表》。
+
+
+
+
+乐鑫信息科技                        15         ESP32-S3 系列芯片技术规格书 v2.1
+                           反馈文档意见
+2   管脚
+
+
+
+2 管脚
+
+2.1 管脚布局
+
+
+
+
+                                                                                                                                                                46 VDD3P3_CPU
+                                                                       52 GPIO46
+
+                                                                                   51 GPIO45
+
+
+
+
+                                                                                                                                                                                                        43 GPIO38
+                                                           53 XTAL_N
+                                               54 XTAL_P
+
+
+
+
+                                                                                                   50 U0RXD
+
+                                                                                                                        49 U0TXD
+
+                                                                                                                                        48 MTMS
+
+
+
+
+                                                                                                                                                                                45 MTDO
+
+                                                                                                                                                                                            44 MTCK
+                       56 VDDA
+
+                                   55 VDDA
+
+
+
+
+                                                                                                                                                    47 MTDI
+          LNA_IN   1                                                                                                                                                                                                42 GPIO37
+
+         VDD3P3    2                                                                                                                                                                                                41 GPIO36
+
+         VDD3P3    3                                                                                                                                                                                                40 GPIO35
+
+         CHIP_PU   4                                                                                                                                                                                                39 GPIO34
+
+           GPIO0   5                                                                                                                                                                                                38 GPIO33
+
+           GPIO1   6                                                                                                                                                                                                37 SPICLK_P
+
+           GPIO2   7                                                                                                                                                                                                36 SPICLK_N
+
+           GPIO3   8                                                                                                                                                                                                35 SPID
+
+           GPIO4   9
+                                                                              ESP32-S3                                                                                                                              34 SPIQ
+
+           GPIO5 10                                                                                                                                                                                                 33 SPICLK
+
+           GPIO6 11                                                                                                                                                                                                 32 SPICS0
+
+           GPIO7 12                                                                                                                                                                                                 31 SPIWP
+
+           GPIO8 13                                                                                                                                                                    57 GND                       30 SPIHD
+
+           GPIO9 14                                                                                                                                                                                                 29 VDD_SPI
+                       GPIO10 15
+
+                                   GPIO11 16
+
+                                               GPIO12 17
+
+                                                           GPIO13 18
+
+                                                                       GPIO14 19
+
+                                                                                   VDD3P3_RTC 20
+
+                                                                                                   XTAL_32K_P 21
+
+                                                                                                                        XTAL_32K_N 22
+
+                                                                                                                                        GPIO17 23
+
+                                                                                                                                                    GPIO18 24
+
+                                                                                                                                                                GPIO19 25
+
+                                                                                                                                                                                GPIO20 26
+
+                                                                                                                                                                                            GPIO21 27
+
+                                                                                                                                                                                                        SPICS1 28
+
+
+
+
+                                                    图 2-1. ESP32-S3 管脚布局（俯视图）
+
+
+
+
+乐鑫信息科技                                                                                                             16                                                                  ESP32-S3 系列芯片技术规格书 v2.1
+                                                                                          反馈文档意见
+2        管脚
+
+
+
+2.2 管脚概述
+ESP32-S3 芯片集成了多个需要与外界通讯的外设。由于芯片封装尺寸小、管脚数量有限，传送所有输入输出信
+号的唯一方法是管脚多路复用。管脚多路复用由软件可编程的寄存器控制（详见 《ESP32-S3 技术参考手册》
+> 章节 IO MUX 和 GPIO 交换矩阵）。
+
+总体而言，ESP32-S3 芯片的管脚可分为以下几类：
+
+         • IO 管脚，具有以下预设功能：
+
+              – 每个 IO 管脚都预设了 IO MUX 功能 – 见表 2-4 IO MUX 功能
+
+              – 部分 IO 管脚预设了 RTC 功能 – 见表 2-6 RTC 功能
+
+              – 部分 IO 管脚预设了模拟功能 – 见表 2-8 模拟功能
+
+          预设功能即每个 IO 管脚直接连接至一组特定的片上外设。运行时，可通过映射寄存器配置连接管脚的外
+          设（详见 《ESP32-S3 技术参考手册》 > 章节 IO MUX 和 GPIO 交换矩阵）。
+
+         • 模拟管脚，专用于模拟功能 – 见表 2-10 模拟管脚
+
+         • 电源管脚，为芯片外设和非电源管脚供电 – 见表 2-11 电源管脚
+
+
+表 2-1 管脚概述 简要介绍了所有管脚。更多信息，详见下文相应章节，或参考 ESP32-S3 管脚总览。
+
+                                            表 2-1. 管脚概述
+
+                                                           管脚配置 6                  管脚功能 1
+    管脚序号        管脚名称         管脚类型   供电管脚 2-5          复位时       复位后       IO MUX   RTC IO MUX   模拟
+    1           LNA_IN       模拟
+    2           VDD3P3       电源
+    3           VDD3P3       电源
+    4           CHIP_PU      模拟     VDD3P3_RTC
+    5           GPIO0        IO     VDD3P3_RTC        WPU, IE   WPU, IE   IO MUX   RTC IO MUX
+    6           GPIO1        IO     VDD3P3_RTC        IE        IE        IO MUX   RTC IO MUX   模拟
+    7           GPIO2        IO     VDD3P3_RTC        IE        IE        IO MUX   RTC IO MUX   模拟
+    8           GPIO3        IO     VDD3P3_RTC        IE        IE        IO MUX   RTC IO MUX   模拟
+    9           GPIO4        IO     VDD3P3_RTC                            IO MUX   RTC IO MUX   模拟
+    10          GPIO5        IO     VDD3P3_RTC                            IO MUX   RTC IO MUX   模拟
+    11          GPIO6        IO     VDD3P3_RTC                            IO MUX   RTC IO MUX   模拟
+    12          GPIO7        IO     VDD3P3_RTC                            IO MUX   RTC IO MUX   模拟
+    13          GPIO8        IO     VDD3P3_RTC                            IO MUX   RTC IO MUX   模拟
+    14          GPIO9        IO     VDD3P3_RTC                  IE        IO MUX   RTC IO MUX   模拟
+    15          GPIO10       IO     VDD3P3_RTC                  IE        IO MUX   RTC IO MUX   模拟
+    16          GPIO11       IO     VDD3P3_RTC                  IE        IO MUX   RTC IO MUX   模拟
+    17          GPIO12       IO     VDD3P3_RTC                  IE        IO MUX   RTC IO MUX   模拟
+    18          GPIO13       IO     VDD3P3_RTC                  IE        IO MUX   RTC IO MUX   模拟
+    19          GPIO14       IO     VDD3P3_RTC                  IE        IO MUX   RTC IO MUX   模拟
+    20          VDD3P3_RTC   电源
+    21          XTAL_32K_P   IO     VDD3P3_RTC                            IO MUX   RTC IO MUX   模拟
+    22          XTAL_32K_N   IO     VDD3P3_RTC                            IO MUX   RTC IO MUX   模拟
+    23          GPIO17       IO     VDD3P3_RTC                  IE        IO MUX   RTC IO MUX   模拟
+                                                                                                见下页
+
+
+
+乐鑫信息科技                                           17             ESP32-S3 系列芯片技术规格书 v2.1
+                                            反馈文档意见
+2        管脚
+
+
+                                                     – 接上页
+                                                                  管脚配置 6                  管脚功能 1
+    管脚序号         管脚名称            管脚类型   供电管脚 2-5             复位时       复位后       IO MUX   RTC IO MUX   模拟
+    24           GPIO18          IO     VDD3P3_RTC                     IE        IO MUX   RTC IO MUX   模拟
+    25           GPIO19          IO     VDD3P3_RTC                               IO MUX   RTC IO MUX   模拟
+    26           GPIO20          IO     VDD3P3_RTC           USB_PU    USB_PU    IO MUX   RTC IO MUX   模拟
+    27           GPIO21          IO     VDD3P3_RTC                               IO MUX   RTC IO MUX
+    28           SPICS1          IO     VDD_SPI              WPU, IE   WPU, IE   IO MUX
+    29           VDD_SPI         电源
+    30           SPIHD           IO     VDD_SPI              WPU, IE   WPU, IE   IO MUX
+    31           SPIWP           IO     VDD_SPI              WPU, IE   WPU, IE   IO MUX
+    32           SPICS0          IO     VDD_SPI              WPU, IE   WPU, IE   IO MUX
+    33           SPICLK          IO     VDD_SPI              WPU, IE   WPU, IE   IO MUX
+    34           SPIQ            IO     VDD_SPI              WPU, IE   WPU, IE   IO MUX
+    35           SPID            IO     VDD_SPI              WPU, IE   WPU, IE   IO MUX
+    36           SPICLK_N        IO     VDD_SPI/VDD3P3_CPU   IE        IE        IO MUX
+    37           SPICLK_P        IO     VDD_SPI/VDD3P3_CPU   IE        IE        IO MUX
+    38           GPIO33          IO     VDD_SPI/VDD3P3_CPU             IE        IO MUX
+    39           GPIO34          IO     VDD_SPI/VDD3P3_CPU             IE        IO MUX
+    40           GPIO35          IO     VDD_SPI/VDD3P3_CPU             IE        IO MUX
+    41           GPIO36          IO     VDD_SPI/VDD3P3_CPU             IE        IO MUX
+    42           GPIO37          IO     VDD_SPI/VDD3P3_CPU             IE        IO MUX
+    43           GPIO38          IO     VDD3P3_CPU                     IE        IO MUX
+    44           MTCK            IO     VDD3P3_CPU                     IE 7      IO MUX
+    45           MTDO            IO     VDD3P3_CPU                     IE        IO MUX
+    46           VDD3P3_CPU      电源
+    47           MTDI            IO     VDD3P3_CPU                     IE        IO MUX
+    48           MTMS            IO     VDD3P3_CPU                     IE        IO MUX
+    49           U0TXD           IO     VDD3P3_CPU           WPU, IE   WPU, IE   IO MUX
+    50           U0RXD           IO     VDD3P3_CPU           WPU, IE   WPU, IE   IO MUX
+    51           GPIO45          IO     VDD3P3_CPU           WPD, IE   WPD, IE   IO MUX
+    52           GPIO46          IO     VDD3P3_CPU           WPD, IE   WPD, IE   IO MUX
+    53           XTAL_N          模拟
+    54           XTAL_P          模拟
+    55           VDDA            电源
+    56           VDDA            电源
+    57           GND             电源
+
+         1. 加粗功能为默认启动模式下管脚的默认功能，关于启动模式的更多信息，详见章节 3.1 芯片启动模式控制。
+
+     2. 供电管脚一栏，由 VDD_SPI 供电的管脚：
+              • 电源实际来自给 VDD_SPI 供电的内部电源轨，详见章节 2.5.2 电源管理。
+
+     3. 供电管脚一栏，由 VDD3P3_CPU / VDD_SPI 供电的管脚：
+              • 供电管脚（VDD3P3_CPU 或 VDD_SPI）由 eFuse 位 EFUSE_PIN_POWER_SELECTION 决定（详见 《ESP32-S3 技术参考手册》
+                > 章节 eFuse 控制器），可通过 IO_MUX_PAD_POWER_CTRL 位配置（详见 《ESP32-S3 技术参考手册》 > 章节 IO MUX 和
+                GPIO 交换矩阵）。
+
+     4. 在 ESP32-S3R8V 和 ESP32-S3R16V 芯片中，由于 VDD_SPI 电压已设置为 1.8 V，所以不同于其他 GPIO，该芯片在 VDD_SPI 电源域
+          中的 GPIO47 和 GPIO48 的工作电压也为 1.8 V。
+
+     5. 各管脚的默认驱动电流为：
+              • GPIO17 和 GPIO18：10 mA
+              • GPIO19 和 GPIO20：40 mA
+
+
+乐鑫信息科技                                               18                ESP32-S3 系列芯片技术规格书 v2.1
+                                                  反馈文档意见
+2   管脚
+
+
+         • 其他管脚：20 mA
+    6. 管脚配置一栏为复位时和复位后预设配置缩写：
+         • IE – 输入使能
+         • WPU – 内部弱上拉电阻使能
+         • WPD – 内部弱下拉电阻使能
+         • USB_PU – USB 上拉电阻使能
+            – USB 管脚（GPIO19 和 GPIO20）默认开启 USB 功能，此时管脚是否上拉由 USB 上拉决定。USB 上拉由 USB_SERIAL_JTAG_DP/
+              DM_PULLUP 控制，USB 上拉电阻的具体阻值可通过 USB_SERIAL_JTAG_PULLUP_VALUE 位控制，详见 《ESP32-S3 技术参考手册》
+              > 章节 USB 串口/JTAG 控制器。
+            – USB 管脚关闭 USB 功能时，用作普通 GPIO，默认禁用管脚内部弱上/下拉电阻，可通过 IO_MUX_FUN_WPU/WPD 配置，
+              详见 《ESP32-S3 技术参考手册》 > 章节 IO MUX 和 GPIO 交换矩阵。
+    7. EFUSE_DIS_PAD_JTAG 的值为
+         • 0 - 弱上拉电阻使能
+         • 1 - 管脚浮空
+
+部分管脚在芯片上电过程中有毛刺，具体见表 2-2。
+                                  表 2-2. 芯片上电过程中的管脚毛刺
+
+                         管脚名称           毛刺类型1            典型持续时间 (µs)
+                         GPIO1          低电平毛刺                        60
+                         GPIO2          低电平毛刺                        60
+                         GPIO3          低电平毛刺                        60
+                         GPIO4          低电平毛刺                        60
+                         GPIO5          低电平毛刺                        60
+                         GPIO6          低电平毛刺                        60
+                         GPIO7          低电平毛刺                        60
+                         GPIO8          低电平毛刺                        60
+                         GPIO9          低电平毛刺                        60
+                         GPIO10         低电平毛刺                        60
+                         GPIO11         低电平毛刺                        60
+                         GPIO12         低电平毛刺                        60
+                         GPIO13         低电平毛刺                        60
+                         GPIO14         低电平毛刺                        60
+                         XTAL_32K_P     低电平毛刺                        60
+                         XTAL_32K_N     低电平毛刺                        60
+                         GPIO17         低电平毛刺                        60
+                                        低电平毛刺                        60
+                         GPIO18
+                                        高电平毛刺                        60
+                                        低电平毛刺                        60
+                         GPIO19
+                                        高电平毛刺2                       60
+                                        下拉毛刺                         60
+                         GPIO20
+                                        高电平毛刺2                       60
+                         1 低电平毛刺：在持续期间维持低电平输出状态；
+
+                          高电平毛刺：在持续期间维持高电平输出状态；
+                          下拉毛刺：在持续期间维持内部弱下拉状态；
+                          上拉毛刺：在持续期间维持内部弱上拉状态。
+                          关于高/低电平和上/下拉的相关具体参数，请参考表 5-4 直流电
+                          气特性 (3.3 V, 25 °C)。
+                         2 GPIO19 和 GPIO20 在芯片上电期间会出现两次高电平毛刺，每次
+
+                          持续时间为 60 µs 左右，两次毛刺及中间的延迟共持续的时间分
+                          别为 3.2 ms 和 2 ms。
+
+乐鑫信息科技                                          19             ESP32-S3 系列芯片技术规格书 v2.1
+                                              反馈文档意见
+2     管脚
+
+
+
+2.3 IO 管脚
+2.3.1 IO MUX 功能
+IO MUX 能让一个输入/输出管脚连接多个输入/输出信号。ESP32-S3 的每个 IO 管脚可在表 2-4 IO MUX 功能 列
+出的五个信号（IO MUX 功能，即 F0-F4）中选择，连接任意一个。
+
+五个信号中：
+
+     • 部分源自 GPIO 交换矩阵（GPIO0、GPIO1 等）
+                                   。GPIO 交换矩阵包含内部信号传输线路，用于映射信号，能令
+        管脚连接几乎任一外设信号。这种映射虽然灵活，但可能影响传输信号的速度，造成延迟。如何通过 GPIO
+        交换矩阵连接外设信号，详见 《ESP32-S3 技术参考手册》 > 章节 IO MUX 和 GPIO 交换矩阵。
+
+     • 部分直接源自特定外设（U0TXD、MTCK 等）
+                              ，包括 UART0/1、JTAG、SPI0/1 和 SPI2 - 详见表 2-3 通过 IO
+        MUX 连接的外设信号。
+
+                                     表 2-3. 通过 IO MUX 连接的外设信号
+
+    管脚功能               信号                                  描述
+    U…TXD              发送数据 (Transmit)
+    U…RXD              接收数据 (Receive)
+                                                           UART0/1 接口
+    U…RTS              请求发送 (Request to send)
+    U…CTS              允许发送 (Clear to send)
+    MTCK               测试时钟 (Test clock)
+    MTDO               测试数据输出 (Test Data Out)
+                                                           用于调试功能的 JTAG 接口
+    MTDI               测试数据输入 (Test Data In)
+    MTMS               测试模式选择 (Test Mode Select)
+    SPIQ               主机输入从机输出 (Master in, slave out)
+    SPID               主机输出从机输入 (Master out, slave in)     SPI0/1 接口，由 VDD_SPI 供电，通过 SPI 总线连
+    SPIHD              暂停 (Hold)                           接封装内或封装外 flash/PSRAM。支持单线、双
+    SPIWP              写保护 (Write protect)                 线、四线 SPI 模式。详见章节 2.6 芯片与 Flash/
+    SPICLK             时钟 (Clock)                          PSRAM 的管脚对应关系
+    SPICS…             片选 (Chip select)
+    SPIIO…             数据 (Data)                           八线 SPI 模式下 SPI0/1 接口的高 4 位数据线接口
+    SPIDQS             数据选通/数据掩码 (Data strobe/data mask)   及 DQS 接口，由 VDD_SPI 或 VDD3P3_CPU 供电
+    SPICLK_N_DIFF      负极性时钟信号 (Negative clock signal)
+                                                           SPI 总线差分时钟的负极/正极端
+    SPICLK_P_DIFF      正极性时钟信号 (Positive clock signal)
+    SUBSPIQ            主机输入从机输出 (Master in, slave out)
+    SUBSPID            主机输出从机输入 (Master out, slave in)
+                                                           SPI0/1 接口，由 VDD3P3_RTC 或 VDD3V3_CPU
+    SUBSPIHD           暂停 (Hold)
+                                                           供电，通过 SUBSPI 总线连接封装内或封装外
+    SUBSPIWP           写保护 (Write protect)
+                                                           flash/PSRAM。支持单线、双线、四线 SPI 模式
+    SUBSPICLK          时钟 (Clock)
+    SUBSPICS…          片选 (Chip select)
+    SUBSPICLK_N_DIFF   负极性时钟信号 (Negative clock signal)     SUBSPI 总线差分时钟的负极/正极端
+    SUBSPICLK_P_DIFF   正极性时钟信号 (Positive clock signal)
+                                                                                          见下页
+
+
+
+
+乐鑫信息科技                                             20             ESP32-S3 系列芯片技术规格书 v2.1
+                                                反馈文档意见
+2     管脚
+
+
+                                                          表 2-3 – 接上页
+    管脚功能                    信号                                               描述
+    FSPIQ                   主机输入从机输出 (Master in, slave out)
+    FSPID                   主机输出从机输入 (Master out, slave in)
+    FSPIHD                  暂停 (Hold)                                        用于快速 SPI 传输的 SPI2 主接口。支持单线、双
+    FSPIWP                  写保护 (Write protect)                              线、四线 SPI 模式
+    FSPICLK                 时钟 (Clock)
+    FSPICS0                 片选 (Chip select)
+    FSPIIO…                 数据 (Data)                                        八线 SPI 模式下 SPI2 接口的高 4 位数据线接口及
+    FSPIDQS                 数据选通/数据掩码 (Data strobe/data mask)                DQS 接口
+    CLK_OUT…                时钟输出 (Clock output)                              芯片内部组件生成的输出时钟信号
+
+
+
+
+表 2-4 IO MUX 功能 列出了管脚的 IO MUX 功能。
+
+                                                           表 2-4. IO MUX 功能
+
+                                                                         IO MUX 功能 1, 2, 3
+管脚序号 GPIO 2            F0                类型 3 F1            类型      F2                   类型    F3         类型    F4        类型
+5             GPIO0    GPIO0             I/O/T    GPIO0     I/O/T
+6             GPIO1    GPIO1             I/O/T    GPIO1     I/O/T
+7             GPIO2    GPIO2             I/O/T    GPIO2     I/O/T
+8             GPIO3    GPIO3             I/O/T    GPIO3     I/O/T
+9             GPIO4    GPIO4             I/O/T    GPIO4     I/O/T
+10            GPIO5    GPIO5             I/O/T    GPIO5     I/O/T
+11            GPIO6    GPIO6             I/O/T    GPIO6     I/O/T
+12            GPIO7    GPIO7             I/O/T    GPIO7     I/O/T
+13            GPIO8    GPIO8             I/O/T    GPIO8     I/O/T                              SUBSPICS1 O/T
+14            GPIO9    GPIO9             I/O/T    GPIO9     I/O/T                              SUBSPIHD   I1/O/T FSPIHD   I1/O/T
+15            GPIO10   GPIO10            I/O/T    GPIO10 I/O/T FSPIIO4                   I1/O/T SUBSPICS0 O/T   FSPICS0 I1/O/T
+16            GPIO11   GPIO11            I/O/T    GPIO11    I/O/T FSPIIO5                I1/O/T SUBSPID   I1/O/T FSPID    I1/O/T
+17            GPIO12   GPIO12            I/O/T    GPIO12 I/O/T FSPIIO6                   I1/O/T SUBSPICLK O/T   FSPICLK I1/O/T
+18            GPIO13   GPIO13            I/O/T    GPIO13 I/O/T FSPIIO7                   I1/O/T SUBSPIQ   I1/O/T FSPIQ    I1/O/T
+19            GPIO14   GPIO14            I/O/T    GPIO14 I/O/T FSPIDQS                   O/T   SUBSPIWP   I1/O/T FSPIWP   I1/O/T
+21            GPIO15   GPIO15            I/O/T    GPIO15 I/O/T U0RTS                     O
+22            GPIO16   GPIO16            I/O/T    GPIO16 I/O/T U0CTS                     I1
+23            GPIO17   GPIO17            I/O/T    GPIO17    I/O/T U1TXD                  O
+24            GPIO18   GPIO18            I/O/T    GPIO18 I/O/T U1RXD                     I1    CLK_OUT3   O
+25            GPIO19   GPIO19            I/O/T    GPIO19    I/O/T U1RTS                  O     CLK_OUT2   O
+26            GPIO20   GPIO20            I/O/T    GPIO20 I/O/T U1CTS                     I1    CLK_OUT1   O
+27            GPIO21   GPIO21            I/O/T    GPIO21 I/O/T
+28            GPIO26   SPICS1            O/T      GPIO26 I/O/T
+30            GPIO27   SPIHD             I1/O/T GPIO27 I/O/T
+31            GPIO28   SPIWP             I1/O/T GPIO28 I/O/T
+32            GPIO29   SPICS0            O/T      GPIO29 I/O/T
+33            GPIO30 SPICLK              O/T      GPIO30 I/O/T
+34            GPIO31   SPIQ              I1/O/T GPIO31      I/O/T
+35            GPIO32   SPID              I1/O/T GPIO32 I/O/T
+                                                                                                                          见下页
+
+
+
+乐鑫信息科技                                                        21                      ESP32-S3 系列芯片技术规格书 v2.1
+                                                           反馈文档意见
+2    管脚
+
+
+                                                      – 接上页
+                                                             IO MUX 功能 1, 2, 3
+管脚序号 GPIO 2        F0           类型 3 F1          类型     F2                   类型    F3          类型       F4       类型
+36        GPIO48   SPICLK_N_DIFF O/T    GPIO48 I/O/T SUBSPICLK_N_DIFF O/T
+37        GPIO47   SPICLK_P_DIFF O/T    GPIO47 I/O/T SUBSPICLK_P_DIFF O/T
+38        GPIO33   GPIO33       I/O/T   GPIO33 I/O/T FSPIHD                  I1/O/T SUBSPIHD   I1/O/T SPIIO4     I1/O/T
+39        GPIO34   GPIO34       I/O/T   GPIO34 I/O/T FSPICS0                 I1/O/T SUBSPICS0 O/T       SPIIO5   I1/O/T
+40        GPIO35   GPIO35       I/O/T   GPIO35 I/O/T FSPID                   I1/O/T SUBSPID    I1/O/T SPIIO6     I1/O/T
+41        GPIO36   GPIO36       I/O/T   GPIO36 I/O/T FSPICLK                 I1/O/T SUBSPICLK O/T       SPIIO7   I1/O/T
+42        GPIO37   GPIO37       I/O/T   GPIO37 I/O/T FSPIQ                   I1/O/T SUBSPIQ    I1/O/T SPIDQS     I0/O/T
+43        GPIO38   GPIO38       I/O/T   GPIO38 I/O/T FSPIWP                  I1/O/T SUBSPIWP   I1/O/T
+44        GPIO39   MTCK         I1      GPIO39 I/O/T CLK_OUT3                O     SUBSPICS1 O/T
+45        GPIO40   MTDO         O/T     GPIO40 I/O/T CLK_OUT2                O
+47        GPIO41   MTDI         I1      GPIO41   I/O/T CLK_OUT1              O
+48        GPIO42   MTMS         I1      GPIO42 I/O/T
+49        GPIO43   U0TXD        O       GPIO43 I/O/T CLK_OUT1                O
+50        GPIO44   U0RXD        I1      GPIO44 I/O/T CLK_OUT2                O
+51        GPIO45   GPIO45       I/O/T   GPIO45 I/O/T
+52        GPIO46   GPIO46       I/O/T   GPIO46 I/O/T
+    1 加粗表示默认启动模式下的默认管脚功能，关于启动模式的更多信息，详见章节 3.1 芯片启动模式控制。
+    2 高亮 的单元格，详见章节 2.3.4 GPIO 和 RTC_GPIO 的限制。
+    3 每个 IO MUX 功能 (Fn，n = 0 ~ 4) 均对应一个“类型”
+                                          。以下是各个“类型”的含义：
+       • I – 输入。O – 输出。T – 高阻。
+       • I1 – 输入；如果该管脚分配了 Fn 以外的功能，则 Fn 的输入信号恒为 1。
+       • I0 – 输入；如果该管脚分配了 Fn 以外的功能，则 Fn 的输入信号恒为 0。
+
+
+
+
+乐鑫信息科技                                             22                     ESP32-S3 系列芯片技术规格书 v2.1
+                                             反馈文档意见
+2   管脚
+
+
+
+2.3.2 RTC 功能
+芯片处于 Deep-sleep 模式时，章节 2.3.1 IO MUX 功能 介绍的 IO 管脚功能无法使用。这正是引入 RTC IO MUX
+的原因。RTC IO 管脚连接 RTC 系统，由 VDD3P3_RTC 供电，使用 RTC IO MUX 能在 Deep-sleep 模式下让一个
+RTC 输入/输出管脚连接多个输入/输出信号。
+
+RTC IO 管脚具有 RTC 功能，可以
+
+    • 用作 RTC GPIO （RTC_GPIO0、RTC_GPIO1 等），连接 ULP 协处理器
+
+    • 或者连接 RTC 外设信号（sar_i2c_scl_0、sar_i2c_sda_0 等）- 见表 2-5 通过 RTC IO MUX 连接的 RTC 外
+     设信号
+
+                            表 2-5. 通过 RTC IO MUX 连接的 RTC 外设信号
+
+                       管脚功能             信号                      描述
+                       sar_i2c_scl…     串行时钟 (Serial clock)
+                                                                RTC I2C0/1 接口
+                       sar_i2c_sda…     串行数据 (Serial data)
+
+
+表 2-6 RTC 功能 列出了 RTC IO 管脚的 RTC 功能。
+
+                                           表 2-6. RTC 功能
+
+                  管脚       RTC                            RTC 功能 2
+                  序号       IO 名称 1           F0            F1   F2   F3
+                  5        RTC_GPIO0         RTC_GPIO0               sar_i2c_scl_0
+                  6        RTC_GPIO1         RTC_GPIO1               sar_i2c_sda_0
+                  7        RTC_GPIO2         RTC_GPIO2               sar_i2c_scl_1
+                  8        RTC_GPIO3         RTC_GPIO3               sar_i2c_sda_1
+                  9        RTC_GPIO4         RTC_GPIO4
+                  10       RTC_GPIO5         RTC_GPIO5
+                  11       RTC_GPIO6         RTC_GPIO6
+                  12       RTC_GPIO7         RTC_GPIO7
+                  13       RTC_GPIO8         RTC_GPIO8
+                  14       RTC_GPIO9         RTC_GPIO9
+                  15       RTC_GPIO10        RTC_GPIO10
+                  16       RTC_GPIO11        RTC_GPIO11
+                  17       RTC_GPIO12        RTC_GPIO12
+                  18       RTC_GPIO13        RTC_GPIO13
+                  19       RTC_GPIO14        RTC_GPIO14
+                  21       RTC_GPIO15        RTC_GPIO15
+                  22       RTC_GPIO16        RTC_GPIO16
+                  23       RTC_GPIO17        RTC_GPIO17
+                  24       RTC_GPIO18        RTC_GPIO18
+                  25       RTC_GPIO19        RTC_GPIO19
+                  26       RTC_GPIO20        RTC_GPIO20
+                  27       RTC_GPIO21        RTC_GPIO21
+                  1 由于 RTC 功能通过使用 RTC GPIO 编号的 RTC GPIO 寄存器配置，此列
+
+                   列出的是 RTC GPIO 的名称。
+                  2 高亮 的单元格，详见章节 2.3.4 GPIO 和 RTC_GPIO 的限制。
+
+
+
+
+乐鑫信息科技                                            23                 ESP32-S3 系列芯片技术规格书 v2.1
+                                             反馈文档意见
+2   管脚
+
+
+
+2.3.3 模拟功能
+部分 IO 管脚具有模拟功能，可用于任意功耗模式下的模拟外设（如 ADC）。模拟功能连接内部模拟信号，详见
+表 2-7 连接模拟功能的模拟信号。
+
+                                    表 2-7. 连接模拟功能的模拟信号
+
+    管脚功能         信号                                     描述
+    TOUCH…       触摸传感器通道 … 信号                           触摸传感器接口
+    ADC…_CH…     ADC1/2 通道 … 信号                         ADC1/2 接口
+    XTAL_32K_N   负极性时钟信号 (Negative clock signal)        连接 ESP32-S3 有源晶振的外部 32 kHz 时钟
+    XTAL_32K_P   正极性时钟信号 (Positive clock signal)        输入/输出
+    USB_D-       数据 - (Data -)
+                                                        USB OTG 和 USB 串口/JTAG 功能
+    USB_D+       数据 + (Data +)
+
+
+
+表 2-8 模拟功能 列出了 IO 管脚的模拟功能。
+
+                                          表 2-8. 模拟功能
+
+                                                        模拟功能 1, 2
+                          管脚序号       GPIO 3        F0           F1
+                          6          RTC_GPIO1     TOUCH1       ADC1_CH0
+                          7          RTC_GPIO2     TOUCH2       ADC1_CH1
+                          8          RTC_GPIO3     TOUCH3       ADC1_CH2
+                          9          RTC_GPIO4     TOUCH4       ADC1_CH3
+                          10         RTC_GPIO5     TOUCH5       ADC1_CH4
+                          11         RTC_GPIO6     TOUCH6       ADC1_CH5
+                          12         RTC_GPIO7     TOUCH7       ADC1_CH6
+                          13         RTC_GPIO8     TOUCH8       ADC1_CH7
+                          14         RTC_GPIO9     TOUCH9       ADC1_CH8
+                          15         RTC_GPIO10    TOUCH10      ADC1_CH9
+                          16         RTC_GPIO11    TOUCH11      ADC2_CH0
+                          17         RTC_GPIO12    TOUCH12      ADC2_CH1
+                          18         RTC_GPIO13    TOUCH13      ADC2_CH2
+                          19         RTC_GPIO14    TOUCH14      ADC2_CH3
+                          21         RTC_GPIO15    XTAL_32K_P   ADC2_CH4
+                          22         RTC_GPIO16    XTAL_32K_N   ADC2_CH5
+                          23         RTC_GPIO17                 ADC2_CH6
+                          24         RTC_GPIO18                 ADC2_CH7
+                          25         RTC_GPIO19    USB_D-       ADC2_CH8
+                          26         RTC_GPIO20    USB_D+       ADC2_CH9
+                          1 加粗表示默认启动模式下的默认管脚功能，关于启动模式
+
+                           的更多信息，详见章节 3.1 芯片启动模式控制。
+                          2 由于模拟功能通过使用 RTC GPIO 编号的 RTC GPIO 寄存
+
+                           器配置，此列列出的是 RTC GPIO 的名称。
+                          3 高亮 的单元格，详见章节 2.3.4 GPIO 和 RTC_GPIO 的限
+
+                               制。
+
+
+
+
+乐鑫信息科技                                            24                 ESP32-S3 系列芯片技术规格书 v2.1
+                                              反馈文档意见
+2   管脚
+
+
+
+2.3.4    GPIO 和 RTC_GPIO 的限制
+ESP32-S3 的所有 IO 管脚都有 GPIO 功能，部分还具有 RTC_GPIO 功能。不过，这些 IO 管脚是多功能管脚，可
+以根据需求配置不同的功能，也有一些使用限制，需要特别注意。
+
+本章节的表格中，部分管脚功能有 红色 或 黄色 高亮标记，是重要的管脚功能，所属 IO 管脚用作 GPIO / GPIO
+时需谨慎：
+
+    • IO 管脚 – 用于与封装内 flash/PSRAM 通讯，不建议作其他用途。更多信息，详见章节 2.6 芯片与 Flash/
+     PSRAM 的管脚对应关系。
+
+    • IO 管脚 – 具有以下重要功能之一：
+
+         – Strapping 管脚 – 启动时逻辑电平需为特定值。详见章节 3 启动配置项。
+
+           说明：
+           Strapping 管脚在 管脚名称或 复位时管脚配置处高亮，而非管脚功能。
+
+         – USB_D+/- – 默认情况下连接 USB 串口/JTAG 控制器。此类管脚需通过 IO_MUX_MCU_SEL 重新配
+          置，方可用作 GPIO（详见 《ESP32-S3 技术参考手册》 > 章节 IO MUX 和 GPIO 交换矩阵）。
+
+         – JTAG 接口 – 通常用于调试功能。详见表 2-4 IO MUX 功能。要释放这类管脚，可用 USB 串口/JTAG
+          控制器的 USB_D+/- 功能代替。详见章节 3.4 JTAG 信号源控制。
+
+         – UART0 接口 – 通常用于调试功能。详见表 2-4 IO MUX 功能。
+
+         – 八线 SPI 模式 – 无限制，除非芯片在八线 SPI 模式下连接 flash/PSRAM。
+
+更多关于管脚分配的信息，可见章节 2.3.5 外设管脚分配 和 ESP32-S3 管脚总览。
+
+
+
+
+乐鑫信息科技                               25             ESP32-S3 系列芯片技术规格书 v2.1
+                                  反馈文档意见
+2   管脚
+
+
+
+2.3.5 外设管脚分配
+表 2-9 外设管脚分配 根据优先级高亮了可以分配给每个外设接口的管脚：
+
+    • 优先级 1 (P1) ：固定管脚，通过 IO MUX 或 RTC IO MUX 直接连接外设信号。
+     如果某个外设接口没有优先级 1 的管脚（如 UART2）
+                                ，则可以分配优先级 2 到优先级 4 的任意 GPIO 管脚。
+
+    • 任意 GPIO 管脚，通过 GPIO 交换矩阵映射外设信号，优先级为 2、3 或 4：
+
+         – 优先级 2 (P2) ：GPIO 管脚，没有限制，可以自由分配。
+
+         – 优先级 3 (P3) ：GPIO 管脚，使用时需要注意是否会和章节 2.3.4 GPIO 和 RTC_GPIO 的限制 描述的
+          重要功能冲突：
+
+           * GPIO0、GPIO3、GPIO45、GPIO46 ：Strapping 管脚。
+
+           * GPIO19、GPIO20 ：USB 串口/JTAG 接口。
+
+           * GPIO39、GPIO40、GPIO41、GPIO42 ：JTAG 接口。
+
+           * GPIO43、GPIO44 : UART0 接口。
+
+           * GPIO33、GPIO34、GPIO35、GPIO36、GPIO37 : 八线 SPI 模式下 SPI0/1 接口的高 4 位数据线
+             接口及 DQS 接口，在不使用八线 SPI 模式连接 flash 或 PSRAM 时可用作 GPIO。
+
+         – 优先级 4 (P4) ：已分配或不推荐使用的 GPIO 管脚，如章节 2.3.4 GPIO 和 RTC_GPIO 的限制 所述：
+
+           * GPIO26、GPIO27、GPIO28、GPIO29、GPIO30、GPIO31、GPIO32 ：SPI0/1 管脚，已连接封装
+             内 flash 和 PSRAM，或推荐连接封装外 flash 和 PSRAM。
+
+     如果某个外设接口没有优先级 2 到 4 的管脚（如 USB 串口/JTAG)，则表示只能分配优先级 1 的管脚。
+
+    说明：
+
+     • 连接到 IO MUX 或 RTC IO MUX 管脚的外设信号，请参考章节 2.3.1 IO MUX 功能 或章节 2.3.2 RTC 功能。
+
+     • 可以分配到 GPIO 管脚的外设信号，请参考
+       《ESP32-S3 技术参考手册》 > 章节 IO MUX 和 GPIO 交换矩阵 > 章节外设管脚列表。
+
+
+
+
+乐鑫信息科技                                   26              ESP32-S3 系列芯片技术规格书 v2.1
+                                     反馈文档意见
+                                                                                                                                                                                         表 2-9. 外设管脚分配
+         乐鑫信息科技
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                         2
+                                                                                                                                                                                                                                                                                                                                                                                                         管脚
+                                    管脚序号     管脚名称         USB 串口/JTAG 1 USB OTG 1     JTAG        ADC1            ADC2            触摸传感器         UART0 2      UART1 2       SPI0/1（推荐）2    SPI0/1（备选）2            SPI2（推荐）2 SPI2（备选）2 UART2                   I2C           TWAI          LED PWM       I2S           LCD 与 Camera SPI3           SD/MMC        MCPWM         RMT           PCNT
+                                       1     LNA_IN
+                                       2     VDD3P3
+                                       3     VDD3P3
+                                       4     CHIP_PU
+                                       5     GPIO0                                                                                              GPIO0 (P3)   GPIO0 (P3)    GPIO0 (P3)     GPIO0 (P3)             GPIO0 (P3)     GPIO0 (P3)     GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)    GPIO0 (P3)
+                                       6     GPIO1                                                ADC1_CH0 (P1)                   TOUCH1 (P1)   GPIO1 (P2)   GPIO1 (P2)    GPIO1 (P2)     GPIO1 (P2)             GPIO1 (P2)     GPIO1 (P2)     GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)    GPIO1 (P2)
+                                       7     GPIO2                                                ADC1_CH1 (P1)                   TOUCH2 (P1)   GPIO2 (P2)   GPIO2 (P2)    GPIO2 (P2)     GPIO2 (P2)             GPIO2 (P2)     GPIO2 (P2)     GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)    GPIO2 (P2)
+                                       8     GPIO3                                                ADC1_CH2 (P1)                   TOUCH3 (P1)   GPIO3 (P3)   GPIO3 (P3)    GPIO3 (P3)     GPIO3 (P3)             GPIO3 (P3)     GPIO3 (P3)     GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)    GPIO3 (P3)
+                                       9     GPIO4                                                ADC1_CH3 (P1)                   TOUCH4 (P1)   GPIO4 (P2)   GPIO4 (P2)    GPIO4 (P2)     GPIO4 (P2)             GPIO4 (P2)     GPIO4 (P2)     GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)    GPIO4 (P2)
+                                      10     GPIO5                                                ADC1_CH4 (P1)                   TOUCH5 (P1)   GPIO5 (P2)   GPIO5 (P2)    GPIO5 (P2)     GPIO5 (P2)             GPIO5 (P2)     GPIO5 (P2)     GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)    GPIO5 (P2)
+                                       11    GPIO6                                                ADC1_CH5 (P1)                   TOUCH6 (P1) GPIO6 (P2)     GPIO6 (P2)    GPIO6 (P2)     GPIO6 (P2)             GPIO6 (P2)     GPIO6 (P2)     GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)    GPIO6 (P2)
+                                      12     GPIO7                                                ADC1_CH6 (P1)                   TOUCH7 (P1)   GPIO7 (P2)   GPIO7 (P2)    GPIO7 (P2)     GPIO7 (P2)             GPIO7 (P2)     GPIO7 (P2)     GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)    GPIO7 (P2)
+                                      13     GPIO8                                                ADC1_CH7 (P1)                   TOUCH8 (P1)   GPIO8 (P2)   GPIO8 (P2)    GPIO8 (P2)     SUBSPICS1 (P1)         GPIO8 (P2)     GPIO8 (P2)     GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)    GPIO8 (P2)
+                                      14     GPIO9                                                ADC1_CH8 (P1)                   TOUCH9 (P1)   GPIO9 (P2)   GPIO9 (P2)    GPIO9 (P2)     SUBSPIHD (P1)          FSPIHD (P1)    GPIO9 (P2)     GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)    GPIO9 (P2)
+                                      15     GPIO10                                               ADC1_CH9 (P1)                   TOUCH10 (P1) GPIO10 (P2) GPIO10 (P2) GPIO10 (P2)        SUBSPICS0 (P1)         FSPICS0 (P1)   FSPIIO4 (P1)   GPIO10 (P2) GPIO10 (P2) GPIO10 (P2) GPIO10 (P2) GPIO10 (P2) GPIO10 (P2)             GPIO10 (P2) GPIO10 (P2) GPIO10 (P2) GPIO10 (P2) GPIO10 (P2)
+                                      16     GPIO11                                                               ADC2_CH0 (P1) TOUCH11 (P1) GPIO11 (P2)     GPIO11 (P2)   GPIO11 (P2)    SUBSPID (P1)           FSPID (P1)     FSPIIO5 (P1)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)   GPIO11 (P2)
+                                      17     GPIO12                                                               ADC2_CH1 (P1) TOUCH12 (P1) GPIO12 (P2) GPIO12 (P2) GPIO12 (P2)          SUBSPICLK (P1)         FSPICLK (P1)   FSPIIO6 (P1)   GPIO12 (P2) GPIO12 (P2) GPIO12 (P2) GPIO12 (P2) GPIO12 (P2) GPIO12 (P2)             GPIO12 (P2) GPIO12 (P2) GPIO12 (P2) GPIO12 (P2) GPIO12 (P2)
+                                      18     GPIO13                                                               ADC2_CH2 (P1) TOUCH13 (P1) GPIO13 (P2) GPIO13 (P2) GPIO13 (P2)          SUBSPIQ (P1)           FSPIQ (P1)     FSPIIO7 (P1)   GPIO13 (P2) GPIO13 (P2) GPIO13 (P2) GPIO13 (P2) GPIO13 (P2) GPIO13 (P2)             GPIO13 (P2) GPIO13 (P2) GPIO13 (P2) GPIO13 (P2) GPIO13 (P2)
+                                      19     GPIO14                                                               ADC2_CH3 (P1) TOUCH14 (P1) GPIO14 (P2) GPIO14 (P2) GPIO14 (P2)          SUBSPIWP (P1)          FSPIWP (P1)    FSPIDQS (P1)   GPIO14 (P2) GPIO14 (P2) GPIO14 (P2) GPIO14 (P2) GPIO14 (P2) GPIO14 (P2)             GPIO14 (P2) GPIO14 (P2) GPIO14 (P2) GPIO14 (P2) GPIO14 (P2)
+                                      20     VDD3P3_RTC
+                                      21     XTAL_32K_P                                                           ADC2_CH4 (P1)                 U0RTS (P1)   GPIO15 (P2) GPIO15 (P2)      GPIO15 (P2)            GPIO15 (P2)    GPIO15 (P2)    GPIO15 (P2) GPIO15 (P2) GPIO15 (P2) GPIO15 (P2) GPIO15 (P2) GPIO15 (P2)             GPIO15 (P2) GPIO15 (P2) GPIO15 (P2) GPIO15 (P2) GPIO15 (P2)
+                                      22     XTAL_32K_N                                                           ADC2_CH5 (P1)                 U0CTS (P1)   GPIO16 (P2) GPIO16 (P2)      GPIO16 (P2)            GPIO16 (P2)    GPIO16 (P2)    GPIO16 (P2) GPIO16 (P2) GPIO16 (P2) GPIO16 (P2) GPIO16 (P2) GPIO16 (P2)             GPIO16 (P2) GPIO16 (P2) GPIO16 (P2) GPIO16 (P2) GPIO16 (P2)
+                                      23     GPIO17                                                               ADC2_CH6 (P1)                 GPIO17 (P2) U1TXD (P1)     GPIO17 (P2)    GPIO17 (P2)            GPIO17 (P2)    GPIO17 (P2)    GPIO17 (P2) GPIO17 (P2) GPIO17 (P2) GPIO17 (P2) GPIO17 (P2) GPIO17 (P2)             GPIO17 (P2) GPIO17 (P2) GPIO17 (P2) GPIO17 (P2) GPIO17 (P2)
+                                      24     GPIO18                                                               ADC2_CH7 (P1)                 GPIO18 (P2) U1RXD (P1)     GPIO18 (P2)    GPIO18 (P2)            GPIO18 (P2)    GPIO18 (P2)    GPIO18 (P2) GPIO18 (P2) GPIO18 (P2) GPIO18 (P2) GPIO18 (P2) GPIO18 (P2)             GPIO18 (P2) GPIO18 (P2) GPIO18 (P2) GPIO18 (P2) GPIO18 (P2)
+                                      25     GPIO19       USB_D- (P1)   USB_D- (P1)                               ADC2_CH8 (P1)                 GPIO19 (P3) U1RTS (P1)     GPIO19 (P3)    GPIO19 (P3)            GPIO19 (P3)    GPIO19 (P3)    GPIO19 (P3) GPIO19 (P3) GPIO19 (P3) GPIO19 (P3) GPIO19 (P3) GPIO19 (P3)             GPIO19 (P3) GPIO19 (P3) GPIO19 (P3) GPIO19 (P3) GPIO19 (P3)
+                                      26     GPIO20       USB_D+ (P1)   USB_D+ (P1)                               ADC2_CH9 (P1)                 GPIO20 (P3) U1CTS (P1)     GPIO20 (P3)    GPIO20 (P3)            GPIO20 (P3)    GPIO20 (P3)    GPIO20 (P3) GPIO20 (P3) GPIO20 (P3) GPIO20 (P3) GPIO20 (P3) GPIO20 (P3)             GPIO20 (P3) GPIO20 (P3) GPIO20 (P3) GPIO20 (P3) GPIO20 (P3)
+                                      27     GPIO21       GPIO21 (P2)   GPIO21 (P2)                                                             GPIO21 (P2) GPIO21 (P2) GPIO21 (P2)       GPIO21 (P2)            GPIO21 (P2)    GPIO21 (P2)    GPIO21 (P2) GPIO21 (P2) GPIO21 (P2) GPIO21 (P2) GPIO21 (P2) GPIO21 (P2)             GPIO21 (P2) GPIO21 (P2) GPIO21 (P2) GPIO21 (P2) GPIO21 (P2)
+                                      28     SPICS1                                                                                             GPIO26 (P4) GPIO26 (P4) SPICS1 (P1)       GPIO26 (P4)            GPIO26 (P4)    GPIO26 (P4)    GPIO26 (P4) GPIO26 (P4) GPIO26 (P4) GPIO26 (P4) GPIO26 (P4) GPIO26 (P4)             GPIO26 (P4) GPIO26 (P4) GPIO26 (P4) GPIO26 (P4) GPIO26 (P4)
+                                      29     VDD_SPI
+                                      30     SPIHD                                                                                              GPIO27 (P4) GPIO27 (P4) SPIHD (P1)        GPIO27 (P4)            GPIO27 (P4)    GPIO27 (P4)    GPIO27 (P4) GPIO27 (P4) GPIO27 (P4) GPIO27 (P4) GPIO27 (P4) GPIO27 (P4)             GPIO27 (P4) GPIO27 (P4) GPIO27 (P4) GPIO27 (P4) GPIO27 (P4)
+                                      31     SPIWP                                                                                              GPIO28 (P4) GPIO28 (P4) SPIWP (P1)        GPIO28 (P4)            GPIO28 (P4)    GPIO28 (P4)    GPIO28 (P4) GPIO28 (P4) GPIO28 (P4) GPIO28 (P4) GPIO28 (P4) GPIO28 (P4)             GPIO28 (P4) GPIO28 (P4) GPIO28 (P4) GPIO28 (P4) GPIO28 (P4)
+反馈文档意见
+
+
+
+
+                                      32     SPICS0                                                                                             GPIO29 (P4) GPIO29 (P4) SPICS0 (P1)       GPIO29 (P4)            GPIO29 (P4)    GPIO29 (P4)    GPIO29 (P4) GPIO29 (P4) GPIO29 (P4) GPIO29 (P4) GPIO29 (P4) GPIO29 (P4)             GPIO29 (P4) GPIO29 (P4) GPIO29 (P4) GPIO29 (P4) GPIO29 (P4)
+                                      33     SPICLK                                                                                             GPIO30 (P4) GPIO30 (P4) SPICLK (P1)       GPIO30 (P4)            GPIO30 (P4)    GPIO30 (P4)    GPIO30 (P4) GPIO30 (P4) GPIO30 (P4) GPIO30 (P4) GPIO30 (P4) GPIO30 (P4)             GPIO30 (P4) GPIO30 (P4) GPIO30 (P4) GPIO30 (P4) GPIO30 (P4)
+                                      34     SPIQ                                                                                               GPIO31 (P4) GPIO31 (P4) SPIQ (P1)         GPIO31 (P4)            GPIO31 (P4)    GPIO31 (P4)    GPIO31 (P4) GPIO31 (P4) GPIO31 (P4) GPIO31 (P4) GPIO31 (P4) GPIO31 (P4)             GPIO31 (P4) GPIO31 (P4) GPIO31 (P4) GPIO31 (P4) GPIO31 (P4)
+         27
+
+
+
+
+                                      35     SPID                                                                                               GPIO32 (P4) GPIO32 (P4) SPID (P1)         GPIO32 (P4)            GPIO32 (P4)    GPIO32 (P4)    GPIO32 (P4) GPIO32 (P4) GPIO32 (P4) GPIO32 (P4) GPIO32 (P4) GPIO32 (P4)             GPIO32 (P4) GPIO32 (P4) GPIO32 (P4) GPIO32 (P4) GPIO32 (P4)
+                                      36     SPICLK_N                                                                                           GPIO48 (P2) GPIO48 (P2) SPICLK_N_DIFF (P1) SUBSPICLK_N_DIFF (P1) GPIO48 (P2)    GPIO48 (P2)    GPIO48 (P2) GPIO48 (P2) GPIO48 (P2) GPIO48 (P2) GPIO48 (P2) GPIO48 (P2)             GPIO48 (P2) GPIO48 (P2) GPIO48 (P2) GPIO48 (P2) GPIO48 (P2)
+                                      37     SPICLK_P                                                                                           GPIO47 (P2) GPIO47 (P2) SPICLK_P_DIFF (P1) SUBSPICLK_P_DIFF (P1) GPIO47 (P2)    GPIO47 (P2)    GPIO47 (P2) GPIO47 (P2) GPIO47 (P2) GPIO47 (P2) GPIO47 (P2) GPIO47 (P2)             GPIO47 (P2) GPIO47 (P2) GPIO47 (P2) GPIO47 (P2) GPIO47 (P2)
+                                      38     GPIO33                                                                                             GPIO33 (P3) GPIO33 (P3) SPIIO4 (P1)       SUBSPIHD (P1)          GPIO33 (P3)    FSPIHD (P1)    GPIO33 (P3) GPIO33 (P3) GPIO33 (P3) GPIO33 (P3) GPIO33 (P3) GPIO33 (P3)             GPIO33 (P3) GPIO33 (P3) GPIO33 (P3) GPIO33 (P3) GPIO33 (P3)
+                                      39     GPIO34                                                                                             GPIO34 (P3) GPIO34 (P3) SPIIO5 (P1)       SUBSPICS0 (P1)         GPIO34 (P3)    FSPICS0 (P1)   GPIO34 (P3) GPIO34 (P3) GPIO34 (P3) GPIO34 (P3) GPIO34 (P3) GPIO34 (P3)             GPIO34 (P3) GPIO34 (P3) GPIO34 (P3) GPIO34 (P3) GPIO34 (P3)
+                                      40     GPIO35                                                                                             GPIO35 (P3) GPIO35 (P3) SPIIO6 (P1)       SUBSPID (P1)           GPIO35 (P3)    FSPID (P1)     GPIO35 (P3) GPIO35 (P3) GPIO35 (P3) GPIO35 (P3) GPIO35 (P3) GPIO35 (P3)             GPIO35 (P3) GPIO35 (P3) GPIO35 (P3) GPIO35 (P3) GPIO35 (P3)
+                                      41     GPIO36                                                                                             GPIO36 (P3) GPIO36 (P3) SPIIO7 (P1)       SUBSPICLK (P1)         GPIO36 (P3)    FSPICLK (P1)   GPIO36 (P3) GPIO36 (P3) GPIO36 (P3) GPIO36 (P3) GPIO36 (P3) GPIO36 (P3)             GPIO36 (P3) GPIO36 (P3) GPIO36 (P3) GPIO36 (P3) GPIO36 (P3)
+                                      42     GPIO37                                                                                             GPIO37 (P3) GPIO37 (P3) SPIDQS (P1)       SUBSPIQ (P1)           GPIO37 (P3)    FSPIQ (P1)     GPIO37 (P3) GPIO37 (P3) GPIO37 (P3) GPIO37 (P3) GPIO37 (P3) GPIO37 (P3)             GPIO37 (P3) GPIO37 (P3) GPIO37 (P3) GPIO37 (P3) GPIO37 (P3)
+                                      43     GPIO38       GPIO38 (P2)   GPIO38 (P2)                                                             GPIO38 (P2) GPIO38 (P2) GPIO38 (P2)       SUBSPIWP (P1)          GPIO38 (P2)    FSPIWP (P1)    GPIO38 (P2) GPIO38 (P2) GPIO38 (P2) GPIO38 (P2) GPIO38 (P2) GPIO38 (P2)             GPIO38 (P2) GPIO38 (P2) GPIO38 (P2) GPIO38 (P2) GPIO38 (P2)
+                                      44     MTCK         MTCK (P1)     MTCK (P1)     MTCK (P1)                                                 GPIO39 (P3) GPIO39 (P3) GPIO39 (P3)       SUBSPICS1 (P1)         GPIO39 (P3)    GPIO39 (P3)    GPIO39 (P3) GPIO39 (P3) GPIO39 (P3) GPIO39 (P3) GPIO39 (P3) GPIO39 (P3)             GPIO39 (P3) GPIO39 (P3) GPIO39 (P3) GPIO39 (P3) GPIO39 (P3)
+                                      45     MTDO         MTDO (P1)     MTDO (P1)     MTDO (P1)                                                 GPIO40 (P3) GPIO40 (P3) GPIO40 (P3)       GPIO40 (P3)            GPIO40 (P3)    GPIO40 (P3)    GPIO40 (P3) GPIO40 (P3) GPIO40 (P3) GPIO40 (P3) GPIO40 (P3) GPIO40 (P3)             GPIO40 (P3) GPIO40 (P3) GPIO40 (P3) GPIO40 (P3) GPIO40 (P3)
+                                      46     VDD3P3_CPU
+                                      47     MTDI         MTDI (P1)     MTDI (P1)     MTDI (P1)                                                 GPIO41 (P3) GPIO41 (P3) GPIO41 (P3)       GPIO41 (P3)            GPIO41 (P3)    GPIO41 (P3)    GPIO41 (P3) GPIO41 (P3) GPIO41 (P3) GPIO41 (P3) GPIO41 (P3) GPIO41 (P3)             GPIO41 (P3) GPIO41 (P3) GPIO41 (P3) GPIO41 (P3) GPIO41 (P3)
+                                      48     MTMS         MTMS (P1)     MTMS (P1)     MTMS (P1)                                                 GPIO42 (P3) GPIO42 (P3) GPIO42 (P3)       GPIO42 (P3)            GPIO42 (P3)    GPIO42 (P3)    GPIO42 (P3) GPIO42 (P3) GPIO42 (P3) GPIO42 (P3) GPIO42 (P3) GPIO42 (P3)             GPIO42 (P3) GPIO42 (P3) GPIO42 (P3) GPIO42 (P3) GPIO42 (P3)
+                                      49     U0TXD                                                                                              U0TXD (P1)   GPIO43 (P3) GPIO43 (P3)      GPIO43 (P3)            GPIO43 (P3)    GPIO43 (P3)    GPIO43 (P3) GPIO43 (P3) GPIO43 (P3) GPIO43 (P3) GPIO43 (P3) GPIO43 (P3)             GPIO43 (P3) GPIO43 (P3) GPIO43 (P3) GPIO43 (P3) GPIO43 (P3)
+         ESP32-S3 系列芯片技术规格书 v2.1
+
+
+
+
+                                      50     U0RXD                                                                                              U0RXD (P1)   GPIO44 (P3) GPIO44 (P3)      GPIO44 (P3)            GPIO44 (P3)    GPIO44 (P3)    GPIO44 (P3) GPIO44 (P3) GPIO44 (P3) GPIO44 (P3) GPIO44 (P3) GPIO44 (P3)             GPIO44 (P3) GPIO44 (P3) GPIO44 (P3) GPIO44 (P3) GPIO44 (P3)
+                                      51     GPIO45                                                                                             GPIO45 (P3) GPIO45 (P3) GPIO45 (P3)       GPIO45 (P3)            GPIO45 (P3)    GPIO45 (P3)    GPIO45 (P3) GPIO45 (P3) GPIO45 (P3) GPIO45 (P3) GPIO45 (P3) GPIO45 (P3)             GPIO45 (P3) GPIO45 (P3) GPIO45 (P3) GPIO45 (P3) GPIO45 (P3)
+                                      52     GPIO46                                                                                             GPIO46 (P3) GPIO46 (P3) GPIO46 (P3)       GPIO46 (P3)            GPIO46 (P3)    GPIO46 (P3)    GPIO46 (P3) GPIO46 (P3) GPIO46 (P3) GPIO46 (P3) GPIO46 (P3) GPIO46 (P3)             GPIO46 (P3) GPIO46 (P3) GPIO46 (P3) GPIO46 (P3) GPIO46 (P3)
+                                      53     XTAL_N
+                                      54     XTAL_P
+                                      55     VDDA
+                                      56     VDDA
+                                      57     GND
+                                   1 USB 串口/JTAG 和 USB OTG 连接内部 PHY 时使用 USB_D- 和 USB_D+，且 USB_D- 和 USB_D+ 管脚可按照 《ESP32-S3 技术参考手册》 的 USB_SERIAL_JTAG_EXCHG_PINS 位配置后交换；连接外部 PHY 时使用 其余固定管脚 。关于如何选择 PHY，详见
+
+                                    《ESP32-S3 技术参考手册》 > 章节 USB 串口/JTAG 控制器 > 章节内部/外部 PHY 选择。
+                                   2 UART0、UART1、SPI0/1、SPI2 接口的外设信号，无论是否已通过 IO MUX 直接连接                  固定管脚 ，均可通过 GPIO 交换矩阵映射至任意 GPIO 管脚。
+2   管脚
+
+
+
+2.4       模拟管脚
+
+                                表 2-10. 模拟管脚
+
+      管脚   管脚        管脚    管脚
+      序号   名称        类型    功能
+      1    LNA_IN    I/O   低噪声放大器 (RF LNA) 输入/输出信号
+                           高电平：芯片使能（上电）；
+      4    CHIP_PU   I     低电平：芯片关闭（掉电）；
+                           注意不能让 CHIP_PU 管脚浮空
+      53   XTAL_N    —     连接芯片有源晶振或无源晶振的外部时钟输入/输出。
+      54   XTAL_P    —     P/N 指差分时钟正极/负极端。
+
+
+
+
+乐鑫信息科技                               28         ESP32-S3 系列芯片技术规格书 v2.1
+                                 反馈文档意见
+2   管脚
+
+
+
+2.5     电源
+2.5.1 电源管脚
+表 2-11 电源管脚 列举了为芯片供电的电源管脚。
+
+                                         表 2-11. 电源管脚
+
+                                                          电源 1, 2
+          管脚序号     管脚名称                  方向    电源域 / 其他              IO 管脚 5
+          2        VDD3P3                输入    模拟电源域
+          3        VDD3P3                输入    模拟电源域
+          20       VDD3P3_RTC            输入    RTC 及部分数字电源域          RTC IO
+                                         输入    封装内存储器（备用电源线）
+          29       VDD_SPI 3,4
+                                         输出    封装内和封装外 flash/PSRAM   SPI IO
+          46       VDD3P3_CPU3,4         输入    数字电源域                 数字 IO
+          55       VDDA                  输入    模拟电源域
+          56       VDDA                  输入    模拟电源域
+          57       GND                   –     外部接地
+          1 请结合章节 2.5.2 电源管理 阅读。
+          2 电压、电流的推荐值和最大值，详见章节 5.1 绝对最大额定值 和章节 5.2 建议工作
+            条件。
+          3 配置 VDD_SPI 为输入或输出，请参考 《ESP32-S3 技术参考手册》 > 章节 低功耗
+            管理。
+          4 配置输出电压，请参考章节 3.2 VDD_SPI 电压控制 和章节 5.3 VDD_SPI 输出特性。
+          5 RTC IO 管脚即由 VDD3P3_RTC 供电的管脚，如图 2-2 ESP32-S3 电源管理 所示，
+              也可参考表 2-1 管脚概述 > 供电管脚一栏。
+
+
+2.5.2    电源管理
+电源管理如图 2-2 ESP32-S3 电源管理 所示。
+
+芯片上的元器件通过电压稳压器供电。
+
+                                         表 2-12. 电压稳压器
+
+                  电压稳压器          输出      电源
+                  数字             1.1 V   数字电源域
+                  低功耗            1.1 V   RTC 电源域
+                                         可配置为给封装内 flash/PSRAM 或封
+                  Flash          1.8 V
+                                         装外存储器供电
+
+
+
+
+乐鑫信息科技                                         29            ESP32-S3 系列芯片技术规格书 v2.1
+                                             反馈文档意见
+2   管脚
+
+
+
+
+                                      图 2-2. ESP32-S3 电源管理
+
+
+
+2.5.3 芯片上电和复位
+芯片上电后，其电源轨需要一点时间方可稳定。之后，用于上电和复位的管脚 CHIP_PU 拉高，激活芯片。更多
+关于 CHIP_PU 及上电和复位时序的信息，请见图 2-3 和表 2-13。
+
+                                     tST BL                  tRST
+
+                          2.8 V
+           VDDA,
+         VDD3P3,
+     VDD3P3_RTC,
+     VDD3P3_CPU
+
+                          VIL_nRST
+         CHIP_PU
+
+
+
+                                     图 2-3. 上电和复位时序参数图
+
+
+
+                                     表 2-13. 上电和复位时序参数说明
+
+         参数        说明                                                最小值 (µs)
+                   CHIP_PU 管脚拉高激活芯片前，VDDA、VDD3P3、VDD3P3_RTC
+         tST BL                                                            50
+                   和 VDD3P3_CPU 达到稳定所需的时间
+                   CHIP_PU 电平低于 VIL_nRST （具体数值参考表 5-4）从而复位芯
+         tRST                                                              50
+                   片的时间
+
+
+
+
+乐鑫信息科技                                          30           ESP32-S3 系列芯片技术规格书 v2.1
+                                              反馈文档意见
+2        管脚
+
+
+
+2.6 芯片与 Flash/PSRAM 的管脚对应关系
+表 2-14 列出了所有 SPI 模式下芯片与 flash/PSRAM 的管脚对应关系。
+
+封装内带有 flash/PSRAM 的芯片变型（见表 1-1 ESP32-S3 系列芯片对比）与封装内 flash/PSRAM 连接的管脚
+取决于所使用的 SPI 模式。
+
+封装外 flash/PSRAM 的推荐连接管脚也可参照下表。
+
+更多关于 SPI 控制器的信息，可参考章节 4.2.1.5 串行外设接口 (SPI)。
+
+    注意： 请勿将已连接封装内 flash/PSRAM 的管脚用于其他用途。
+
+
+
+                                 表 2-14. 芯片与 flash 或 PSRAM 的管脚对应关系
+
+                               Single SPI            Dual SPI              Quad SPI/QPI       Octal SPI/OPI
+    管脚序号      管脚名称       Flash       PSRAM     Flash        PSRAM     Flash      PSRAM     Flash     PSRAM
+    28        SPICS1 2               CE#                    CE#                  CE#                 CE#
+    30        SPIHD      HOLD#       SIO3      HOLD#        SIO3      HOLD#      SIO3      DQ3       DQ3
+    31        SPIWP      WP#         SIO2      WP#          SIO2      WP#        SIO2      DQ2       DQ2
+    32        SPICS0 1   CS#                   CS#                    CS#                  CS#
+    33        SPICLK     CLK         CLK       CLK          CLK       CLK        CLK       CLK       CLK
+    34        SPIQ       DO          SO/SIO1   DO           SO/SIO1   DO         SO/SIO1   DQ1       DQ1
+    35        SPID       DI          SI/SIO0   DI           SI/SIO0   DI         SI/SIO0   DQ0       DQ0
+    38        GPIO33                                                                       DQ4       DQ4
+    39        GPIO34                                                                       DQ5       DQ5
+    40        GPIO35                                                                       DQ6       DQ6
+    41        GPIO36                                                                       DQ7       DQ7
+    42        GPIO37                                                                       DQS/DM    DQS/DM
+    1 CS0 用于封装内 flash
+    2 CS1 用于封装内 PSRAM
+
+
+
+
+乐鑫信息科技                                                 31                    ESP32-S3 系列芯片技术规格书 v2.1
+                                                反馈文档意见
+3 启动配置项
+
+
+
+3     启动配置项
+芯片在上电或硬件复位时，可以通过 Strapping 管脚 和 eFuse 参数 配置如下启动参数，无需微处理器的参
+与：
+
+    • 芯片启动模式
+
+       – Strapping 管脚：GPIO0 和 GPIO46
+
+    • VDD_SPI 电压
+
+       – Strapping 管脚：GPIO45
+
+       – eFuse 参数：EFUSE_VDD_SPI_FORCE 和 EFUSE_VDD_SPI_TIEH
+
+    • ROM 日志打印
+
+       – Strapping 管脚：GPIO46
+
+       – eFuse 参数：EFUSE_UART_PRINT_CONTROL 和 EFUSE_DIS_USB_SERIAL_JTAG_ROM_PRINT
+
+    • JTAG 信号源
+
+       – Strapping 管脚：GPIO3
+
+       – eFuse 参数：EFUSE_DIS_PAD_JTAG、EFUSE_DIS_USB_JTAG 和 EFUSE_STRAP_JTAG_SEL
+
+上述 eFuse 参数的默认值均为 0，也就是说没有烧写过。eFuse 只能烧写一次，一旦烧写为 1，便不能恢复为 0。
+有关烧写 eFuse 的信息，请参考 《ESP32-S3 技术参考手册》 > 章节 eFuse 控制器。
+
+上述 strapping 管脚如果没有连接任何电路或连接的电路处于高阻抗状态，则其默认值（即逻辑电平值）取决于
+管脚内部弱上拉/下拉电阻在复位时的状态。
+
+                               表 3-1. Strapping 管脚的默认配置
+
+                               Strapping 管脚    默认配置   值
+                               GPIO0           弱上拉    1
+                               GPIO3           浮空     –
+                               GPIO45          弱下拉    0
+                               GPIO46          弱下拉    0
+
+
+要改变 strapping 管脚的值，可以连接外部下拉/上拉电阻。如果 ESP32-S3 用作主机 MCU 的从设备，strapping
+管脚的电平也可通过主机 MCU 控制。
+
+所有 strapping 管脚都有锁存器。芯片复位时，锁存器采样并存储相应 strapping 管脚的值，一直保持到芯片掉
+电或关闭。锁存器的状态无法用其他方式更改。因此，strapping 管脚的值在芯片工作时一直可读取，strapping
+管脚在芯片复位后作为普通 IO 管脚使用。更多关于芯片复位的信息，详见 《ESP32-S3 技术参考手册》 > 章节
+复位和时钟。
+
+Strapping 管脚的信号时序需遵循表 3-2 和图 3-1 所示的 建立时间和 保持时间。
+
+
+
+
+乐鑫信息科技                                    32              ESP32-S3 系列芯片技术规格书 v2.1
+                                        反馈文档意见
+3 启动配置项
+
+
+                                    表 3-2. Strapping 管脚的时序参数说明
+
+        参数    说明                                                                最小值 (ms)
+              建立时间，即拉高 CHIP_PU 激活芯片前，电源轨达到稳定所需的
+        tSU                                                                            0
+              时间
+              保持时间，即 CHIP_PU 已拉高、strapping 管脚变为普通 IO 管脚
+        tH                                                                             3
+              开始工作前，可读取 strapping 管脚值的时间
+
+
+                                                tSU      tH
+
+
+
+
+                              VIH_nRST
+
+
+                 CHIP_PU
+
+
+
+
+                                 VIH
+
+
+
+              Strapping pin
+
+
+
+                                         图 3-1. Strapping 管脚的时序参数图
+
+
+
+3.1   芯片启动模式控制
+复位释放后，GPIO0 和 GPIO46 共同决定启动模式。详见表 3-3 芯片启动模式控制。
+
+                                            表 3-3. 芯片启动模式控制
+
+                              启动模式                            GPIO0   GPIO46
+                              SPI boot 模式                       1      任意值
+                              Joint download boot 模式 2          0        0
+                              1 加粗表示默认值和默认配置。
+                              2 Joint Download Boot 模式下支持以下下载方式：
+                                       • USB Download Boot：
+                                           – USB-Serial-JTAG Download Boot
+                                           – USB-OTG Download Boot
+                                       • UART Download Boot
+
+
+除了 SPI Boot 和 Joint Download Boot 模式，
+                                    ESP32-S3 还支持 SPI Download Boot 模式，详见 《ESP32-S3 技术参考手册》
+> 章节 芯片 Boot 控制。
+
+
+3.2   VDD_SPI 电压控制
+ESP32-S3 系列芯片所需的 VDD_SPI 电压请参考表 1-1 ESP32-S3 系列芯片对比。
+
+VDD_SPI 的电压有两种选择：
+
+
+乐鑫信息科技                                                33                 ESP32-S3 系列芯片技术规格书 v2.1
+                                                  反馈文档意见
+3 启动配置项
+
+
+  •（默认）由 VDD3P3_RTC 经过 RSP I 电阻供电，输出 3.3 V 电压
+
+  • 由 flash 稳压器供电，输出 1.8 V 电压
+
+VDD_SPI 的具体电压由 EFUSE_VDD_SPI_FORCE、GPIO45 和 EFUSE_VDD_SPI_TIEH 共同决定。
+
+                                        表 3-4. VDD_SPI 电压控制
+
+   VDD_SPI 电源 2                 电压        EFUSE_VDD_SPI_FORCE   GPIO45   EFUSE_VDD_SPI_TIEH
+                                                     0            0             忽略
+   VDD3P3_RTC 通过 RSP I 供电   3.3 V
+                                                     1           忽略              1
+                                                     0            1             忽略
+   Flash 稳压器                    1.8 V
+                                                     1           忽略              0
+   1 加粗表示默认值和默认配置。
+   2 请参考章节 2.5.2 电源管理。
+
+
+
+3.3   ROM 日志打印控制
+系统启动过程中，ROM 代码日志可打印至：
+
+  •（默认）UART0 和 USB 串口/JTAG 控制器
+
+  • USB 串口/JTAG 控制器
+
+  • UART0
+
+通过配置寄存器和 eFuse 可分别关闭 UART 和 USB 串口/JTAG 控制器的 ROM 代码日志打印功能。详细信息请
+参考 《ESP32-S3 技术参考手册》 > 章节 芯片 Boot 控制。
+
+
+3.4   JTAG 信号源控制
+在系统启动早期阶段，GPIO3 可用于控制 JTAG 信号源。该管脚没有内部上下拉电阻，strapping 的值必须由不
+处于高阻抗状态的外部电路控制。
+
+如表 3-5 JTAG 信号源控制 所示，GPIO3 与 EFUSE_DIS_PAD_JTAG、
+                                               EFUSE_DIS_USB_JTAG 和 EFUSE_STRAP_JTAG_SEL
+共同控制 JTAG 信号源。
+
+                                        表 3-5. JTAG 信号源控制
+
+JTAG 信号源          EFUSE_DIS_PAD_JTAG EFUSE_DIS_USB_JTAG EFUSE_STRAP_JTAG_SEL GPIO3
+                            0                            0                  0            忽略
+USB 串口/JTAG 控制器             0                            0                  1             1
+                            1                            0                 忽略            忽略
+                            0                            0                  1             0
+JTAG 管脚 2
+                            0                            1                 忽略            忽略
+JTAG 关闭                     1                            1                 忽略            忽略
+ 1 加粗表示默认值和默认配置。
+ 2 即 MTDI、MTCK、MTMS 和 MTDO。
+
+
+
+
+乐鑫信息科技                                          34               ESP32-S3 系列芯片技术规格书 v2.1
+                                             反馈文档意见
+4 功能描述
+
+
+
+4 功能描述
+
+4.1   系统
+本章节描述了芯片操作的核心部分，包括微处理器、存储器组织结构、系统组件和安全功能。
+
+
+4.1.1 微处理器和主机
+本章节描述了芯片内的核心处理单元及其功能。
+
+
+4.1.1.1 CPU
+
+ESP32-S3 搭载低功耗 Xtensa® LX7 32 位双核处理器。
+
+特性
+
+  • 五级流水线架构，支持高达 240 MHz 的时钟频率
+
+  • 16 位/24 位指令集提供高代码密度
+
+  • 32 位定制化指令集及 128 位宽数据总线，提供高运算性能
+
+  • 支持单精度浮点运算单元 (FPU)
+
+  • 支持 32 位乘法器、32 位除法器
+
+  • 非缓存 GPIO 指令
+
+  • 支持六级 32 个中断
+
+  • 支持 windowed ABI，64 个物理通用寄存器
+
+  • 支持带 TRAX 压缩模块的 trace 功能，最大 16 KB 的记录存储器 (trace memory)
+
+  • 用于调试的 JTAG 接口
+
+有关 Xtensa® 指令集架构 (ISA) 的说明可以参考 Xtensa® Instruction Set Architecture (ISA) Summary。
+
+
+4.1.1.2 处理器指令拓展 (PIE)
+
+为了提高特定 AI 和 DSP (Digital Signal Processing) 算法的运算效率，在 ESP32-S3 中新增了一组扩展指令。
+
+特性
+
+  • 新增 128-bit 位宽通用寄存器
+
+  • 128-bit 位宽的向量数据操作，包括：乘法、加法、减法、累加、移位、比较等
+
+  • 合并数据处理指令与加载/存储运算指令
+
+  • 非对齐 128-bit 带宽的向量数据
+
+  • 取饱和操作
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 处理器指令拓展。
+
+
+
+
+乐鑫信息科技                                     35               ESP32-S3 系列芯片技术规格书 v2.1
+                                       反馈文档意见
+4 功能描述
+
+
+
+4.1.1.3 超低功耗协处理器 (ULP)
+
+ULP 处理器可以用于在正常工作模式下协助 CPU，也可以用于在系统休眠时代替 CPU 来执行任务。ULP 处理器
+和 RTC 存储器在 Deep-sleep 模式下仍保持工作状态。因此，开发者可以将 ULP 协处理器的程序存放在 RTC 慢
+速存储器中，使其能够在 Deep-sleep 模式下访问 RTC GPIO、RTC 外设、RTC 定时器和内置传感器。
+
+ESP32-S3 集成了两个协处理器，分别基于 RISC-V 指令集 (ULP-RISC-V) 和有限状态机 FSM 架构 (ULP-FSM)。
+协处理器的时钟为内置快速 RC 振荡器时钟。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 超低功耗协处理器。
+
+特性
+
+   • ULP-RISC-V 协处理器：
+
+          – 支持 RV32IMC 指令集
+
+          – 32 个 32 位通用寄存器
+
+          – 32 位乘除法器
+
+          – 支持中断
+
+          – 支持被主 CPU、专用定时器、RTC GPIO 启动
+
+   • ULP-FSM 协处理器：
+
+          – 支持常用指令，包括运算、跳转、控制等
+
+          – 支持传感器专用指令
+
+          – 支持被主 CPU、专用定时器、RTC GPIO 启动
+
+  说明：
+  注意，两个协处理器不能同时使用。
+
+
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 超低功耗协处理器。
+
+
+4.1.1.4   通用 DMA 控制器 (GDMA)
+
+ESP32-S3 包含一个 10 通道的通用 DMA 控制器 (GDMA)，包括 5 个发送通道和 5 个接收通道，每个通道之间相
+互独立。这 10 个通道被具有 DMA 功能的外设所共享，通道之间支持可配置固定优先级。
+
+通用 DMA 控制器基于链表来实现对数据收发的控制，并支持外设与存储器之间及存储器与存储之间的高速数据
+传输。每个通道均能访问片内及片外 RAM。
+
+ESP32-S3 中有 10 个外设具有 DMA 功能，它们是 SPI2、SPI3、UHCI0、I2S0、I2S1、LCD/CAM、AES、SHA、
+ADC 和 RMT。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 通用 DMA 控制器。
+
+
+4.1.2 存储器组织结构
+本章节描述了存储器布局，解释数据的存储、访问和管理方式，以实现高效的操作。
+
+ESP32-S3 的地址映射结构如图 4-1 所示。
+
+
+
+乐鑫信息科技                              36           ESP32-S3 系列芯片技术规格书 v2.1
+                                  反馈文档意见
+4 功能描述
+
+
+                                                           CPU
+
+
+                                                        0x0000_0000
+                                                        0x3BFF_FFFF
+                                                        0x3C00_0000
+                                                        0x3DFF_FFFF
+                                                        0x3E00_0000
+                                                        0x3FCB_FFFF
+                                                        0x3FCB_8000
+                                                        0x3FCF_FFFF
+                                                        0x3FD0_0000
+                                                        0x3FEF_FFFF
+                                                        0x3FF0_0000
+                                                                          ROM                 SRAM
+                                                        0x3FF1_FFFF
+                                                        0x3FF2_0000
+                                      Cache
+                                                        0x3FFF_FFFF
+                                                        0x4000_0000
+                                                        0x4005_FFFF
+                                                        0x4006_0000
+                                                        0x4036_FFFF
+     External Memory           MMU
+                                                        0x4037_0000
+                                                        0x403D_FFFF
+                                                        0x403E_0000
+                                                        0x41FF_FFFF
+                                                        0x4200_0000
+                                                                                                 GDMA
+                                                        0x43FF_FFFF
+                                                        0x4400_0000
+                                                        0x4FFF_FFFF
+                                         RTC            0x5000_0000
+                                     Slow Memory        0x5000_1FFF
+                                                        0x5000_2000
+                                                        0x5FFF_FFFF
+                                                        0x6000_0000
+                                                                                Peripherals
+                                                        0x600D_0FFF
+                                                        0x600D_1000
+                                                        0x600F_DFFF
+                                         RTC            0x600F_E000
+                                     Fast Memory        0x600F_FFFF
+       Not available for use
+                                                        0x6010_0000
+       Available for use                                0xFFFF_FFFF
+
+
+
+
+                                        图 4-1. 地址映射结构
+
+
+
+ 说明：
+ 图中灰色背景标注的地址空间不可用。
+
+
+
+
+4.1.2.1 内部存储器
+
+ESP32-S3 的内部存储器即集成于芯片晶圆上或封装内部的存储器，包括 ROM、SRAM、eFuse 和 flash。
+
+特性
+
+ • 384 KB ROM：用于程序启动和内核功能调用
+
+ • 512 KB 片上 SRAM：用于数据和指令存储，时钟频率可配置，最大 240 MHz
+
+
+
+
+乐鑫信息科技                                             37                 ESP32-S3 系列芯片技术规格书 v2.1
+                                              反馈文档意见
+4 功能描述
+
+
+   • RTC 快速存储器：为 8 KB SRAM，可被主 CPU（LX7 双核处理器）访问（包括读写和取指令）
+                                                        ，在 Deep-sleep
+     模式下可以保存数据
+
+   • RTC 慢速存储器：为 8 KB SRAM，可被主 CPU（LX7 双核处理器）或协处理器访问（包括读写和取指令）
+                                                             ，
+     在 Deep-sleep 模式下可以保存数据
+
+   • 4096 位 eFuse 存储器：其中 1792 位用户可用，更多信息详见章节 4.1.2.4 eFuse 控制器
+
+   • 封装内 flash 和 PSRAM：
+
+          – flash 和 PSRAM 大小详见章节 1 ESP32-S3 系列型号对比
+
+          – 更多关于 flash 和 PSRAM 规格的信息，请参考章节 5.7 存储器规格
+
+   • 封装内 PSRAM：详见表 1-1 ESP32-S3 系列芯片对比
+
+更多信息，请参考《ESP32-S3 技术参考手册》 > 章节 系统和存储器。
+
+
+4.1.2.2    外部 Flash 和片外 RAM
+
+ESP32-S3 支持以 SPI、Dual SPI、Quad SPI、Octal SPI、QPI、OPI 等接口形式连接 flash 和片外 RAM。
+
+外部 flash 和片外 RAM 可以映射到 CPU 的指令空间、只读数据空间，片外 RAM 还可以映射到 CPU 的数据空
+间。外部 flash 和片外 RAM 各可以最大支持 1 GB。ESP32-S3 支持基于 XTS-AES 的硬件加解密功能，从而保护
+开发者 flash 和片外 RAM 中的程序和数据。
+
+通过高速缓存，ESP32-S3 一次最多可以同时有：
+
+   • 外部 flash 与片外 RAM 以 64 KB 的块映射到 32 MB 的指令空间。
+
+   • 片外 RAM 以 64 KB 的块映射到 32 MB 的数据空间，支持 8 位、16 位、32 位和 128 位读写。外部 flash 也
+     可以映射到 32 MB 只读数据空间，仅支持 8 位、16 位、32 位和 128 位读取。
+
+  说明：
+  芯片启动完成后，软件可以自定义片外 RAM 或 flash 到 CPU 地址空间的映射。
+
+
+更多信息，请参考《ESP32-S3 技术参考手册》 > 章节 系统和存储器。
+
+
+4.1.2.3 Cache
+
+ESP32-S3 采用共享指令 cache 和共享数据 cache 结构，指令 cache 和数据 cache 均采用多存储体 (bank) 结
+构。
+
+特性
+
+   • 指令 cache 的大小可配置为 16 KB (1 bank) 或 32 KB (2 bank)
+     数据 cache 的大小可配置为 32 KB (1 bank) 或 64 KB (2 bank)
+
+   • 指令 cache 可配置为四路组相连或八路组相连
+     数据 cache 固定为四路组相连
+
+   • 指令 cache 和数据 cache 的块大小均支持 16 字节或 32 字节
+
+   • 支持 pre-load 功能
+
+   • 支持 lock 功能
+
+
+
+乐鑫信息科技                                    38            ESP32-S3 系列芯片技术规格书 v2.1
+                                      反馈文档意见
+4 功能描述
+
+
+   • 支持关键字优先 (critical word first) 和提前重启 (early restart)
+
+更多信息，请参考《ESP32-S3 技术参考手册》 > 章节 系统和存储器。
+
+
+4.1.2.4    eFuse 控制器
+
+ESP32-S3 内有一块 4-Kbit 的 eFuse，其中存储着参数内容。eFuse 控制器按照用户配置完成对 eFuse 中各参
+数中的烧写。
+
+特性
+
+   • 4-Kbit 总存储空间，其中 1792 位可供用户使用，如存储加密密钥、用户 ID 等
+
+   • 一次性可编程存储
+
+   • 烧写保护可配置
+
+   • 读取保护可配置
+
+   • 多种硬件编码方式保护参数内容
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 eFuse 控制器。
+
+
+4.1.3 系统组件
+本章节描述了对系统的整体功能和控制起到重要作用的组件。
+
+
+4.1.3.1 IO MUX 和 GPIO 交换矩阵
+
+ESP32-S3 芯片中的 IO MUX 和 GPIO 交换矩阵可将外设输入和输出信号灵活连接到 GPIO 管脚。这些外设通过
+允许 I/O 配置、支持多路复用和外设输入信号的信号同步，增强了芯片的功能和性能。
+
+特性
+
+   • GPIO 交换矩阵：
+
+          – 外设输入输出信号和 GPIO 管脚之间的全交换矩阵
+
+          – 175 个数字外设输入信号可以选择任意一个 GPIO 管脚的输入信号
+
+          – 每个 GPIO 管脚的输出信号可以来自 184 个数字外设输出信号的任意一个
+
+          – 支持输入信号经 GPIO SYNC 模块同步至 APB 时钟总线
+
+          – 支持输入信号滤波
+
+          – 支持 Sigma Delta 调制输出 (SDM)
+
+          – 支持 GPIO 简单输入输出
+
+   • IO MUX：
+
+          – 为每个 GPIO 管脚提供一个寄存器 IO_MUX_GPIOn_REG，每个管脚可配置成：
+
+             * GPIO 功能，连接 GPIO 交换矩阵
+
+             * 直连功能，旁路 GPIO 交换矩阵
+
+
+
+
+乐鑫信息科技                                       39            ESP32-S3 系列芯片技术规格书 v2.1
+                                         反馈文档意见
+4 功能描述
+
+
+     – 支持快速信号如 SPI、JTAG、UART 等可以旁路 GPIO 交换矩阵以实现更好的高频数字特性（高速信
+         号会直接通过 IO MUX 输入和输出）
+
+  • RTC IO MUX：
+
+     – 控制 22 个 RTC GPIO 管脚的低功耗特性
+
+     – 控制 22 个 RTC GPIO 管脚的模拟功能
+
+     – 将 22 个 RTC 输入输出信号引入 RTC 系统
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 IO MUX 和 GPIO 交换矩阵。
+
+
+4.1.3.2 复位
+
+ESP32-S3 提供四种级别的复位方式，分别是 CPU 复位、内核复位、系统复位和芯片复位。
+
+特性
+
+  • 支持四种复位等级：
+
+     – CPU 复位：只复位 CPUx 核。这里的 CPUx 代表 CPU0 或 CPU1。复位释放后，程序将从 CPUx Re-
+         set Vector 开始执行。每个 CPU 核拥有独立的复位逻辑。如果 CPU 复位来自 CPU0，则 SENSITIVE
+         寄存器也将复位。
+
+     – 内核复位：复位除 RTC 以外的其它数字系统，包括 CPU0、CPU1、外设、Wi-Fi、Bluetooth® LE 及数
+         字 GPIO；
+
+     – 系统复位：复位包括 RTC 在内的整个数字系统；
+
+     – 芯片复位：复位整个芯片。
+
+  • 支持软件复位和硬件复位：
+
+     – 软件复位：CPUx 配置相关寄存器可触发软件复位，见 《ESP32-S3 技术参考手册》 > 章节 低功耗管
+         理；
+
+     – 硬件复位：硬件复位直接由硬件电路触发。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 复位和时钟。
+
+
+4.1.3.3 时钟
+
+CPU 时钟
+
+CPU 时钟有三种可能的时钟源：
+
+  • 外置主晶振时钟
+
+  • 内置快速 RC 振荡器时钟（通常为 17.5 MHz，频率可调节）
+
+  • PLL 时钟
+
+应用程序可以在以上三种时钟中选择一个作为时钟源。根据不同的应用程序，被选择的时钟源直接或在分频之
+后驱动 CPU 时钟。CPU 一旦发生复位后，CPU 的时钟源默认选择为外置主晶振时钟，且分频系数为 2。
+
+
+
+
+乐鑫信息科技                              40          ESP32-S3 系列芯片技术规格书 v2.1
+                                  反馈文档意见
+4 功能描述
+
+
+
+  说明：
+  ESP32-S3 必须有外部主晶振时钟才可运行。
+
+
+
+RTC 时钟
+
+RTC 慢速时钟应用于 RTC 计数器、RTC 看门狗和低功耗控制器，有三种可能的时钟源：
+
+   • 外置低速 (32 kHz) 晶振时钟
+
+   • 内置慢速 RC 振荡器（通常为 136 kHz，频率可调节）
+
+   • 内置快速 RC 振荡器分频时钟（由内置快速 RC 振荡器时钟经 256 分频生成）
+
+RTC 快速时钟应用于 RTC 外设和传感器控制器，有 2 种可能的时钟源：
+
+   • 外置主晶振二分频时钟
+
+   • 内置快速 RC 振荡器时钟（通常为 17.5 MHz，频率可调节）
+
+关于 ESP32-S3 时钟的详细信息，请参考 《ESP32-S3 技术参考手册》 > 章节 复位和时钟。
+
+
+4.1.3.4   中断矩阵
+
+ESP32-S3 中断矩阵将任一外部中断源单独分配到双核 CPU 的任一外部中断上，以便在外设中断信号产生后，
+及时通知 CPU0 或 CPU1 进行处理。
+
+特性
+
+   • 接收 99 个外部中断源作为输入
+
+   • 生成 26 个 CPU0 的外部中断和 26 个 CPU1 的外部中断作为输出。
+
+     注意，CPU0 剩余的 6 个中断和 CPU1 剩余的 6 个中断均为内部中断
+
+   • 支持屏蔽 CPU 的 NMI 类型中断
+
+   • 支持查询外部中断源当前的中断状态
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 中断矩阵。
+
+
+4.1.3.5 电源管理单元 (PMU)
+
+ESP32-S3 具有先进的电源管理单元 (PMU) ，可以灵活地为芯片的不同电源域供电，实现芯片性能、功耗和唤
+醒延迟之间的最佳平衡。
+
+睡眠模式下，大多数电源域已关闭。此时，ESP32-S3 中集成的超低功耗协处理器 (ULP) 仍可运行，从而实现极
+低的功耗。
+
+配置 PMU 的程序较为复杂。为针对典型场景简化电源管理，ESP32-S3 具有以下预设功耗模式，可给不同电源
+域组合供电：
+
+   • Active 模式 – CPU、RF 电路和所有外设均上电。芯片可以处理数据、接收、发射和侦听信号。
+
+   • Modem-sleep 模式 – CPU 上电，时钟频率下降。RF 电路在需要时间歇性开启，因此无线可保持连接。
+
+   • Light-sleep 模式 – CPU 停止工作，可选择上电。RTC 外设及 ULP 协处理器可由定时器间歇性唤醒。芯片
+     可由所有唤醒机制唤醒，包括 MAC、RTC 定时器或外部中断。无线可保持连接。部分数字外设可选择关闭。
+
+
+
+乐鑫信息科技                           41             ESP32-S3 系列芯片技术规格书 v2.1
+                              反馈文档意见
+4 功能描述
+
+
+ • Deep-sleep 模式 – 仅 RTC 上电。无线连接数据存储在 RTC 存储器中。
+
+设备在不同功耗模式下的功耗，请参见章节 5.6 功耗特性。
+
+图 4-2 模块和电源域 和表 4-1 列举了 电源域 和 电源子域 下属的芯片模块。
+
+
+                              乐鑫 ESP32-S3 Wi-Fi + 低功耗蓝⽛ (Bluetooth® LE) SoC
+
+                                                 数字电源域
+
+                     CPU
+                                        SPI0/1       I2C           GPIO         TWAI®          系统定时器
+
+          Xtensa ®           JTAG
+         32 位 LX7                                                              USB 串⼝/
+                                       摄像头接⼝         I2S          UART
+         双核处理器               Cache                                               JTAG          通⽤定时器
+
+         World                         脉冲计数器       LCD 接⼝        Flash 加密        RMT
+                           中断矩阵
+         控制器                                                                                    主系统
+                                                                                                看⻔狗
+          ROM              SRAM        DIG ADC      RNG           MCPWM        LED PWM          定时器
+
+
+             ⽆线数字电路                                              可选数字外设
+      低功耗蓝⽛链路                                                                                  SD/MMC
+                           Wi-Fi MAC      SHA        RSA          HMAC         数字签名
+        层控制器                                                                                     主机
+
+      低功耗蓝⽛基带              Wi-Fi 基带       AES       SPI2/3        安全启动          GDMA           USB OTG
+
+
+
+                       RTC 电源域                                            模拟电源域
+
+          PMU          eFuse 控制器       RTC 存储器                              RF 电路
+                                                                  2.4 GHz           2.4 GHz
+             可选 RTC 外设                                             接收器               发射器
+                                       超级看⻔狗                                   2.4 GHz Balun
+      RTC GPIO         ULP 协处理器                                   RF 合成器
+                                                                                  + 切换器
+
+         RTC I2C           RTC ADC
+                                       RTC 看⻔狗             PLL        RC_FAST_CLK             XTAL_CLK
+                                         定时器                                快速 RC
+      温度传感器                触摸传感器                           锁相环                                外部主时钟
+                                                                            振荡器
+
+
+
+     电源域分布
+              电源域
+              电源⼦域
+
+
+                                          图 4-2. 模块和电源域
+
+
+
+
+乐鑫信息科技                                             42                       ESP32-S3 系列芯片技术规格书 v2.1
+                                                 反馈文档意见
+4 功能描述
+
+
+                                         表 4-1. 模块和电源域
+
+               电源      RTC         数字                        模拟
+                   域         可选                 可选    无线          RC_
+                                                                          XTAL_          RF
+     功耗                      RTC         CPU    数字    数字          FAST_           PLL
+                                                                          CLK           电路
+     模式                      外设                 外设    电路          CLK
+     Active            ON    ON    ON    ON     ON    ON     ON    ON      ON     ON     ON
+     Modem-sleep       ON    ON    ON     ON    ON    ON1    ON    ON      ON     ON    OFF2
+     Light-sleep       ON    ON    ON    OFF1   ON1   OFF1   ON   OFF     OFF     OFF   OFF2
+     Deep-sleep        ON    ON1   OFF   OFF    OFF   OFF    ON   OFF     OFF     OFF   OFF
+     1 可配置，详见 《ESP32-S3 技术参考手册》 > 章节 低功耗管理。
+     2 若无线数字电路上电，RF 电路可在内部操作需要时间歇性开启，确保无线保持连接状态。
+
+
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节低功耗管理。
+
+
+4.1.3.6 系统定时器
+
+ESP32-S3 内置 52 位系统定时器，该系统定时器包含两个 52 位的时钟计数器和三个报警比较器。
+
+特性
+
+ • 时钟计数器的频率固定为 16 MHz
+
+ • 根据不同的报警值可产生三个独立的中断
+
+ • 两种报警模式：单次特定报警值报警和周期性报警
+
+ • 支持设置 52 位的单次特定报警值和 26 位的周期性报警值
+
+ • 从 Deep-sleep 或 Light-sleep 唤醒后读取 RTC 计数器中的睡眠时间
+
+ • 支持配置成当 CPU 暂停或处于 OCD 模式时，时钟计数器也暂停
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 系统定时器。
+
+
+4.1.3.7 通用定时器
+
+ESP32-S3 内置 4 个 54 位通用定时器，具有 16 位分频器和 54 位可自动重载的向上/向下计时器。
+
+特性
+
+ • 16 位时钟预分频器，分频系数为 2 到 65536
+
+ • 54 位时基计数器可配置成递增或递减
+
+ • 可读取时基计数器的实时值
+
+ • 暂停和恢复时基计数器
+
+ • 可配置的报警产生机制
+
+ • 计数器值重新加载（报警时自动重新加载或软件控制的即时重新加载）
+
+ • 电平触发中断
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 定时器组。
+
+
+乐鑫信息科技                                           43                ESP32-S3 系列芯片技术规格书 v2.1
+                                              反馈文档意见
+4 功能描述
+
+
+
+4.1.3.8    看门狗定时器
+
+ESP32-S3 中有三个看门狗定时器：两个定时器组中各一个（称作主系统看门狗定时器，缩写为 MWDT），RTC
+模块中一个（称作 RTC 看门狗定时器，缩写为 RWDT）。
+
+在引导加载 flash 固件期间，RWDT 和定时器组 0 中的 MWDT 会自动使能，以检测引导过程中发生的错误，并
+恢复运行。
+
+特性
+
+   • 四个阶段：
+
+          – 每个阶段都可配置超时时间
+
+          – 每阶段都可单独配置、使能和关闭
+
+   • 如在某个阶段发生超时：
+
+          – MWDT 会采取中断、CPU 复位和内核复位三种超时动作中的一种
+
+          – RWDT 会采取中断、CPU 复位、内核复位和系统复位四种超时动作中的一种
+
+   • 保护 32 位超时计数器
+
+   • 防止 RWDT 和 MWDT 的配置被误改
+
+   • flash 启动保护：如果在预定时间内 SPI flash 的引导过程未完成，看门狗会重启整个主系统
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 看门狗定时器。
+
+
+4.1.3.9    XTAL32K 看门狗定时器
+
+XTAL32K 看门狗定时器的中断及唤醒
+
+XTAL32K 看门狗定时器监控到 XTAL32K_CLK 停振时，将发起停振中断 RTC_XTAL32K_DEAD_INT（中断描述详
+见 《ESP32-S3 技术参考手册》 > 章节 低功耗管理）
+                              ，如果 CPU 处于 Light-sleep 和 Deep-sleep 状态，将唤醒
+CPU。
+
+BACKUP32K_CLK
+
+XTAL32K 看门狗定时器监控到 XTAL32K_CLK 停振后，将使用 RTC_CLK 的分频时钟 BACKUP32K_CLK (频率约
+为 32 kHz ) 替代 XTAL32K_CLK 作为 RTC 的 SLOW_CLK 维持系统继续正常工作。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 XTAL32K 看门狗定时器。
+
+
+4.1.3.10 权限控制
+
+ESP32-S3 中所有的从设备（片上存储、外设、外部 flash 和片外 RAM）均支持访问权限管理，主设备必须拥有
+相应访问权限才能访问相应的从设备，从而保护数据和指令不被非法读取、改写和取指。
+
+特别地，CPU 可运行在安全世界和非安全世界中，且在安全世界和非安全世界拥有独立的权限配置。因此，对
+于 CPU，ESP32-S3 的权限管理模块除了标准操作外，还会首先判断主设备所处的世界。
+
+特性
+
+   • 支持片内存储器的权限管理，包括：
+
+
+
+乐鑫信息科技                              44            ESP32-S3 系列芯片技术规格书 v2.1
+                                 反馈文档意见
+4 功能描述
+
+
+           – CPU 对片内存储器的访问权限控制
+
+           – CPU Trace 对片内存储器的访问权限控制
+
+           – GDMA 对片内存储器的访问权限控制
+
+   • 支持片外存储器的权限管理，包括：
+
+           – MMU 控制
+
+           – SPI1 访问外部存储器的权限控制
+
+           – GDMA 访问外部存储器的权限控制
+
+           – CPU 通过 Cache 访问外部存储器的权限控制
+
+   • 支持外设的权限管理
+
+           – 各外设空间均支持独立的权限控制
+
+           – 支持非对齐访问的监测
+
+           – 支持自定义地址段权限管理
+
+   • 内置权限寄存器锁保护机制
+
+           – 所有的权限寄存器都能够通过 lock 寄存器进行锁定，一旦权限寄存器被 lock 寄存器锁住，该权限寄
+            存器以及 lock 寄存器都无法再次被修改，直到 CPU 复位才能解除锁定
+
+   • 内置权限监测中断机制
+
+           – 发生非法访问时触发中断及时通知 CPU 去处理
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 权限控制。
+
+
+4.1.3.11    World 控制器
+
+ESP32-S3 可以将芯片的硬件和软件资源分为安全世界 (Secure World) 和非安全世界 (Non-secure World)，从
+而有效防止破坏或获取设备信息。两个世界之间由 World 控制器进行切换。
+
+特性
+
+   • 控制 CPU 在安全世界与非安全世界中的相互切换
+
+   • 控制 15 个 DMA 外设在安全世界与非安全世界中的相互切换
+
+   • 记录 CPU 的世界切换信息
+
+   • 屏蔽 CPU 的 NMI 中断
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 World 控制器。
+
+
+4.1.3.12 系统寄存器
+
+ESP32-S3 的系统寄存器可用于控制以下外设和模块：
+
+   • 系统和存储器
+
+   • 时钟
+
+   • 软件中断
+
+
+乐鑫信息科技                                 45      ESP32-S3 系列芯片技术规格书 v2.1
+                                  反馈文档意见
+4 功能描述
+
+
+   • 低功耗管理寄存器
+
+   • 外设时钟门控和复位
+
+   • CPU 控制
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 系统寄存器。
+
+
+4.1.4     加密和安全组件
+本章节描述了集成在芯片中用于保护数据和操作的安全功能。
+
+
+4.1.4.1 SHA 加速器
+
+ESP32-S3 内置 SHA（安全哈希算法）硬件加速器可快速完成 SHA 运算。
+
+特性
+
+   • 支持 FIPS PUB 180-4 规范的全部运算标准
+
+          – SHA-1 运算
+
+          – SHA-224 运算
+
+          – SHA-256 运算
+
+          – SHA-384 运算
+
+          – SHA-512 运算
+
+          – SHA-512/224 运算
+
+          – SHA-512/256 运算
+
+          – SHA-512/t 运算
+
+   • 提供两种工作模式
+
+          – Typical SHA 工作模式
+
+          – DMA-SHA 工作模式
+
+   • 允许插入 (interleaved) 功能（仅限 Typical SHA 工作模式）
+
+   • 允许中断功能（仅限 DMA-SHA 工作模式）
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 SHA 加速器。
+
+
+4.1.4.2    AES 加速器
+
+ESP32-S3 内置 AES（高级加密标准）硬件加速器，可使用 AES 算法快速完成数据的加解密运算。
+
+特性
+
+   • Typical AES 工作模式
+
+          – AES-128/AES-256 加解密运算
+
+   • DMA-AES 工作模式
+
+
+
+乐鑫信息科技                                 46         ESP32-S3 系列芯片技术规格书 v2.1
+                                    反馈文档意见
+4 功能描述
+
+
+          – AES-128/AES-256 加解密运算
+
+          – 块（加密）模式
+
+             * ECB (Electronic Codebook)
+
+             * CBC (Cipher Block Chaining)
+
+             * OFB (Output Feedback)
+
+             * CTR (Counter)
+
+             * CFB8 (8-bit Cipher Feedback)
+
+             * CFB128 (128-bit Cipher Feedback)
+
+          – 中断发生
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 AES 加速器。
+
+
+4.1.4.3 RSA 加速器
+
+RSA 加速器可为多种运用于“RSA 非对称式加密演算法”的高精度计算提供硬件支持。
+
+特性
+
+   • 大数模幂运算（支持两个加速选项）
+
+   • 大数模乘运算，最大可达 4096 位
+
+   • 大数乘法运算，运算子最大可达 2048 位
+
+   • 多种运算子长度
+
+   • 中断功能
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 RSA 加速器。
+
+
+4.1.4.4    安全启动
+
+安全启动功能确保只启动已签名（具有 RSA-PSS 签名）的固件，此功能的可信度是根植于硬件逻辑。
+
+
+4.1.4.5 HMAC 加速器
+
+如 RFC 2104 中所述，HMAC 模块通过 hash 算法和密钥计算得到数据信息的信息认证码 (MAC)。
+
+特性
+
+   • 标准 HMAC-SHA-256 算法
+
+   • HMAC 计算的 hash 结果仅支持特定的硬件外设访问（下行模式）
+
+   • 兼容挑战-应答身份验证算法
+
+   • 生成数字签名外设所需的密钥（下行模式）
+
+   • 重启软禁用的 JTAG（下行模式）
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 HMAC 加速器。
+
+
+
+乐鑫信息科技                                            47   ESP32-S3 系列芯片技术规格书 v2.1
+                                              反馈文档意见
+4 功能描述
+
+
+
+4.1.4.6 数字签名
+
+数字签名技术在密码学算法层面上用于验证消息的真实性和完整性。
+
+特性
+
+   • RSA 数字签名支持密钥长度最大为 4096 位
+
+   • 私钥数据已加密，并且只能由 DS 读取
+
+   • SHA-256 摘要用于保护私钥数据免遭攻击者篡改
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 数字签名。
+
+
+4.1.4.7 片外存储器加密与解密
+
+ESP32-S3 芯片集成了符合 XTS-AES 标准的片外存储器加密与解密模块。
+
+特性
+
+   • 通用 XTS-AES 算法，符合 IEEE Std 1619-2007
+
+   • 手动加密过程需要软件参与
+
+   • 高速的自动加密过程，无需软件参与
+
+   • 高速的自动解密过程，无需软件参与
+
+   • 寄存器配置、eFuse 参数、启动 (boot) 模式共同决定加解密功能
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 片外存储器加密与解密。
+
+
+4.1.4.8   时钟毛刺检测
+
+ESP32-S3 的毛刺检测模块将对输入芯片的 XTAL_CLK 时钟信号进行检测，当检测到一个脉宽小于 3 ns 的毛刺
+时，屏蔽输入的 XTAL_CLK 时钟信号。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 时钟毛刺检测。
+
+
+4.1.4.9   随机数发生器
+
+ESP32-S3 的随机数发生器 (RNG) 可通过物理过程而非算法生成真随机数，所有生成的随机数在特定范围内出
+现的概率完全一致。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 随机数发生器。
+
+
+
+
+乐鑫信息科技                                     48   ESP32-S3 系列芯片技术规格书 v2.1
+                                      反馈文档意见
+4 功能描述
+
+
+
+4.2       外设
+本章节介绍了芯片上的外设接口，包括扩展芯片功能的通信接口和片上传感器。
+
+
+4.2.1     通讯接口
+本章节介绍了芯片与外部设备和网络进行通信和交互的接口。
+
+
+4.2.1.1 UART 控制器
+
+ESP32-S3 有三个 UART（通用异步收发器）控制器，即 UART0、UART1、UART2，支持异步通信（RS232 和 RS485）
+和 IrDA，通信速率可达到 5 Mbps。
+
+特性
+
+   • 支持三个可预分频的时钟源
+
+   • 可编程收发波特率
+
+   • 三个 UART 的发送 FIFO 以及接收 FIFO 共享 1024 x 8-bit RAM
+
+   • 全双工异步通信
+
+   • 支持输入信号波特率自检功能
+
+   • 支持 5/6/7/8 位数据长度
+
+   • 支持 1/1.5/2/3 个停止位
+
+   • 支持奇偶校验位
+
+   • 支持 AT_CMD 特殊字符检测
+
+   • 支持 RS485 协议
+
+   • 支持 IrDA 协议
+
+   • 支持 GDMA 高速数据通信
+
+   • 支持 UART 唤醒模式
+
+   • 支持软件流控和硬件流控
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 UART 控制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.2   I2C 接口
+
+ESP32-S3 有两个 I2C 总线接口，根据用户的配置，总线接口可以用作 I2C 主机或从机模式。
+
+特性
+
+   • 标准模式 (100 Kbit/s)
+
+   • 快速模式 (400 Kbit/s)
+
+
+乐鑫信息科技                                   49           ESP32-S3 系列芯片技术规格书 v2.1
+                                     反馈文档意见
+4 功能描述
+
+
+   • 速度最高可达 800 Kbit/s，但受制于 SCL 和 SDA 上拉强度
+
+   • 7 位寻址模式和 10 位寻址模式
+
+   • 双地址（从机地址和从机寄存器地址）寻址模式
+
+用户可以通过 I2C 硬件提供的指令抽象层更方便地控制 I2C 接口。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 I2C 控制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.3 I2S 接口
+
+ESP32-S3 有两个标准 I2S 接口，可以以主机或从机模式，在全双工或半双工模式下工作，并且可被配置为 I2S
+串行 8/16/24/32 位的收发数据模式，支持频率从 10 kHz 到 40 MHz 的 BCK 时钟。
+
+I2S 接口有专用的 DMA 控制器。支持 TDM PCM、TDM MSB 对齐、TDM LSB 对齐、TDM Phillips、PDM 接口。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 I2S 控制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.4   LCD 与 Camera 控制器
+
+ESP32-S3 的 LCD 与 Camera 控制器包含独立的 LCD 模块和 Camera 模块。
+
+LCD 模块用于发送并行视频数据信号，其总线 8 位 ~ 16 位并行 RGB、I8080、MOTO6800 接口，支持的时钟频
+率小于 40 MHz。支持 RGB565、YUV422、YUV420、YUV411 之间的互相转换。
+
+Camera 模块用于接收并行视频数据信号，其总线支持 8 位 ~ 16 位 DVP 图像传感器接口，支持的时钟频率小于
+40 MHz。支持 RGB565、YUV422、YUV420、YUV411 之间的互相转换。
+
+For details, see 《ESP32-S3 技术参考手册》 > Chapter LCD 与 Camera 控制器.
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.5   串行外设接口 (SPI)
+
+ESP32-S3 具有以下 SPI 接口：
+
+   • SPI0，供 ESP32-S3 的 GDMA 控制器与 Cache 访问封装内或封装外 flash/PSRAM
+
+   • SPI1，供 CPU 访问封装内或封装外 flash/PSRAM
+
+   • SPI2，通用 SPI 控制器，通过 GDMA 分配 DMA 通道进行访问
+
+   • SPI3，通用 SPI 控制器，通过 GDMA 分配 DMA 通道进行访问
+
+
+
+
+乐鑫信息科技                                    50              ESP32-S3 系列芯片技术规格书 v2.1
+                                      反馈文档意见
+4 功能描述
+
+
+特性
+
+ • SPI0 和 SPI1：
+
+     – 支持 SPI、Dual SPI、Quad SPI、Octal SPI、QPI 和 OPI 模式
+
+     – 八线 SPI 模式支持单倍数据速率 (SDR) 和双倍数据速率 (DDR)
+
+     – 时钟频率可配置，八线 SPI SDR/DDR 模式下最高可达 120 MHz
+
+     – 数据传输以字节为单位
+
+ • SPI2：
+
+     – 支持主机或从机模式
+
+     – 通过 GDMA 分配 DMA 通道进行访问
+
+     – 支持 SPI、Dual SPI、Quad SPI、Octal SPI、QPI 和 OPI 模式
+
+     – 时钟极性 (CPOL) 和相位 (CPHA) 可配置
+
+     – 时钟频率可配置
+
+     – 数据传输以字节为单位
+
+     – 读写数据位序可配置：最高有效位 (MSB) 优先，或最低有效位 (LSB) 优先
+
+     – 主机模式
+
+           * 支持双线全双工通信，时钟频率最高可达 80 MHz
+
+           * 八线 SPI 全双工模式仅支持单倍数据速率 (SDR)
+
+           * 支持单线、双线、四线和八线半双工通信，时钟频率最高可达 80 MHz
+
+           * 八线 SPI 半双工模式支持单倍数据速率（最高 80 MHz）和双倍数据速率（最高 40 MHz）
+
+           * 具有六个 SPI_CS 管脚，可与六个独立 SPI 从机相连
+
+           * CS 建立和保持时间可配置
+
+     – 从机模式
+
+           * 支持双线全双工通信，时钟频率最高可达 60 MHz
+
+           * 支持单线、双线和四线半双工通信，时钟频率最高可达 60 MHz
+
+           * 八线 SPI 全双工和半双工模式仅支持单倍数据速率 (SDR)
+
+ • SPI3：
+
+     – 支持主机或从机模式
+
+     – 通过 GDMA 分配 DMA 通道进行访问
+
+     – 支持 SPI、Dual SPI、Quad SPI 和 QPI 模式
+
+     – 时钟极性 (CPOL) 和相位 (CPHA) 可配置
+
+     – 时钟频率可配置
+
+     – 数据传输以字节为单位
+
+     – 读写数据位序可配置：最高有效位 (MSB) 优先，或最低有效位 (LSB) 优先
+
+
+
+乐鑫信息科技                                     51            ESP32-S3 系列芯片技术规格书 v2.1
+                                     反馈文档意见
+4 功能描述
+
+
+      – 主机模式
+
+          * 支持双线全双工通信，时钟频率最高可达 80 MHz
+
+          * 支持单线、双线和四线半双工通信，时钟频率最高可达 80 MHz
+
+          * 具有三个 SPI_CS 管脚，可与三个独立 SPI 从机相连
+
+          * CS 建立和保持时间可配置
+
+      – 从机模式
+
+          * 支持双线全双工通信，时钟频率最高可达 60 MHz
+
+          * 支持单线、双线和四线半双工通信，时钟频率最高可达 60 MHz
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 SPI 控制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.6 双线汽车接口 (TWAI® )
+
+双线汽车接口 (Two-Wire Automotive Interface, TWAI® ) 协议是一种多主机、多播的通信协议，具有检测错误、发
+送错误信号以及内置报文优先仲裁等功能。ESP32-S3 带有一个 TWAI 控制器。
+
+特性
+
+  • 兼容 ISO 11898-1 协议（CAN 规范 2.0）
+
+  • 标准帧格式（11 位 ID）和扩展帧格式（29 位 ID）
+
+  • 1 Kbit/s 到 1 Mbit/s 比特率
+
+  • 多种操作模式：
+
+      – 工作模式
+
+      – 监听模式
+
+      – 自检模式（传输无需确认）
+
+  • 64 字节接收 FIFO
+
+  • 数据接收过滤器（支持单过滤器和双过滤器模式）
+
+  • 错误检测与处理：
+
+      – 错误计数器
+
+      – 可配置的错误中断阈值
+
+      – 错误代码记录
+
+      – 仲裁丢失记录
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 双线汽车接口。
+
+
+
+
+乐鑫信息科技                                52        ESP32-S3 系列芯片技术规格书 v2.1
+                                    反馈文档意见
+4 功能描述
+
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.7 USB 2.0 OTG 全速接口
+
+ESP32-S3 带有一个集成了收发器的全速 USB OTG 外设，符合 USB 2.0 规范。
+
+通用特性
+
+  • 支持全速和低速速率
+
+  • 主机协商协议 (HNP) 和会话请求协议 (SRP)，均可作为 A 或 B 设备
+
+  • 动态 FIFO (DFIFO) 大小
+
+  • 支持多种存储器访问模式
+
+     – Scatter/Gather DMA 模式
+
+     – 缓冲 (Buffer) DMA 模式
+
+     – Slave 模式
+
+  • 可选择集成收发器或外部收发器
+
+  • 当仅使用集成收发器时，可通过时分复用技术，和 USB 串口/JTAG 控制器共用集成收发器
+
+  • 当集成收发器和外部收发器同时投入使用时，支持 USB OTG 和 USB 串口/JTAG 控制器两外设各自挑选不
+   同的收发器使用
+
+设备模式 (Device mode) 特性
+
+  • 端点 0 永远存在（双向控制，由 EP0 IN 和 EP0 OUT 组成）
+
+  • 6 个附加端点 (1 ~ 6)，可配置为 IN 或 OUT
+
+  • 最多 5 个 IN 端点同时工作（包括 EP0 IN）
+
+  • 所有 OUT 端点共享一个 RX FIFO
+
+  • 每个 IN 端点都有专用的 TX FIFO
+
+主机模式 (Host mode) 特性
+
+  • 8 个通道（管道）
+
+     – 由 IN 与 OUT 两个通道组成的一个控制管道，因为 IN 和 OUT 必须分开处理。仅支持控制传输类型。
+
+     – 其余 7 个管道可被配置为 IN 或 OUT，支持批量、同步、中断中的任意传输类型。
+
+  • 所有通道共用一个 RX FIFO、一个非周期性 TX FIFO、和一个周期性 TX FIFO。每个 FIFO 大小可配置。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 USB OTG。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+
+乐鑫信息科技                                53       ESP32-S3 系列芯片技术规格书 v2.1
+                                    反馈文档意见
+4 功能描述
+
+
+
+4.2.1.8 USB 串口/JTAG 控制器
+
+ESP32-S3 集成了一个 USB 串口/JTAG 控制器。
+
+特性
+
+  • USB 全速标准
+
+  • 可配置为使用 ESP32-S3 内部 USB PHY 或通过 GPIO 交换矩阵使用外部 PHY
+
+  • 固定功能。包含连接的 CDC-ACM（通信设备类抽象控制模型）和 JTAG 适配器功能
+
+  • 共 2 个 OUT 端点、3 个 IN 端点和 1 个控制端点 EP_0，可实现最大 64 字节的数据载荷
+
+  • 包含内部 PHY，基本无需其他外部组件连接主机计算机
+
+  • CDC-ACM 的虚拟串行功能在大多数现代操作系统上可实现即插即用
+
+  • JTAG 接口可使用紧凑的 JTAG 指令实现与 CPU 调试内核的快速通信
+
+  • CDC-ACM 支持主机控制芯片复位和进入下载模式
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 USB 串口/JTAG 控制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.9 SD/MMC 主机控制器
+
+ESP32-S3 集成一个 SD/MMC 主机控制器。
+
+特性
+
+  • SD 卡 3.0 和 3.01 版本
+
+  • SDIO 3.0 版本
+
+  • CE-ATA 1.1 版本
+
+  • 多媒体卡（MMC 4.41 版本、eMMC 4.5 版本和 4.51 版本）
+
+  • 高达 80 MHz 的时钟输出
+
+  • 3 种数据总线模式：
+
+      – 1位
+
+      – 4 位（可支持两个 SD/SDIO/MMC 4.41 卡，以及一个以 1.8 V 电压工作的 SD 卡）
+
+      – 8位
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 SD/MMC 主机控制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+
+
+乐鑫信息科技                              54           ESP32-S3 系列芯片技术规格书 v2.1
+                                  反馈文档意见
+4 功能描述
+
+
+
+4.2.1.10 LED PWM 控制器
+
+LED PWM 控制器可以用于生成八路独立的数字波形。
+
+特性
+
+  • 波形的周期和占空比可配置，在信号周期为 1 ms 时，占空比精确度可达 14 位
+
+  • 多种时钟源选择，包括：APB 总线时钟、外置主晶振时钟
+
+  • 可在 Light-sleep 模式下工作
+
+  • 支持硬件自动步进式地增加或减少占空比，可用于 LED RGB 彩色梯度发生器
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 LED PWM 控制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.11 电机控制脉宽调制器 (MCPWM)
+
+ESP32-S3 包含两个 MCPWM，可以用于驱动数字马达和智能灯。每个 MCPWM 外设都包含一个时钟分频器（预
+分频器）、三个 PWM 定时器、三个 PWM 操作器和一个捕捉模块。PWM 定时器用于生成定时参考。PWM 操作
+器将根据定时参考生成所需的波形。通过配置，任一 PWM 操作器可以使用任一 PWM 定时器的定时参考。不同
+的 PWM 操作器可以使用相同的 PWM 定时器的定时参考来产生 PWM 信号。此外，不同的 PWM 操作器也可以
+使用不同的 PWM 定时器的值来生成单独的 PWM 信号。不同的 PWM 定时器也可进行同步。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 电机控制脉宽调制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.12 红外遥控 (RMT)
+
+红外遥控 (RMT) 支持红外控制信号的发射和接收。
+
+特性
+
+  • 四个通道支持发送
+
+  • 四个通道支持接收
+
+  • 可编程配置多个通道同时发送
+
+  • RMT 的八个通道共享 384 x 32-bit 的 RAM
+
+  • 发送脉冲支持载波调制
+
+  • 接收脉冲支持滤波和载波解调
+
+  • 乒乓发送模式
+
+  • 乒乓接收模式
+
+  • 发射器支持持续发送
+
+
+乐鑫信息科技                                 55     ESP32-S3 系列芯片技术规格书 v2.1
+                                     反馈文档意见
+4 功能描述
+
+
+  • 发送通道 3 支持 DMA 访问
+
+  • 接收通道 7 支持 DMA 访问
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 红外遥控。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.1.13 脉冲计数控制器 (PCNT)
+
+脉冲计数器 (PCNT) 通过多种模式捕捉脉冲并对脉冲边沿计数。
+
+特性
+
+  • 四个脉冲计数控制器（单元），各自独立工作，计数范围是 1 ~ 65535
+
+  • 每个单元有两个独立的通道，共用一个脉冲计数控制器
+
+  • 所有通道均有输入脉冲信号（如 sig_ch0_un）和相应的控制信号（如 ctrl_ch0_un）
+
+  • 滤波器独立工作，过滤每个单元输入脉冲信号（sig_ch0_un 和 sig_ch1_un）控制信号（ctrl_ch0_un 和
+     ctrl_ch1_un）的毛刺
+
+  • 每个通道参数如下：
+
+        1. 选择在输入脉冲信号的上升沿或下降沿计数
+
+        2. 在控制信号为高电平或低电平时可将计数模式配置为递增、递减或停止计数
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 脉冲计数控制器。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+4.2.2   模拟信号处理
+本小节描述芯片上感知和处理现实世界数据的组件。
+
+
+4.2.2.1 SAR ADC
+
+ESP32-S3 集成了两个 12 位 SAR ADC，共支持 20 个模拟通道输入。为了实现更低功耗，ESP32-S3 的 ULP 协
+处理器也可以在睡眠方式下测量电压，此时，可通过设置阈值或其他触发方式唤醒 CPU。
+
+ 说明：
+ 注意，ADC2_CH… 模拟功能（见表 2-8 模拟功能）不能和 Wi-Fi 同时使用。
+
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 片上传感器与模拟信号处理。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+
+乐鑫信息科技                            56            ESP32-S3 系列芯片技术规格书 v2.1
+                               反馈文档意见
+4 功能描述
+
+
+
+4.2.2.2   温度传感器
+
+温度传感器生成一个随温度变化的电压。内部 ADC 将传感器电压转化为一个数字量。
+
+温度传感器的测量范围为–40 °C 到 125 °C。温度传感器适用于监测芯片内部温度的变化，该温度值会随着微控
+制器时钟频率或 IO 负载的变化而变化。一般来讲，芯片内部温度会高于外部温度。
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 片上传感器与模拟信号处理。
+
+
+4.2.2.3 触摸传感器
+
+ESP32-S3 提供了多达 14 个电容式传感 GPIO，能够探测由手指或其他物品直接接触或接近而产生的电容差异。
+这种设计具有低噪声和高灵敏度的特点，可以用于支持使用相对较小的触摸板。设计中也可以使用触摸板阵列
+以探测更大区域或更多点。ESP32-S3 的触摸传感器同时还支持防水和数字滤波等功能来进一步提高传感器的
+性能。
+
+ 说明：
+ ESP32-S3 触摸传感器目前尚无法通过射频抗扰度测试系统 (CS) 认证，应用场景有所限制。
+
+
+
+更多信息，请参考 《ESP32-S3 技术参考手册》 > 章节 片上传感器与模拟信号处理。
+
+管脚分配
+
+详见 章节 2.3.5 外设管脚分配。
+
+
+
+
+乐鑫信息科技                        57          ESP32-S3 系列芯片技术规格书 v2.1
+                            反馈文档意见
+4 功能描述
+
+
+
+4.3   无线通信
+本节描述了芯片的无线通信能力，涵盖无线电模块、Wi-Fi 和蓝牙。
+
+
+4.3.1 无线电
+本小节描述了嵌入在芯片中的基本无线电模块，用于实现无线通信和数据交换。
+
+
+4.3.1.1 2.4 GHz 接收器
+
+2.4 GHz 接收器将 2.4 GHz 射频信号解调为正交基带信号，并用两个高精度、高速的 ADC 将后者转为数字信号。
+为了适应不同的信道情况，ESP32-S3 集成了 RF 滤波器、自动增益控制 (AGC)、DC 偏移补偿电路和基带滤波
+器。
+
+
+4.3.1.2 2.4 GHz 发射器
+
+2.4 GHz 发射器将正交基带信号调制为 2.4 GHz 射频信号，使用大功率互补金属氧化物半导体 (CMOS) 功率放
+大器驱动天线。数字校准进一步改善了功率放大器的线性。
+
+为了抵消射频接收器的瑕疵，ESP32-S3 还另增了校准措施，例如:
+
+  • 载波泄露消除
+
+  • I/Q 相位匹配
+
+  • 基带非线性抑制
+
+  • 射频非线性抑制
+
+  • 天线匹配
+
+这些内置校准措施缩短了产品的测试时间，并且不再需要测试设备。
+
+
+4.3.1.3 时钟生成器
+
+时钟生成器为接收器和发射器生成 2.4 GHz 正交时钟信号，所有部件均集成于芯片上，包括电感、变容二极管、
+环路滤波器、线性稳压器和分频器。
+
+时钟生成器带有内置校准电路和自测电路。运用自主知识产权的优化算法，对正交时钟的相位和相位噪声进行
+优化处理，使接收器和发射器都有最好的性能表现。
+
+
+4.3.2 Wi-Fi
+本小节描述了芯片的 Wi-Fi 能力，用于实现高速无线通信。
+
+
+4.3.2.1 Wi-Fi 射频和基带
+
+ESP32-S3 Wi-Fi 射频和基带支持以下特性：
+
+  • 802.11b/g/n
+
+  • 802.11n MCS0-7 支持 20 MHz 和 40 MHz 带宽
+
+  • 802.11n MCS32
+
+  • 802.11n 0.4 µs 保护间隔
+
+
+乐鑫信息科技                                     58   ESP32-S3 系列芯片技术规格书 v2.1
+                                     反馈文档意见
+4 功能描述
+
+
+  • 数据率高达 150 Mbps
+
+  • 接收 STBC（单空间流）
+
+  • 可调节的发射功率
+
+  • 天线分集：
+    ESP32-S3 支持基于外部射频开关的天线分集与选择。外部射频开关由一个或多个 GPIO 管脚控制，用来
+    选择最合适的天线以减少信道衰落的影响。
+
+
+4.3.2.2    Wi-Fi MAC
+
+ESP32-S3 完全遵循 802.11b/g/n Wi-Fi MAC 协议栈，支持分布式控制功能 (DCF) 下的基本服务集 (BSS) STA 和
+SoftAP 操作。支持通过最小化主机交互来优化有效工作时长，以实现功耗管理。
+
+ESP32-S3 Wi-Fi MAC 自行支持的底层协议功能如下：
+
+  • 4 个虚拟 Wi-Fi 接口
+
+  • 同时支持基础结构型网络 (Infrastructure BSS) Station 模式、SoftAP 模式和 Station + SoftAP 混杂模式
+
+  • RTS 保护，CTS 保护，立即块确认 (Immediate Block ACK)
+
+  • 分片和重组 (Fragmentation and defragmentation)
+
+  • TX/RX A-MPDU，TX/RX A-MSDU
+
+  • TXOP
+
+  • 无线多媒体 (WMM)
+
+  • GCMP、CCMP、TKIP、WAPI、WEP、BIP、WPA2 个人模式或 WPA2 企业模式 (WPA2-PSK/WPA2-Enterprise)
+    及 WPA3 个人模式或 WPA3 企业模式 (WPA3-PSK/WPA3-Enterprise)
+
+  • 自动 Beacon 监测（硬件 TSF）
+
+  • 802.11mc FTM
+
+
+4.3.2.3 网络特性
+
+乐鑫提供的固件支持 TCP/IP 联网、ESP-WIFI-MESH 联网或其他 Wi-Fi 联网协议，同时也支持 TLS 1.2。
+
+
+4.3.3 低功耗蓝牙
+本小节描述了芯片的蓝牙能力，用于实现低功耗、短距离应用的无线通信。ESP32-S3 包含了一个低功耗蓝牙
+(Bluetooth Low Energy) 子系统，集成了硬件链路层控制器、射频/调制解调器模块和功能齐全的软件协议栈。低
+功耗蓝牙子系统支持 Bluetooth 5 和 Bluetooth Mesh。
+
+
+4.3.3.1 低功耗蓝牙物理层
+
+ESP32-S3 低功耗蓝牙射频和物理层支持以下特性：
+
+  • 1 Mbps PHY
+
+  • 2 Mbps PHY，用于提高传输速度和数据吞吐量
+
+  • Coded PHY，用于提高接收灵敏度和传输距离（125 Kbps 和 500 Kbps）
+
+
+
+乐鑫信息科技                                     59           ESP32-S3 系列芯片技术规格书 v2.1
+                                       反馈文档意见
+4 功能描述
+
+
+ • 无需外部 PA，支持 Class 1 发射功率
+
+ • 硬件实现 Listen Before Talk (LBT)
+
+
+4.3.3.2 低功耗蓝牙链路控制器
+
+ESP32-S3 低功耗蓝牙链路控制器支持以下特性：
+
+ • 广播扩展 (LE Advertising Extensions)，用于增强广播能力，可以广播更多的智能数据
+
+ • 多广播
+
+ • 支持同时广播和扫描
+
+ • 多连接，支持中心设备 (Central) 和外围设备 (Peripheral) 同时运行
+
+ • 自适应跳频 (AFH) 和信道选择 (Channel Assessment)
+
+ • 信道选择算法 #2 (LE Channel Selection Algorithm #2)
+
+ • 连接参数更新
+
+ • 高速不可连接广播 (High Duty Cycle Non-Connectable Advertising)
+
+ • LE Privacy v1.2
+
+ • 数据包长度扩展 (LE Data Packet Length Extension)
+
+ • 链路层扩展扫描过滤策略 (Link Layer Extended Scanner Filter Policies)
+
+ • 低速可连接定向广播 (Low Duty Cycle Directed Advertising)
+
+ • 链路层加密
+
+ • LE Ping
+
+
+
+
+乐鑫信息科技                                    60                ESP32-S3 系列芯片技术规格书 v2.1
+                                      反馈文档意见
+5 电气特性
+
+
+
+5 电气特性
+
+5.1   绝对最大额定值
+超出表 5-1 绝对最大额定值 的绝对最大额定值可能导致器件永久性损坏。这只是强调的额定值，不涉及器件在
+这些或其它条件下超出章节 5.2 建议工作条件 技术规格指标的功能性操作。长时间暴露在绝对最大额定条件下
+可能会影响设备的可靠性。
+
+                              表 5-1. 绝对最大额定值
+
+               参数             说明             最小值       最大值         单位
+               输入电源管脚1        允许输入电压           –0.3          3.6     V
+               Ioutput   2    IO 输出总电流             —    1500        mA
+               TST ORE        存储温度             –40       150        °C
+                   1 更多关于输入电源管脚的信息，见章节 2.5.1 电源管脚。
+                   2 在 25 °C 的环境温度下连续 24 小时保持所有 IO 管脚拉高并
+                   接地，设备工作完全正常。
+
+
+
+5.2   建议工作条件
+推荐环境温度，请参考章节 1 ESP32-S3 系列型号对比。
+
+                                  表 5-2. 建议工作条件
+
+           参数 1              说明          最小值       典型值         最大值       单位
+           VDDA, VDD3P3      建议输入电压          3.0       3.3         3.6   V
+           VDD3P3_RTC 2      建议输入电压          3.0       3.3         3.6   V
+           VDD_SPI（输入） —                     1.8       3.3         3.6   V
+           VDD3P3_CPU 3 建议输入电压               3.0       3.3         3.6   V
+           IV DD   4         输入总电流           0.5        —           —    A
+           1 请结合章节 2.5 电源 阅读。
+           2 使用 VDD3P3_RTC 给 VDD_SPI 供电时（见章节 2.5.2 电源管理），应
+             考虑 RSP I 的电压降。更多信息，请参考章节 5.3 VDD_SPI 输出特性。
+           3 写 eFuse 时，由于烧录 eFuse 的电路较敏感，VDD3P3_CPU 的电压应
+             不超过 3.3 V。
+           4 使用单电源供电时，输出电流需要达到 500 mA 及以上。
+
+
+
+
+乐鑫信息科技                                  61                    ESP32-S3 系列芯片技术规格书 v2.1
+                                    反馈文档意见
+5 电气特性
+
+
+
+5.3        VDD_SPI 输出特性
+
+                                     表 5-3. VDD_SPI 内部和输出特性
+
+                   参数       说明 1                                         典型值          单位
+                            VDD_SPI 连接 3.3 V flash/ PSRAM 时，由
+                   RSP I                                                    14        Ω
+                            VDD3P3_RTC 经 R   供电 2
+                                           SP I
+
+                            VDD_SPI 连接 1.8 V flash/PSRAM 时，flash 调
+                   ISP I                                                   40         mA
+                            压器供电的输出电流
+                   1 请结合章节 2.5.2 电源管理 阅读。
+                   2 VDD3P3_RTC 需高于 VDD_flash_min + I_flash_max * R
+                                                                         SP I ，
+
+                     其中
+                           • VDD_flash_min – flash/PSRAM 的最小工作电压
+                           • I_flash_max – flash/PSRAM 的最大工作电流
+
+
+
+5.4        直流电气特性 (3.3 V, 25 °C)
+
+                                    表 5-4. 直流电气特性 (3.3 V, 25 °C)
+
+参数            说明                                            最小值           典型值              最大值           单位
+CIN           管脚电容                                                  —             2              —       pF
+VIH           高电平输入电压                                     0.75 × VDD 1           —           1
+                                                                                          VDD + 0.3      V
+VIL           低电平输入电压                                            –0.3            —     0.25 × VDD 1      V
+IIH           高电平输入电流                                                —           —                 50    nA
+IIL           低电平输入电流                                              —             —                 50    nA
+VOH    2      高电平输出电压                                     0.8 × VDD 1            —                  —    V
+VOL    2      低电平输出电压                                                —           —         0.1 × VDD 1   V
+              高电平拉电流 (VDD 1 = 3.3 V, V    OH >= 2.64 V,
+IOH                                                                  —        40                    —    mA
+              PAD_DRIVER = 3)
+              低电平灌电流 (VDD 1 = 3.3 V, VOL = 0.495 V,
+IOL                                                                  —           28                 —    mA
+              PAD_DRIVER = 3)
+RP U          内部弱上拉电阻                                                —           45                 —    kΩ
+RP D          内部弱下拉电阻                                                —           45                 —    kΩ
+              芯片复位释放电压（CHIP_PU 应满足电压范
+VIH_nRST                                                  0.75 × VDD 1           —        VDD 1 + 0.3    V
+              围）
+VIL_nRST      芯片复位电压（CHIP_PU 应满足电压范围）                            –0.3            —     0.25 × VDD 1      V
+ 1 VDD – 各个电源域电源管脚的电压。
+ 2V
+      OH 和 VOL 为负载是高阻条件下的测试值。
+
+
+
+
+乐鑫信息科技                                            62                 ESP32-S3 系列芯片技术规格书 v2.1
+                                              反馈文档意见
+5 电气特性
+
+
+
+5.5 ADC 特性
+本章节数据是在 ADC 外接 100 nF 电容、输入为 DC 信号、25 °C 环境温度、Wi-Fi 关闭条件下的测量结果。
+
+                                   表 5-5. ADC 特性
+
+                  符号                       最小值       最大值         单位
+                  DNL（差分非线性）1                  –4         4      LSB
+                  INL（积分非线性）                   –8         8      LSB
+                  采样速度                         —         100    kSPS 2
+                   1 使用滤波器多次采样或计算平均值可以获得更好的 DNL
+                    结果。
+                   2 kSPS (kilo samples-per-second) 表示每秒采样千次。
+
+
+ADC 经硬件校准和 软件校准后的结果如表 5-6 所示。如需更高的精度，可选用其他方法自行校准。
+
+                                 表 5-6. ADC 校准结果
+
+      参数          描述                                           最小值       最大值      单位
+                  ATTEN0，有效测量范围为 0 ~ 850                          –5       5      mV
+                  ATTEN1，有效测量范围为 0 ~ 1100                         –6       6      mV
+      总误差
+                  ATTEN2，有效测量范围为 0 ~ 1600                        –10       10     mV
+                  ATTEN3，有效测量范围为 0 ~ 2900                        –50      50      mV
+
+
+
+5.6   功耗特性
+5.6.1 Active 模式下的功耗
+下列功耗数据是基于 3.3 V 供电电源、25 °C 环境温度的条件下测得。
+
+所有发射功耗数据均基于 100% 占空比测得。
+
+所有接收功耗数据均是在外设关闭、CPU 空闲的条件下测得。
+
+                       表 5-7. Active 模式下 Wi-Fi (2.4 GHz) 功耗特性
+
+           工作模式            射频模式      描述                                  峰值 (mA)
+                                     802.11b, 1 Mbps, @21 dBm                   340
+                                     802.11g, 54 Mbps, @19 dBm                  291
+                           TX
+                                     802.11n, HT20, MCS7, @18.5 dBm             283
+           Active（射频工作）
+                                     802.11n, HT40, MCS7, @18 dBm               286
+                                     802.11b/g/n, HT20                           88
+                           RX
+                                     802.11n, HT40                               91
+
+
+
+
+乐鑫信息科技                                   63                    ESP32-S3 系列芯片技术规格书 v2.1
+                                     反馈文档意见
+5 电气特性
+
+
+                             表 5-8. Active 模式下低功耗蓝牙功耗特性
+
+     工作模式               射频模式           描述                              峰值 (mA)
+                                       低功耗蓝牙 @ 21.0 dBm                         335
+                        发射（TX）         低功耗蓝牙 @ 9.0 dBm                          193
+     Active (射频工作)                     低功耗蓝牙 @ 0 dBm                            176
+                                       低功耗蓝牙 @ –15.0 dBm                        116
+                        接收（RX）         低功耗蓝牙                                     93
+
+
+
+5.6.2 其他功耗模式下的功耗
+以下功耗数据适用于 ESP32-S3 和 ESP32-S3FH8 芯片。ESP32-S3R2、ESP32-S3RH2、ESP32-S3R8、ESP32-
+S3R8V、ESP32-S3R16V 及 ESP32-S3FN4R2 由于封装内有 PSRAM，功耗数据可能略高于下表数据。
+
+                                表 5-9. Modem-sleep 模式下的功耗
+
+                 频率                                                  典型值1         典型值2
+ 工作模式           (MHz)        说明                                       (mA)            (mA)
+                             WAITI（双核均空闲）                                13.2           18.8
+                             单核执行 32 位数据访问指令，另一个核空闲                      16.2           21.8
+                             双核执行 32 位数据访问指令                             18.7           24.4
+                        40   单核执行 128 位数据访问指令，另一个核空闲                     19.9           25.4
+                             双核执行 128 位数据访问指令                           23.0            28.8
+                             WAITI                                      22.0            36.1
+                             单核执行 32 位数据访问指令，另一个核空闲                     28.4            42.6
+                             双核执行 32 位数据访问指令                             33.1           47.3
+                        80   单核执行 128 位数据访问指令，另一个核空闲                     35.1           49.6
+                             双核执行 128 位数据访问指令                            41.8           56.3
+                             WAITI                                       27.6           42.3
+                             单核执行 32 位数据访问指令，另一个核空闲                     39.9            54.6
+                             双核执行 32 位数据访问指令                            49.6            64.1
+                      160    单核执行 128 位数据访问指令，另一个核空闲                    54.4            69.2
+ Modem-sleep3
+                             双核执行 128 位数据访问指令                           66.7             81.1
+                             WAITI                                      32.9            47.6
+                             单核执行 32 位数据访问指令，另一个核空闲                      51.2           65.9
+                             双核执行 32 位数据访问指令                            66.2            81.3
+                     240     单核执行 128 位数据访问指令，另一个核空闲                    72.4             87.9
+                             双核执行 128 位数据访问指令                            91.7           107.9
+ 1 所有外设时钟关闭时的典型值。
+ 2 所有外设时钟打开时的典型值。实际情况下，外设在不同工作状态下电流会有所差异。
+ 3 Modem-sleep 模式下，Wi-Fi 设有时钟门控。该模式下，访问 flash 时功耗会增加。若 flash 速率为 80 Mbit/s，
+  SPI 双线模式下 flash 的功耗为 10 mA。
+
+
+
+
+乐鑫信息科技                                      64              ESP32-S3 系列芯片技术规格书 v2.1
+                                       反馈文档意见
+5 电气特性
+
+
+                                  表 5-10. 低功耗模式下的功耗
+
+         工作模式              说明                                                             典型值 (µA)
+         Light-sleep1      VDD_SPI 和 Wi-Fi 掉电，所有 GPIO 设置为高阻状态                                    240
+                           RTC 存储器和 RTC 外设上电                                                       8
+         Deep-sleep
+                           RTC 存储器上电，RTC 外设掉电                                                      7
+         关闭                CHIP_PU 管脚拉低，芯片关闭                                                       1
+         1 Light-sleep 模式下，SPI 相关管脚上拉。封装内有 PSRAM 的芯片请在典型值的基
+          础上添加相应的 PSRAM 功耗：8 MB 8 线 PSRAM (3.3 V) 为 140 µA；8 MB 8 线
+          PSRAM (1.8 V) 为 200 µA；2 MB 4 线 PSRAM 为 40 µA。
+
+
+
+5.7   存储器规格
+本节数据来源于存储器供应商的数据手册。以下数值已在设计阶段和/或特性验证中得到确认，但未在生产中进
+行全面测试。设备出厂时，存储器均为擦除状态。
+
+                                         表 5-11. Flash 规格
+
+              参数          说明                     最小值           典型值           最大值           单位
+                          电源电压 (1.8 V)                 1.65          1.80          2.00     V
+              VCC
+                          电源电压 (3.3 V)                 2.7           3.3            3.6     V
+              FC          最大时钟频率                        80             —             —     MHz
+              —           编程/擦除周期               100,000                —             —     次
+              TRET        数据保留时间                        20             —             —     年
+              TP P        页编程时间                          —           0.8             5     ms
+              TSE         扇区擦除时间 (4 KB)                  —            70           500     ms
+              TBE1        块擦除时间 (32 KB)                  —           0.2             2      s
+              TBE2        块擦除时间 (64 KB)                  —           0.3             3      s
+                          芯片擦除时间 (16 Mb)                 —             7            20      s
+                          芯片擦除时间 (32 Mb)                 —            20            60      s
+              TCE         芯片擦除时间 (64 Mb)                 —            25           100      s
+                          芯片擦除时间 (128 Mb)                —            60           200      s
+                          芯片擦除时间 (256 Mb)                —            70           300      s
+
+
+                                         表 5-12. PSRAM 规格
+
+                     参数      说明               最小值       典型值            最大值           单位
+                             电源电压 (1.8 V)       1.62          1.80          1.98      V
+                     VCC
+                             电源电压 (3.3 V)        2.7          3.3           3.6       V
+                     FC      最大时钟频率              80             —            —       MHz
+
+
+
+5.8 可靠性
+
+
+
+
+乐鑫信息科技                                          65                          ESP32-S3 系列芯片技术规格书 v2.1
+                                            反馈文档意见
+5 电气特性
+
+
+                            表 5-13. 可靠性认证
+
+  测试项目              测试条件                         测试标准
+  HTOL（高温工作寿命）      125 °C，1000 小时               JESD22-A108
+                    HBM（人体放电模式）1 ± 2000 V        JS-001
+  ESD（静电放电敏感度)
+                    CDM（充电器件模式）2 ± 1000 V        JS-002
+                    过电流 ± 200 mA
+  闩锁测试 (Latch-up)                                JESD78
+                    过电压 1.5 × VDDmax
+                    烘烤：125 °C，24 小时
+                                                 J-STD-020、JESD47、
+  预处理测试             浸泡：三级（30 °C，60% RH，192 小时）
+                                                 JESD22-A113
+                    回流焊：260 + 0 °C，20 秒，三次
+  TCT（温度循环测试）       –65 °C / 150 °C，500 次循环      JESD22-A104
+  uHAST（无偏压高加速温
+                    130 °C，85% RH，96 小时          JESD22-A118
+  湿度应力试验）
+  HTSL（高温贮存寿命）      150 °C，1000 小时               JESD22-A103
+  LTSL（低温存储寿命）      –40 °C，1000 小时               JESD22-A119
+  1 JEDEC 文档 JEP155 规定：500 V HBM 能够在标准 ESD 控制流程下安全生产。
+  2 JEDEC 文档 JEP157 规定：250 V CDM 能够在标准 ESD 控制流程下安全生产。
+
+
+
+
+乐鑫信息科技                               66       ESP32-S3 系列芯片技术规格书 v2.1
+                               反馈文档意见
+6   射频特性
+
+
+
+6 射频特性
+本章提供产品的射频特性表。
+
+射频数据是在天线端口处连接射频线后测试所得，包含了射频前端电路带来的损耗。射频前端电路为 0 Ω 电
+阻。
+
+工作信道中心频率范围应符合国家或地区的规范标准。软件可以配置工作信道中心频率范围，具体请参考《ESP
+射频测试指南》。
+
+除非特别说明，射频测试均是在 3.3 V (±5%) 供电电源、25 °C 环境温度的条件下完成。
+
+
+6.1   Wi-Fi 射频
+
+                                   表 6-1. Wi-Fi 射频规格
+
+             名称                                    描述
+             工作信道中心频率范围                            2412 ~ 2484 MHz
+             无线标准                                  IEEE 802.11b/g/n
+
+
+
+6.1.1 Wi-Fi 射频发射器 (TX) 规格
+
+                   表 6-2. 频谱模板和 EVM 符合 802.11 标准时的发射功率
+
+                                                         最小值       典型值       最大值
+             速率                                          (dBm)      (dBm)     (dBm)
+             802.11b, 1 Mbps                                   —      21.0           —
+             802.11b, 11 Mbps                                  —      21.0           —
+             802.11g, 6 Mbps                                   —      20.5           —
+             802.11g, 54 Mbps                                  —      19.0           —
+             802.11n, HT20, MCS0                               —      19.5           —
+             802.11n, HT20, MCS7                               —      18.5           —
+             802.11n, HT40, MCS0                               —      19.5           —
+             802.11n, HT40, MCS7                               —      18.0           —
+
+
+
+                                   表 6-3. 发射 EVM 测试1
+
+                                                       最小值         典型值       标准限值
+             速率                                         (dB)       (dB)       (dB)
+             802.11b, 1 Mbps, @21 dBm                      —       –24.5         –10
+             802.11b, 11 Mbps, @21 dBm                     —       –24.5         –10
+             802.11g, 6 Mbps, @20.5 dBm                    —       –21.5         –5
+             802.11g, 54 Mbps, @19 dBm                     —       –28.0        –25
+             802.11n, HT20, MCS0, @19.5 dBm                —       –23.0         –5
+             802.11n, HT20, MCS7, @18.5 dBm                —       –29.5        –27
+                                                                              见下页
+
+
+
+乐鑫信息科技                                        67                      ESP32-S3 系列芯片技术规格书 v2.1
+                                         反馈文档意见
+6   射频特性
+
+
+                                      表 6-3 – 接上页
+                                                   最小值        典型值       标准限值
+               速率                                  (dB)       (dB)       (dB)
+               802.11n, HT40, MCS0, @19.5 dBm         —       –23.0         –5
+               802.11n, HT40, MCS7, @18 dBm           —       –29.5        –27
+               1 发射 EVM 的每个测试项对应的发射功率为表 6-2 频谱模板和 EVM 符
+                合 802.11 标准时的发射功率 中提供的典型值。
+
+
+6.1.2   Wi-Fi 射频接收器 (RX) 规格
+802.11b 标准下的误包率 (PER) 不超过 8%，802.11g/n 标准下不超过 10%。
+
+                                     表 6-4. 接收灵敏度
+
+                                                   最小值        典型值       最大值
+               速率                                   (dBm)      (dBm)     (dBm)
+               802.11b, 1 Mbps                            —    –98.4            —
+               802.11b, 2 Mbps                            —    –95.4            —
+               802.11b, 5.5 Mbps                          —    –93.0            —
+               802.11b, 11 Mbps                           —     –88.6           —
+               802.11g, 6 Mbps                            —    –93.2            —
+               802.11g, 9 Mbps                            —     –91.8           —
+               802.11g, 12 Mbps                           —     –91.2           —
+               802.11g, 18 Mbps                           —     –88.6           —
+               802.11g, 24 Mbps                           —    –86.0            —
+               802.11g, 36 Mbps                           —    –82.4            —
+               802.11g, 48 Mbps                           —     –78.2           —
+               802.11g, 54 Mbps                           —     –76.5           —
+               802.11n, HT20, MCS0                        —    –92.6            —
+               802.11n, HT20, MCS1                        —     –91.0           —
+               802.11n, HT20, MCS2                        —    –88.2            —
+               802.11n, HT20, MCS3                        —    –85.0            —
+               802.11n, HT20, MCS4                        —     –81.8           —
+               802.11n, HT20, MCS5                        —     –77.4           —
+               802.11n, HT20, MCS6                        —     –75.8           —
+               802.11n, HT20, MCS7                        —     –74.2           —
+               802.11n, HT40, MCS0                        —    –90.0            —
+               802.11n, HT40, MCS1                        —    –88.0            —
+               802.11n, HT40, MCS2                        —    –85.2            —
+               802.11n, HT40, MCS3                        —    –82.0            —
+               802.11n, HT40, MCS4                        —     –79.0           —
+               802.11n, HT40, MCS5                        —     –74.4           —
+               802.11n, HT40, MCS6                        —     –72.8           —
+               802.11n, HT40, MCS7                        —     –71.4           —
+
+
+
+
+乐鑫信息科技                                        68                ESP32-S3 系列芯片技术规格书 v2.1
+                                        反馈文档意见
+6   射频特性
+
+
+                                  表 6-5. 最大接收电平
+
+                                                 最小值      典型值         最大值
+           速率                                    (dBm)    (dBm)       (dBm)
+           802.11b, 1 Mbps                           —        5          —
+           802.11b, 11 Mbps                          —        5          —
+           802.11g, 6 Mbps                           —        5          —
+           802.11g, 54 Mbps                          —        0          —
+           802.11n, HT20, MCS0                       —        5          —
+           802.11n, HT20, MCS7                       —        0          —
+           802.11n, HT40, MCS0                       —        5          —
+           802.11n, HT40, MCS7                       —        0          —
+
+
+                                  表 6-6. 接收邻道抑制
+
+                                                 最小值      典型值         最大值
+           速率                                     (dB)    (dB)        (dB)
+           802.11b, 1 Mbps                           —       35          —
+           802.11b, 11 Mbps                          —       35          —
+           802.11g, 6 Mbps                           —       31          —
+           802.11g, 54 Mbps                          —       20          —
+           802.11n, HT20, MCS0                       —       31          —
+           802.11n, HT20, MCS7                       —       16          —
+           802.11n, HT40, MCS0                       —       25          —
+           802.11n, HT40, MCS7                       —       11          —
+
+
+
+6.2   低功耗蓝牙射频
+
+                                 表 6-7. 低功耗蓝牙频率
+
+                                                 最小值      典型值         最大值
+           参数                                    (MHz)    (MHz)       (MHz)
+           工作信道中心频率                               2402       —         2480
+
+
+
+6.2.1 低功耗蓝牙射频发射器 (TX) 规格
+
+                        表 6-8. 发射器特性 - 低功耗蓝牙 1 Mbps
+
+      参数              描述                         最小值      典型值          最大值        单位
+                      射频功率控制范围                   –24.00           0     20.00     dBm
+      射频发射功率
+                      增益控制步长                         —      3.00              —   dB
+                      |fn |n=0, 1, 2, ..k 最大值        —      2.50              —   kHz
+                      |f0 − fn | 最大值                 —      2.00              —   kHz
+      载波频率偏移和漂移
+                      |fn − fn−5 | 最大值               —       1.39             —   kHz
+                                                                                  见下页
+
+
+乐鑫信息科技                                      69             ESP32-S3 系列芯片技术规格书 v2.1
+                                       反馈文档意见
+6   射频特性
+
+
+                                   表 6-8 – 接上页
+      参数           描述                            最小值      典型值       最大值     单位
+                   |f1 − f0 |                        —      0.80       —    kHz
+                   ∆ f 1avg                          —    249.00       —    kHz
+                   ∆ f 2max 最小值
+      调制特性                                           —    198.00       —    kHz
+                  （至少 99.9% 的 ∆ f 2max ）
+                   ∆ f 2avg /∆ f 1avg                —      0.86       —    —
+                   ± 2 MHz 偏移                        —    –37.00       —    dBm
+      带内杂散发射       ± 3 MHz 偏移                        —    –42.00       —    dBm
+                   > ± 3 MHz 偏移                      —    –44.00       —    dBm
+
+
+
+                     表 6-9. 发射器特性 - 低功耗蓝牙 2 Mbps
+
+      参数           描述                            最小值      典型值       最大值     单位
+                   射频功率控制范围                      –24.00        0    20.00   dBm
+      射频发射功率
+                   增益控制步长                            —      3.00       —    dB
+                   |fn |n=0, 1, 2, ..k 最大值           —      2.50       —    kHz
+                   |f0 − fn | 最大值                    —      1.90       —    kHz
+      载波频率偏移和漂移
+                   |fn − fn−5 | 最大值                  —      1.40       —    kHz
+                   |f1 − f0 |                        —       1.10      —    kHz
+                   ∆ f 1avg                          —    499.00       —    kHz
+                   ∆ f 2max 最小值
+      调制特性                                           —    416.00       —    kHz
+                  （至少 99.9% 的 ∆ f 2max ）
+                   ∆ f 2avg /∆ f 1avg                —      0.89       —    —
+                   ± 4 MHz 偏移                        —    –43.80       —    dBm
+      带内杂散发射       ± 5 MHz 偏移                        —    –45.80       —    dBm
+                   > ± 5 MHz 偏移                      —    –47.00       —    dBm
+
+
+
+                   表 6-10. 发射器特性 - 低功耗蓝牙 125 Kbps
+
+      参数           描述                            最小值      典型值       最大值     单位
+                   射频功率控制范围                      –24.00        0    20.00   dBm
+      射频发射功率
+                   增益控制步长                            —      3.00       —    dB
+                   |fn |n=0, 1, 2, ..k 最大值           —      0.80       —    kHz
+                   |f0 − fn | 最大值                    —      0.98       —    kHz
+      载波频率偏移和漂移
+                   |fn − fn−3 |                      —      0.30       —    kHz
+                   |f0 − f3 |                        —      1.00       —    kHz
+                   ∆ f 1avg                          —    248.00       —    kHz
+      调制特性         ∆ f 1max 最小值
+                                                     —    222.00       —    kHz
+                  （至少 99.9% 的 ∆ f 1max ）
+                   ± 2 MHz 偏移                        —    –37.00       —    dBm
+      带内杂散发射       ± 3 MHz 偏移                        —    –42.00       —    dBm
+                   > ± 3 MHz 偏移                      —    –44.00       —    dBm
+
+
+
+
+乐鑫信息科技                                    70              ESP32-S3 系列芯片技术规格书 v2.1
+                                        反馈文档意见
+6   射频特性
+
+
+                         表 6-11. 发射器特性 - 低功耗蓝牙 500 Kbps
+
+         参数              描述                                最小值       典型值       最大值        单位
+                         射频功率控制范围                          –24.00         0      20.00    dBm
+         射频发射功率
+                         增益控制步长                                —       3.00           —   dB
+                         |fn |n=0, 1, 2, ..k 最大值               —       0.70           —   kHz
+                         |f0 − fn | 最大值                        —       0.90           —   kHz
+         载波频率偏移和漂移
+                         |fn − fn−3 |                          —       0.85           —   kHz
+                         |f0 − f3 |                            —       0.34           —   kHz
+                         ∆ f 2avg                              —     213.00           —   kHz
+         调制特性            ∆ f 2max 最小值
+                                                               —     196.00           —   kHz
+                        （至少 99.9% 的 ∆ f 2max ）
+                         ± 2 MHz 偏移                            —     –37.00           —   dBm
+         带内杂散发射          ± 3 MHz 偏移                            —     –42.00           —   dBm
+                         > ± 3 MHz 偏移                          —     –44.00           —   dBm
+
+
+
+
+6.2.2 低功耗蓝牙射频接收器 (RX) 规格
+
+                           表 6-12. 接收器特性 - 低功耗蓝牙 1 Mbps
+
+    参数                                描述                            最小值    典型值        最大值       单位
+    灵敏度 @30.8% PER                    —                               —       –97.5       —     dBm
+    最大接收信号 @30.8% PER                 —                               —          8        —     dBm
+    共信道抑制比 C/I                        F = F0 MHz                      —          9        —     dB
+                                      F = F0 + 1 MHz                  —         –3        —     dB
+                                      F = F0 – 1 MHz                  —         –3        —     dB
+                                      F = F0 + 2 MHz                  —        –28        —     dB
+                                      F = F0 – 2 MHz                  —        –30        —     dB
+    邻道选择性抑制比 C/I
+                                      F = F0 + 3 MHz                  —        –31        —     dB
+                                      F = F0 – 3 MHz                  —        –33        —     dB
+                                      F > F0 + 3 MHz                  —        –32        —     dB
+                                      F > F0 – 3 MHz                  —        –36        —     dB
+    镜像频率                              —                               —        –32        —     dB
+                                      F = Fimage + 1 MHz              —        –39        —     dB
+    邻道镜像频率干扰
+                                      F = Fimage – 1 MHz              —        –31        —     dB
+                                      30 MHz ~ 2000 MHz               —         –9        —     dBm
+                                      2003 MHz ~ 2399 MHz             —        –19        —     dBm
+    带外阻塞
+                                      2484 MHz ~ 2997 MHz             —        –16        —     dBm
+                                      3000 MHz ~ 12.75 GHz            —         –5        —     dBm
+    互调                                —                               —        –31        —     dBm
+
+
+
+
+乐鑫信息科技                                             71                ESP32-S3 系列芯片技术规格书 v2.1
+                                            反馈文档意见
+6   射频特性
+
+
+                        表 6-13. 接收器特性 - 低功耗蓝牙 2 Mbps
+
+    参数                       描述                     最小值   典型值      最大值   单位
+    灵敏度 @30.8% PER           —                        —   –93.5      —   dBm
+    最大接收信号 @30.8% PER        —                        —       3      —   dBm
+    共信道干扰 C/I                F = F0 MHz               —      10      —   dB
+                             F = F0 + 2 MHz           —      –8      —   dB
+                             F = F0 – 2 MHz           —      –5      —   dB
+                             F = F0 + 4 MHz           —      –31     —   dB
+                             F = F0 – 4 MHz           —     –33      —   dB
+    邻道选择性抑制比 C/I
+                             F = F0 + 6 MHz           —     –37      —   dB
+                             F = F0 – 6 MHz           —     –37      —   dB
+                             F > F0 + 6 MHz           —     –40      —   dB
+                             F > F0 – 6 MHz           —     –40      —   dB
+    镜像频率                     —                        —      –31     —   dB
+                             F = Fimage + 2 MHz       —     –37      —   dB
+    邻道镜像频率干扰
+                             F = Fimage – 2 MHz       —      –8      —   dB
+                             30 MHz ~ 2000 MHz        —     –16      —   dBm
+                             2003 MHz ~ 2399 MHz      —     –20      —   dBm
+    带外阻塞
+                             2484 MHz ~ 2997 MHz      —     –16      —   dBm
+                             3000 MHz ~ 12.75 GHz     —     –16      —   dBm
+    互调                       —                        —     –30      —   dBm
+
+
+
+                        表 6-14. 接收器特性 - 低功耗蓝牙 125 Kbps
+
+    参数                       描述                     最小值   典型值      最大值   单位
+    灵敏度 @30.8% PER           —                        —   –104.5     —   dBm
+    最大接收信号 @30.8% PER        —                        —       8      —   dBm
+    共信道抑制比 C/I               F = F0 MHz               —       6      —   dB
+                             F = F0 + 1 MHz           —      –6      —   dB
+                             F = F0 – 1 MHz           —      –5      —   dB
+                             F = F0 + 2 MHz           —     –32      —   dB
+                             F = F0 – 2 MHz           —     –39      —   dB
+    邻道选择性抑制比 C/I
+                             F = F0 + 3 MHz           —     –35      —   dB
+                             F = F0 – 3 MHz           —     –45      —   dB
+                             F > F0 + 3 MHz           —     –35      —   dB
+                             F > F0 – 3 MHz           —     –48      —   dB
+    镜像频率                     —                        —     –35      —   dB
+                             F = Fimage + 1 MHz       —     –49      —   dB
+    邻道镜像频率干扰
+                             F = Fimage – 1 MHz       —     –32      —   dB
+
+
+
+
+乐鑫信息科技                                    72         ESP32-S3 系列芯片技术规格书 v2.1
+                                   反馈文档意见
+6   射频特性
+
+
+                        表 6-15. 接收器特性 - 低功耗蓝牙 500 Kbps
+
+    参数                        描述                   最小值   典型值     最大值   单位
+    灵敏度 @30.8% PER            —                      —    –101     —   dBm
+    最大接收信号 @30.8% PER         —                      —      8      —   dBm
+    共信道抑制比 C/I                F = F0 MHz             —      4      —   dB
+                              F = F0 + 1 MHz         —     –5      —   dB
+                              F = F0 – 1 MHz         —     –5      —   dB
+                              F = F0 + 2 MHz         —    –28      —   dB
+                              F = F0 – 2 MHz         —    –36      —   dB
+    邻道选择性抑制比 C/I
+                              F = F0 + 3 MHz         —    –36      —   dB
+                              F = F0 – 3 MHz         —    –38      —   dB
+                              F > F0 + 3 MHz         —    –37      —   dB
+                              F > F0 – 3 MHz         —    –41      —   dB
+    镜像频率                      —                      —    –37      —   dB
+                              F = Fimage + 1 MHz     —    –44      —   dB
+    邻道镜像频率干扰
+                              F = Fimage – 1 MHz     —    –28      —   dB
+
+
+
+
+乐鑫信息科技                                     73       ESP32-S3 系列芯片技术规格书 v2.1
+                                    反馈文档意见
+7   封装
+
+
+
+7 封装
+    • 有关卷带、载盘和产品标签的信息，请参阅 《ESP32-S3 芯片包装信息》。
+
+    • 俯视图中，芯片管脚从 Pin 1 位置开始按逆时针方向编号。关于管脚序号和名称的详细信息，请参考图 2-1
+     ESP32-S3 管脚布局（俯视图）。
+
+    • 推荐 PCB 封装图 源文件 (asc) 供您下载，可使用 PADS 或 Altium Designer 等软件导入。
+
+    • ESP32-S3FH4R2 芯片的封装（见图 7-2）除 EPAD 尺寸更大外，与其他 ESP32-S3 芯片封装（见图 7-1）相
+     同。ESP32-S3FH4R2 芯片同样可使用 推荐 PCB 封装图 源文件 (asc)，但需更改其中的 EPAD 尺寸（具体
+     见图 7-2 中的 D2 和 E2）
+                      。
+
+
+
+
+         Pin 1                                               Pin 1
+         Pin 2                                               Pin 2
+         Pin 3                                               Pin 3
+
+
+
+
+                            图 7-1. QFN56 (7×7 mm) 封装
+
+
+
+
+乐鑫信息科技                                 74              ESP32-S3 系列芯片技术规格书 v2.1
+                                  反馈文档意见
+7                                                                                                                                    封装
+
+
+7KLVGRFXPHQWDQGLWVLQIRUPDWLRQKHUHLQDUHWKHSURSHUW\RI)RUHKRSHDQGDOOXQDXWKRUL]HGXVHDQGUHSURGXFWLRQDUHSURKLELWHG
+
+
+
+
+                                                                                                                                                                        
+
+
+
+
+                                                                                                                                                                                                          g
+
+
+
+
+                                                                                                                                                                                        ᳼჋‫ދ‬Ᏻ                                                   3DGUDLF
+
+                                                                                                                                                                                                                                               6KDZQ
+                                                                                                                                                                                        FOREHOPE ELECTRONIC
+
+
+
+
+                                                                                                                                                                                                                              6,*1$785($5($
+                                                                                                                                                                                         ӗ૱ཆᖒമ
+                                                                                                                                                                                       4)1:%h/%                $
+                                                                                                                                                                                         37
+
+
+
+
+                                                                                                                                                                                          2)                     
+
+                                                                                                                                  )25(+23(&21),'(17,$/%
+
+
+
+
+                                                                                                                                                            图 7-2. QFN56 (7×7 mm) 封装（仅适用于 ESP32-S3FH4R2）
+
+
+
+
+乐鑫信息科技                                                                                                                                                                          75                            ESP32-S3 系列芯片技术规格书 v2.1
+                                                                                                                                                                             反馈文档意见
+         乐鑫信息科技
+
+
+
+
+                                                                                                                                                                                                                                                                             ESP32-S3 管脚总览
+                                   ESP32-S3 管脚总览
+                                                                                                                                      表 7-1. 管脚总览
+                                                                                        管脚配置                  RTC IO MUX 功能                     模拟功能                                                            IO MUX 功能
+                                     管脚序号   管脚名称         管脚类型   供电管脚                 复位时   复位后           F0           F3              F0           F1         F0              类型       F1       类型      F2                  类型       F3          类型       F4        类型
+                                     1      LNA_IN       模拟
+                                     2      VDD3P3       电源
+                                     3      VDD3P3       电源
+                                     4      CHIP_PU      模拟     VDD3P3_RTC
+                                     5      GPIO0        IO     VDD3P3_RTC           WPU, IE   WPU, IE   RTC_GPIO0    sar_i2c_scl_0                           GPIO0           I/O/T    GPIO0    I/O/T
+                                     6      GPIO1        IO     VDD3P3_RTC           IE        IE        RTC_GPIO1    sar_i2c_sda_0   TOUCH1       ADC1_CH0   GPIO1           I/O/T    GPIO1    I/O/T
+                                     7      GPIO2        IO     VDD3P3_RTC           IE        IE        RTC_GPIO2    sar_i2c_scl_1   TOUCH2       ADC1_CH1   GPIO2           I/O/T    GPIO2    I/O/T
+                                     8      GPIO3        IO     VDD3P3_RTC           IE        IE        RTC_GPIO3    sar_i2c_sda_1   TOUCH3       ADC1_CH2   GPIO3           I/O/T    GPIO3    I/O/T
+                                     9      GPIO4        IO     VDD3P3_RTC                               RTC_GPIO4                    TOUCH4       ADC1_CH3   GPIO4           I/O/T    GPIO4    I/O/T
+                                     10     GPIO5        IO     VDD3P3_RTC                               RTC_GPIO5                    TOUCH5       ADC1_CH4   GPIO5           I/O/T    GPIO5    I/O/T
+                                     11     GPIO6        IO     VDD3P3_RTC                               RTC_GPIO6                    TOUCH6       ADC1_CH5   GPIO6           I/O/T    GPIO6    I/O/T
+                                     12     GPIO7        IO     VDD3P3_RTC                               RTC_GPIO7                    TOUCH7       ADC1_CH6   GPIO7           I/O/T    GPIO7    I/O/T
+                                     13     GPIO8        IO     VDD3P3_RTC                               RTC_GPIO8                    TOUCH8       ADC1_CH7   GPIO8           I/O/T    GPIO8    I/O/T                                SUBSPICS1   O/T
+                                     14     GPIO9        IO     VDD3P3_RTC                     IE        RTC_GPIO9                    TOUCH9       ADC1_CH8   GPIO9           I/O/T    GPIO9    I/O/T                                SUBSPIHD    I1/O/T   FSPIHD    I1/O/T
+                                     15     GPIO10       IO     VDD3P3_RTC                     IE        RTC_GPIO10                   TOUCH10      ADC1_CH9   GPIO10          I/O/T    GPIO10   I/O/T   FSPIIO4             I1/O/T   SUBSPICS0   O/T      FSPICS0   I1/O/T
+                                     16     GPIO11       IO     VDD3P3_RTC                     IE        RTC_GPIO11                   TOUCH11      ADC2_CH0   GPIO11          I/O/T    GPIO11   I/O/T   FSPIIO5             I1/O/T   SUBSPID     I1/O/T   FSPID     I1/O/T
+                                     17     GPIO12       IO     VDD3P3_RTC                     IE        RTC_GPIO12                   TOUCH12      ADC2_CH1   GPIO12          I/O/T    GPIO12   I/O/T   FSPIIO6             I1/O/T   SUBSPICLK   O/T      FSPICLK   I1/O/T
+                                     18     GPIO13       IO     VDD3P3_RTC                     IE        RTC_GPIO13                   TOUCH13      ADC2_CH2   GPIO13          I/O/T    GPIO13   I/O/T   FSPIIO7             I1/O/T   SUBSPIQ     I1/O/T   FSPIQ     I1/O/T
+                                     19     GPIO14       IO     VDD3P3_RTC                     IE        RTC_GPIO14                   TOUCH14      ADC2_CH3   GPIO14          I/O/T    GPIO14   I/O/T   FSPIDQS             O/T      SUBSPIWP    I1/O/T   FSPIWP    I1/O/T
+                                     20     VDD3P3_RTC   电源
+                                     21     XTAL_32K_P   IO     VDD3P3_RTC                               RTC_GPIO15                   XTAL_32K_P   ADC2_CH4   GPIO15          I/O/T    GPIO15   I/O/T   U0RTS               O
+                                     22     XTAL_32K_N   IO     VDD3P3_RTC                               RTC_GPIO16                   XTAL_32K_N   ADC2_CH5   GPIO16          I/O/T    GPIO16   I/O/T   U0CTS               I1
+反馈文档意见
+
+
+
+
+                                     23     GPIO17       IO     VDD3P3_RTC                     IE        RTC_GPIO17                                ADC2_CH6   GPIO17          I/O/T    GPIO17   I/O/T   U1TXD               O
+                                     24     GPIO18       IO     VDD3P3_RTC                     IE        RTC_GPIO18                                ADC2_CH7   GPIO18          I/O/T    GPIO18   I/O/T   U1RXD               I1       CLK_OUT3    O
+                                     25     GPIO19       IO     VDD3P3_RTC                               RTC_GPIO19                   USB_D-       ADC2_CH8   GPIO19          I/O/T    GPIO19   I/O/T   U1RTS               O        CLK_OUT2    O
+         76
+
+
+
+
+                                     26     GPIO20       IO     VDD3P3_RTC           USB_PU    USB_PU    RTC_GPIO20                   USB_D+       ADC2_CH9   GPIO20          I/O/T    GPIO20   I/O/T   U1CTS               I1       CLK_OUT1    O
+                                     27     GPIO21       IO     VDD3P3_RTC                               RTC_GPIO21                                           GPIO21          I/O/T    GPIO21   I/O/T
+                                     28     SPICS1       IO     VDD_SPI              WPU, IE   WPU, IE                                                        SPICS1          O/T      GPIO26   I/O/T
+                                     29     VDD_SPI      电源
+                                     30     SPIHD        IO     VDD_SPI              WPU, IE   WPU, IE                                                        SPIHD           I1/O/T   GPIO27   I/O/T
+                                     31     SPIWP        IO     VDD_SPI              WPU, IE   WPU, IE                                                        SPIWP           I1/O/T   GPIO28   I/O/T
+                                     32     SPICS0       IO     VDD_SPI              WPU, IE   WPU, IE                                                        SPICS0          O/T      GPIO29   I/O/T
+                                     33     SPICLK       IO     VDD_SPI              WPU, IE   WPU, IE                                                        SPICLK          O/T      GPIO30   I/O/T
+                                     34     SPIQ         IO     VDD_SPI              WPU, IE   WPU, IE                                                        SPIQ            I1/O/T   GPIO31   I/O/T
+                                     35     SPID         IO     VDD_SPI              WPU, IE   WPU, IE                                                        SPID            I1/O/T   GPIO32   I/O/T
+                                     36     SPICLK_N     IO     VDD_SPI/VDD3P3_CPU   IE        IE                                                             SPICLK_N_DIFF   O/T      GPIO48   I/O/T   SUBSPICLK_N_DIFF    O/T
+                                     37     SPICLK_P     IO     VDD_SPI/VDD3P3_CPU   IE        IE                                                             SPICLK_P_DIFF   O/T      GPIO47   I/O/T   SUBSPICLK_P_DIFF    O/T
+                                     38     GPIO33       IO     VDD_SPI/VDD3P3_CPU             IE                                                             GPIO33          I/O/T    GPIO33   I/O/T   FSPIHD              I1/O/T   SUBSPIHD    I1/O/T   SPIIO4    I1/O/T
+         ESP32-S3 系列芯片技术规格书 v2.1
+
+
+
+
+                                     39     GPIO34       IO     VDD_SPI/VDD3P3_CPU             IE                                                             GPIO34          I/O/T    GPIO34   I/O/T   FSPICS0             I1/O/T   SUBSPICS0   O/T      SPIIO5    I1/O/T
+                                     40     GPIO35       IO     VDD_SPI/VDD3P3_CPU             IE                                                             GPIO35          I/O/T    GPIO35   I/O/T   FSPID               I1/O/T   SUBSPID     I1/O/T   SPIIO6    I1/O/T
+                                     41     GPIO36       IO     VDD_SPI/VDD3P3_CPU             IE                                                             GPIO36          I/O/T    GPIO36   I/O/T   FSPICLK             I1/O/T   SUBSPICLK   O/T      SPIIO7    I1/O/T
+                                     42     GPIO37       IO     VDD_SPI/VDD3P3_CPU             IE                                                             GPIO37          I/O/T    GPIO37   I/O/T   FSPIQ               I1/O/T   SUBSPIQ     I1/O/T   SPIDQS    I0/O/T
+                                     43     GPIO38       IO     VDD3P3_CPU                     IE                                                             GPIO38          I/O/T    GPIO38   I/O/T   FSPIWP              I1/O/T   SUBSPIWP    I1/O/T
+                                     44     MTCK         IO     VDD3P3_CPU                     IE                                                             MTCK            I1       GPIO39   I/O/T   CLK_OUT3            O        SUBSPICS1   O/T
+                                     45     MTDO         IO     VDD3P3_CPU                     IE                                                             MTDO            O/T      GPIO40   I/O/T   CLK_OUT2            O
+                                     46     VDD3P3_CPU   电源
+                                     47     MTDI         IO     VDD3P3_CPU                     IE                                                             MTDI            I1       GPIO41   I/O/T   CLK_OUT1            O
+                                     48     MTMS         IO     VDD3P3_CPU                     IE                                                             MTMS            I1       GPIO42   I/O/T
+                                     49     U0TXD        IO     VDD3P3_CPU           WPU, IE   WPU, IE                                                        U0TXD           O        GPIO43   I/O/T   CLK_OUT1            O
+                                     50     U0RXD        IO     VDD3P3_CPU           WPU, IE   WPU, IE                                                        U0RXD           I1       GPIO44   I/O/T   CLK_OUT2            O
+                                     51     GPIO45       IO     VDD3P3_CPU           WPD, IE   WPD, IE                                                        GPIO45          I/O/T    GPIO45   I/O/T
+                                     52     GPIO46       IO     VDD3P3_CPU           WPD, IE   WPD, IE                                                        GPIO46          I/O/T    GPIO46   I/O/T
+                                     53     XTAL_N       模拟
+                                     54     XTAL_P       模拟
+                                     55     VDDA         电源
+                                     56     VDDA         电源
+                                     57     GND          电源
+                                     * 更多信息，详见章节 2 管脚。 高亮 的单元格，请参考章节 2.3.4 GPIO 和 RTC_GPIO 的限制。
+技术规格书版本号管理
+
+
+
+技术规格书版本号管理
+
+技术规格书版本         状态   水印                    定义
+v0.1 ~ v0.5（不                              该技术规格书正在完善。对应产品处于设计阶段，
+                草稿   Confidential
+包括 v0.5）                                   产品规格如有变更，恕不另行通知。
+                                           该技术规格书正在积极更新。对应产品处于验证
+v0.5 ~ v1.0（不   初步
+                     Preliminary           阶段，产品规格可能会在量产前变更，并记录在
+包括 v1.0）        发布
+                                           技术规格书的修订历史中。
+                                           该技术规格书已公开发布。对应产品已量产，产
+                正式
+v1.0 及更高版本           —                     品规格已最终确定，重大变更将通过
+                发布
+                                           产品变更通知 (PCN) 进行通知。
+                                           该技术规格书更新频率较低，对应产品不推荐用
+任意版本            —    不推荐用于新设计 (NRND)1
+                                           于新设计。
+任意版本            —    停产 (EOL)2             该技术规格书不再维护，对应产品已停产。
+1 技术规格书涵盖的所有产品型号均不推荐用于新设计时，封面才会添加水印。
+2 技术规格书涵盖的所有产品型号均停产时，封面才会添加水印。
+
+
+
+
+乐鑫信息科技                                77           ESP32-S3 系列芯片技术规格书 v2.1
+                                    反馈文档意见
+词汇表
+
+
+
+词汇表
+
+模块
+
+     芯片内部用于扩展功能的一个单元，例如加密模块、射频模块 2
+
+外设
+
+     芯片内部用于与外界通讯的硬件组件或子系统 2
+
+封装内 flash
+
+     集成于芯片封装内部、位于芯片晶圆外部的 flash 4, 14
+
+封装外 flash
+
+     位于芯片封装外部的 flash 20
+
+strapping 管脚
+
+     芯片上电时用于某些配置的一种 GPIO 管脚，可在芯片复位后重新配置为普通 GPIO 32
+
+eFuse 参数
+
+     存储在芯片内 eFuse 存储器中的参数。可以通过写 EFUSE_PGM_DATAn_REG 寄存器设置，通过读取与参
+     数同名的寄存器字段获得具体值 32
+
+SPI boot 模式
+
+     从 SPI flash 中加载和执行现有代码的启动模式 33
+
+joint download boot 模式
+
+     通过 UART 或其他接口（见表 3-3 芯片启动模式控制 > 注释）下载代码到 flash 中、并从 flash 或 SRAM 中
+     加载和执行下载代码的启动模式 33
+
+eFuse
+
+     一次性可编程 (OTP) 存储器，用于存储系统和用户参数，例如 MAC 地址、芯片版本号、flash 加密密钥等。
+     值为 0 表示默认状态，值为 1 表示已烧写 38
+
+
+
+
+乐鑫信息科技                             78           ESP32-S3 系列芯片技术规格书 v2.1
+                                反馈文档意见
+相关文档和资源
+
+
+
+相关文档和资源
+相关文档
+ • 《ESP32-S3 技术参考手册》 – 提供 ESP32-S3 芯片的存储器和外设的详细使用说明。
+ • 《ESP32-S3 硬件设计指南》 – 提供基于 ESP32-S3 芯片的产品设计规范。
+ • 《ESP32-S3 系列芯片勘误表》 – 描述 ESP32-S3 系列芯片的已知错误。
+ • 证书
+  https://espressif.com/zh-hans/support/documents/certificates
+ • ESP32-S3 产品/工艺变更通知 (PCN)
+  https://espressif.com/zh-hans/support/documents/pcns?keys=ESP32-S3
+ • ESP32-S3 公告 – 提供有关安全、bug、兼容性、器件可靠性的信息
+  https://espressif.com/zh-hans/support/documents/advisories?keys=ESP32-S3
+ • 文档更新和订阅通知
+  https://espressif.com/zh-hans/support/download/documents
+
+开发者社区
+ • 《ESP32-S3 ESP-IDF 编程指南》 – ESP-IDF 开发框架的文档中心。
+ • ESP-IDF 及 GitHub 上的其它开发框架
+  https://github.com/espressif
+ • ESP32 论坛 – 工程师对工程师 (E2E) 的社区，您可以在这里提出问题、解决问题、分享知识、探索观点。
+  https://esp32.com/
+ • ESP-FAQ – 由乐鑫官方推出的针对常见问题的总结。
+  https://espressif.com/projects/esp-faq/zh_CN/latest/index.html
+ • The ESP Journal – 分享乐鑫工程师的最佳实践、技术文章和工作随笔。
+  https://blog.espressif.com/
+ • SDK 和演示、App、工具、AT 等下载资源
+  https://espressif.com/zh-hans/support/download/sdks-demos
+
+产品
+ • ESP32-S3 系列芯片 – ESP32-S3 全系列芯片。
+  https://espressif.com/zh-hans/products/socs?id=ESP32-S3
+ • ESP32-S3 系列模组 – ESP32-S3 全系列模组。
+  https://espressif.com/zh-hans/products/modules?id=ESP32-S3
+ • ESP32-S3 系列开发板 – ESP32-S3 全系列开发板。
+  https://espressif.com/zh-hans/products/devkits?id=ESP32-S3
+ • ESP Product Selector（乐鑫产品选型工具）– 通过筛选性能参数、进行产品对比快速定位您所需要的产品。
+  https://products.espressif.com/#/product-selector?language=zh
+
+联系我们
+ • 商务问题、技术支持、电路原理图 & PCB 设计审阅、购买样品（线上商店）、成为供应商、意见与建议
+  https://espressif.com/zh-hans/contact-us/sales-questions
+
+
+
+
+乐鑫信息科技                                          79                 ESP32-S3 系列芯片技术规格书 v2.1
+                                           反馈文档意见
+修订历史
+
+
+
+修订历史
+
+日期           版本     发布说明
+                     • 更新 ESP32-S3R2 型号状态为停产并新增型号 ESP32-S3RH2
+                     • 将表 1-1 ESP32-S3 系列芯片对比 中的“订购代码”改为“物料编号”
+                     • 新增章节 1.3 芯片版本 和表格 1-1 ESP32-S3 系列芯片对比 中的芯片版本
+                      信息
+                     • 新增章节 2.3.5 外设管脚分配，并更新章节 4.2 外设 中每个小节的 管脚
+                      分配部分
+2025-11-28   v2.1
+                     • 更新图 3-1 Strapping 管脚的时序参数图
+                     • 新增章节 5.7 存储器规格
+                     • 新增章节 5.6 功耗特性 中的表 5-8 Active 模式下低功耗蓝牙功耗特性
+                     • 新增附录 技术规格书版本号管理 和 术语表
+                     • 其他结构、格式和内容改进
+
+
+                     • 更新 ESP32-S3R8V 型号状态为停产
+                     • 更新章节 CPU 和存储 中的 CoreMark® 得分
+                     • 更新章节 4.1.2 存储器组织结构 中的图 4-1 地址映射结构
+2025-04-24   v2.0    • 更新章节 4.2.2.2 温度传感器 中温度传感器的测量范围
+                     • 在章节 6 射频特性 中增加注释与说明
+                     • 更新章节 7 封装 中的推荐 PCB 封装图源文件链接
+
+
+                     • 更新封面描述
+                     • 更新章节 产品特性 中的特性描述并调整格式
+                     • 更新章节 2.2 管脚概述 中的管脚介绍并调整格式
+                     • 更新章节 2.3 IO 管脚 中的描述，将 RTC 和模拟管脚功能小节拆为小节
+2024-09-11   v1.9     2.3.3 模拟功能 和小节 2.3.2 RTC 功能
+                     • 将章节 Strapping 管脚更新为章节 3 启动配置项
+                     • 调整章节 4 功能描述 的结构和小节顺序，删除 外设管脚分配小节，在章
+                      节 4.2 外设 的每个小节中增加 管脚分配部分
+
+
+                     • 新增芯片型号 ESP32-S3R16V 并更新相关信息
+                     • 在表 1-1 ESP32-S3 系列芯片对比 中新增第二、三条表注
+                     • 更新章节 3.1 芯片启动模式控制
+2023-11-24   v1.8
+                     • 更新章节 5.5 ADC 特性
+                     • 其他微小改动
+
+
+                                                                    见下页
+
+
+
+
+乐鑫信息科技                            80                ESP32-S3 系列芯片技术规格书 v2.1
+                               反馈文档意见
+修订历史
+
+
+                               接上页
+日期        版本     发布说明
+                  • 移除 ESP32-S3FH4R2 芯片的样品状态
+                  • 更新图 ESP32-S3 功能框图 和图 4-2 模块和电源域
+                  • 在表 2-1 管脚概述 中添加 GPIO20 复位时和复位后预设配置
+                  • 更新表 2-4 IO MUX 功能 的说明
+2023-06   v1.7    • 在章节 4.1.3.5 电源管理单元 (PMU) 中将时钟名字“FOSC_CLK”更新为
+                  “RC_FAST_CLK”
+                  • 在章节 4.2.1.5 串行外设接口 (SPI) 和章节 4.1.4.3 RSA 加速器 中更新描述
+                  • 其他微小改动
+
+
+                  • 改进以下章节内容：
+                     – 章节 产品概述
+                     – 章节 2 管脚
+                     – 章节 4.1.3.5 电源管理单元 (PMU)
+                     – 章节 4.2.1.5 串行外设接口 (SPI)
+                     – 章节 5.1 绝对最大额定值
+                     – 章节 5.2 建议工作条件
+2023-02   v1.6       – 章节 5.3 VDD_SPI 输出特性
+                     – 章节 5.5 ADC 特性
+                  • 增加 ESP32-S3 管脚总览
+                  • 更新章节 1 ESP32-S3 系列型号对比 和章节 7 封装 中的注释
+                  • 更新表 5-5 ADC 特性 中的有效测量范围
+                  • 更新蓝牙射频发射功率最大值
+                  • 其他微小改动
+
+
+                  • 在 产品特性 小节中移除特性“支持外部功率放大器”
+                  • 将 ESP32-S3FH4R2 芯片的环境温度从–40 ∼ 105 °C 修改为–40 ∼ 85 °C
+2022-12   v1.5
+                  • 在章节 7 中新增两条说明
+
+
+                  • 在章节 7 增加 ESP32-S3FH4R2 的封装信息
+                  • 在 小节增加 ESP32-S3 系列芯片勘误表
+2022-11   v1.4
+                  • 其他微小改动
+
+
+                  • 在表 1 和表 5-2 中添加 R8 系列芯片的最大环境温度说明
+                  • 在章节 2.2 中增加部分管脚的上电毛刺信息
+                  • 在表 2-1 和章节 2.5.2 中补充 VDD3P3 电源管脚的信息
+                  • 更新章节 4.3.3.1
+2022-09   v1.3
+                  • 在表 2-1 中增加第四条脚注
+                  • 修改章节 6.2.1 中的低功耗蓝牙射频发射功率最大值和最小值
+                  • 其他微小改动
+
+
+                                                                  见下页
+
+
+
+
+乐鑫信息科技                             81            ESP32-S3 系列芯片技术规格书 v2.1
+                              反馈文档意见
+修订历史
+
+
+                                      接上页
+日期           版本       发布说明
+                       • 更新章节 3 中有关 ROM Code 上电打印的描述
+                       • 更新图 ESP32-S3 功能框图
+2022-07      v1.2      • 更新章节 5.6
+                       • 取消章节 应用 中的超链接
+
+
+                       • 同步更新 eFuse 大小
+                       • 更新表 2-1 中的管脚描述
+2022-04      v1.1      • 更新表 tab:5.3-vddspi-output-chars 中 SPI 电阻大小
+                       • 添加芯片 ESP32-S3FH4R2 相关信息
+
+
+                       • 在 Deep-sleep 模式中添加唤醒源
+                       • 在表 5-5 中添加 ADC 校准结果
+                       • 在表 5-9 中增加外设全开时的典型值
+                       • 在表 3-4 中增加 VDD_SPI 的默认配置信息
+                       • 在章节 4 中增加更多模块/外设的描述
+                       • 更新图 ESP32-S3 功能框图
+2022-01      v1.0
+                       • 更新 JEDEC 说明
+                       • 更新章节 5.6 内的 Wi-Fi 数据
+                       • 更新 ESP32-S3R8 和 ESP32-S3R8V 环境温度
+                       • 更新表 5-10 中 Deep-sleep 模式的描述
+                       • 修正部分措辞
+
+
+2021-10-12   v0.6.1   更新文字描述
+                       • 更新为芯片版本 revision 1，交换了 pin 53 和 pin 54（XTAL_P 和 XTAL_N）
+                       • 更新图 ESP32-S3 功能框图
+                       • 在产品特性章节增加 CoreMark 得分
+                       • 更新章节 3
+2021-09-30   v0.6      • 在表 5-1 中增加 IO 输出总电流的数据
+                       • 增加表 5-9 Modem-sleep 模式下的功耗数据
+                       • 更新章节 5.6、6.1、6.2 中的数据
+                       • 修正全文多处措辞
+
+
+                       • 更新封面、页脚、水印以说明当前及之前版本的技术规格书针对芯片版本
+                        revision 0
+2021-07-19   v0.5.1
+                       • 修正几处笔误
+
+
+2021-07-09   v0.5     预发版本
+
+
+
+
+乐鑫信息科技                                 82               ESP32-S3 系列芯片技术规格书 v2.1
+                                     反馈文档意见
+免责声明和版权公告
+本文档中的信息，包括供参考的 URL 地址，如有变更，恕不另行通知。
+本文档可能引用了第三方的信息，所有引用的信息均为“按现状”提供，乐鑫不对信息的准确性、真实性做任何保证。
+乐鑫不对本文档的内容做任何保证，包括内容的适销性、是否适用于特定用途，也不提供任何其他乐鑫提案、规格书或样
+品在他处提到的任何保证。
+乐鑫不对本文档是否侵犯第三方权利做任何保证，也不对使用本文档内信息导致的任何侵犯知识产权的行为负责。本文档
+在此未以禁止反言或其他方式授予任何知识产权许可，不管是明示许可还是暗示许可。
+Wi-Fi 联盟成员标志归 Wi-Fi 联盟所有。蓝牙标志是 Bluetooth SIG 的注册商标。
+文档中提到的所有商标名称、商标和注册商标均属其各自所有者的财产，特此声明。
+版权归 © 2026 乐鑫信息科技（上海）股份有限公司。保留所有权利。
+www.espressif.com
+

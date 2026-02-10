@@ -1,0 +1,1336 @@
+UMW TP4056
+1A Linear Lithium - ION Battery Charger
+
+1.Description
+TP4056 is a high-performance single cell lithium-ion battery constant current/constant voltage linear charger. The
+TP4056 adopts the ESOP8 package with fewer peripheral components, making it very suitable for portable products
+and suitable for powering USB power supplies and adapter power supplies.
+Based on the special internal MOSFET architecture and anti-reverse charging circuit, TP4056 does not require
+external detection resistors and isolation diodes. When the external ambient temperature is too high or in high-power
+applications, thermal feedback can adjust the charging current to reduce the chip temperature. The charging voltage
+is fixed at 4.2V, and the charging current can be set externally through a resistor. When the charging current drops
+to 1/10 of the set value after reaching the final floating charge voltage, the chip will terminate the charging cycle.
+When the input voltage is disconnected, the TP4056 enters a sleep state and the battery leakage current drops
+below 1uA. The TP4056 can be set in shutdown mode, in which case the chip quiescent current drops to 35uA.
+TP4056 also includes other features: battery temperature monitoring, undervoltage lockout, automatic recharge
+and two status pins to display charging and charge termination.
+
+2.Characteristic
+Programmable charge current 1000mA
+
+Charging current monitor output for
+
+No need for external MOSFETs, detection resistors,
+
+battery level detection
+
+and isolation diodes
+
+Dual Outputs for Charge Status, No Battery,
+
+Full linear charging for single lithium batteries
+
+and Fault Status
+
+packaged in esop8
+
+C/10 charging termination
+
+Constant-Current/Constant-Voltage Operation with
+
+The quiescent current in shutdown mode is 35uA
+
+Situations Thermal Regulation to Maximize Charge
+
+2.9V TRICKLE CHARGE
+
+Rate Without Risk of Overheating Device
+
+Battery Temperature Monitoring
+
+Charge Current Monitor Output for Battery
+
+Soft-Start Limits Inrush Current
+
+Level Sensing
+
+BAT INPUT ANTI-REVERSE CONNECTION
+
+4.2V PRE-CHARGE VOLTAGE WITH ±1% ACCURACY
+
+PROTECTION
+
+Automatic Recharge
+
+0V ACTIVATION
+
+UTD Semiconductor Co.,Limited
+www.umw-ic.com
+
+May.2025
+
+1 of 18
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+3.Application
+Mobile phones pda
+
+Electronic Dictionaries
+
+MP3 and MP4 players
+
+Bluetooth, GPS navigation system
+
+Chargers
+
+Portable device
+
+Digital Cameras
+
+TP4056 uses ESOP-8 package
+
+4.Pinning Information
+CE
+
+CHRG
+
+STDBY
+
+BAT
+
+8
+
+7
+
+6
+
+5
+
+1
+
+2
+
+3
+
+4
+
+TEMP
+
+PROG
+
+GND
+
+VCC
+
+ESOP8
+Pin Description
+
+Describe
+
+Pin Number
+
+Pin Name
+
+1
+
+TEMP
+
+Battery temperature detection input
+
+2
+
+PROG
+
+Programmable constant current charging current setting terminal
+
+3
+
+GND
+
+Ground end
+
+4
+
+VCC
+
+Power supply terminal
+
+5
+
+BAT
+
+Battery end
+
+6
+
+STDBY
+
+Battery charging completion indicator terminal
+
+7
+
+CHRG
+
+Battery charging indicator terminal
+
+8
+
+CE
+
+2 of 18
+
+Chip enable input terminal
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+5.Typical Applications
+
+VIN
+4V~6.5V
+
+0.4Ω
+
+VCC
+
+BAT
+
+BAT+
+
+CE
+
+10µF
+
+R1
+
+BAT-
+
+10µF
+NTC
+CHRG
+
+TEMP
+
+SHDBY
+GND
+
+PROG
+RPROG
+
+R2
+
+Among them, the dashed box indicates the R1/R2/NTC resistor part for battery temperature monitoring, which is
+optional. Alternatively, the TEMP pin can be directly grounded without monitoring the battery temperature.
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+3 of 18
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+6.Maximum Ratings (Note)
+Parameter
+
+Rating
+
+Units
+
+VCC Terminal Voltage
+
+-0.3 to 6.5
+
+V
+
+PROG, BAT, CE, TEMP Terminal Voltage
+
+-0.3 to 6.5
+
+V
+
+CHRG Terminal Voltage
+
+-0.3 to 8
+
+V
+
+Stdby Terminal Voltage
+
+-0.3 to 8
+
+V
+
+Bat End Current
+
+1.2
+
+A
+
+Prog Terminal Current
+
+1.2
+
+mA
+
+Maximum Power Dissipation
+
+1500
+
+mW
+
+Operating Ambient Temperature
+
+-40 to 85
+
+°C
+
+Minimum/maximum Storage Temperature TSTG
+
+-65 to 125
+
+°C
+
+7.ESD And Latch-up Level
+
+4 of 18
+
+Human body model esd level
+
+4000V
+
+Machine model esd level
+
+400V
+
+Latch-up Level
+
+400mA
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+8.Structural Block Diagram
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+5 of 18
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+9.Electrical characteristics
+If there is no special instructions, ambient temperature = 25°C, input voltage = 5V
+
+Parameter
+Input supply voltage
+
+Input supply current
+
+Symbol
+
+Conditions
+
+VCC
+
+ICC
+
+Min
+
+Typ Max Units
+
+4
+
+6.5
+
+V
+
+Charging mode (RPROG=12k) (1)
+
+240
+
+500
+
+µA
+
+standby mode (charge termination)
+
+50
+
+100
+
+µA
+
+35
+
+70
+
+µA
+
+Stop mode (RPROG not connected
+VCC<VBAT, VCC<VUVIO)
+
+Output float voltage
+
+Bat terminal charging current
+
+VFLOAT
+
+IBAT
+
+0°C<T<85°C
+
+4.17
+
+4.2
+
+4.263
+
+V
+
+Constant current mode, RPROG=2.4k
+
+465
+
+500
+
+535
+
+mA
+
+Constant current mode, RPROG=1.2k
+
+930
+
+1000 1070
+
+mA
+
+Standby mode, VBAT=4.2V
+
+0
+
+-2.5
+
+-6
+
+µA
+
+1
+
+2
+
+µA
+
+Stop mode
+Battery reverse connection mode
+
+mA
+
+0.7
+
+VBAT=-4V
+Sleep mode, VCC=0V
+
+0
+
+1
+
+µA
+
+VBAT<VTRIKL, RPROG=2.4K
+
+40
+
+50
+
+60
+
+mA
+
+VBAT<VTRIKL, RPROG=1.2K
+
+80
+
+100
+
+120
+
+mA
+
+VTRIKL
+
+VBAT RISES
+
+2.8
+
+2.9
+
+3
+
+V
+
+Trickle charge hysteresis voltage
+
+VTRHYS
+
+VBAT FALLS
+
+60
+
+80
+
+100
+
+mV
+
+VCC Undervoltage Lockout Voltage
+
+VUVLO
+
+VCC RISES
+
+3.7
+
+3.8
+
+3.93
+
+V
+
+VUVHYS
+
+VCC FALLS
+
+150
+
+200
+
+300
+
+mV
+
+VPROG RISES
+
+1.15
+
+1.21
+
+1.3
+
+V
+
+VPROG FALLS
+
+0.9
+
+1
+
+1.1
+
+V
+
+VCC RISES
+
+70
+
+100
+
+140
+
+mV
+
+VCC FALLS
+
+5
+
+30
+
+50
+
+mV
+
+RPROG=1.2K
+
+0.085
+
+0.1
+
+0.115
+
+A
+
+RPROG=2.4K
+
+0.035 0.05 0.065
+
+A
+
+Trickle charge current
+
+ITRIKL
+
+Trickle charge threshold voltage
+
+VCC Undervoltage Lockout
+Hysteresis Voltage
+Manual shutdown threshold voltage
+
+VMSD
+
+VCC -VBAT Lockout Voltage
+
+VASD
+
+C/10 Termination Current Limit (2)
+
+ITERM
+
+6 of 18
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+Symbol
+
+Conditions
+
+Min
+
+Typ Max Units
+
+PROG Pin Voltage
+
+VPROG
+
+Constant current mode, RPROG=1.2k
+
+0.93
+
+1
+
+1.07
+
+V
+
+CHRG Outputs Low Level
+
+VCHRG
+
+ICHRG=5mA
+
+0.35
+
+0.6
+
+V
+
+STDBY Outputs Low Level
+
+VSTDBY
+
+ISTDBY=5mA
+
+0.35
+
+0.6
+
+V
+
+Temp Pin High-end Flip Voltage
+
+VTEMP_H
+
+80
+
+83
+
+%VCC
+
+Temp Pin Low-end Flip Voltage
+
+VTEMP_L
+
+Recharge Battery Threshold Voltage
+
+ΔVRECHG VFLOAT-VRECHRG
+
+Recharge Delay Time
+
+tRECHG
+
+VBAT from high to low
+
+Charge Termination Delay Time
+
+tTERM
+
+IBAT falls below ICHG/10
+
+PROG PULL-UP Current
+
+IPROG
+
+CE END “HIGH" Level
+
+VCEH
+
+CE END "LOW" Level
+
+VCEL
+
+Parameter
+
+42
+
+45
+
+%VCC
+
+50
+
+100
+
+mV
+
+0.8
+
+1.8
+
+4
+
+ms
+
+0.63
+
+1.4
+
+3
+
+ms
+
+2
+
+μA
+
+1.3
+
+V
+0.7
+
+V
+
+Note
+(1): At this time, it is in the charging state, ICC=IVCC- IBAT
+(2): Here c/10 termination current threshold refers to the ratio of termination current to constant current charging current.
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+7 of 18
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+VPROG (V)
+
+VPROG (V)
+
+10.1 Typical characteristic
+
+VCC (V)
+
+TEMP (°C)
+
+Figure 1: PROG Pin In Constant Current Mode The Relation-
+
+Figure 2: PROG Pin Voltage VS. Temperature
+Relationship Curve
+
+VPROG (V)
+
+IBAT (MA)
+
+Figure 3: Charging Current VS. PROG Pin Voltage
+Relationship Curve
+
+Figure 4: Stable output (float charging) voltage and
+Relationship curve of charging current
+
+VFLOAT (V)
+
+VFLOAT (V)
+
+IBAT (MA)
+
+VFLOAT (V)
+
+ship Curve Between Voltage And Power Supply Voltage
+
+TEMP (°C)
+
+VCC (V)
+
+Figure 5: Stable output (float charging) voltage and
+Temperature relationship curve
+
+Figure 6: Stable output (float charging) voltage and
+Relationship curve of power supply voltage
+
+8 of 18
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+ITRIKL (mA)
+
+ITRIKL (mA)
+
+10.2 Typical characteristic
+
+VCC (V)
+
+Figure 7: The relationship between trickle charging
+current and temperature Relationship curve
+
+Figure 8: The relationship between trickle charging
+current and power supply voltage Relationship curve
+
+IBAT (MA)
+
+VTRIKL (V)
+
+TEMP (°C)
+
+Figure 9: The threshold voltage of trickle charging and
+Temperature relationship
+
+Figure 10: Charging current and battery voltage
+Relationship curve
+
+IBAT (MA)
+
+VBAT (V)
+
+IBAT (MA)
+
+TEMP (°C)
+
+VCC (V)
+Figure 11: Charging current and power supply voltage
+curve between charging current and ambient temperature
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+TEMP (°C)
+Figure 12: The relationship Relationship curve
+
+9 of 18
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+VRECHG (V)
+
+10.3 Typical characteristic
+
+TEMP (°C)
+Figure 13: Rechargeable battery threshold voltage and Temperature relationship curve
+
+10 of 18
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+11.Usage User Manual
+TP4056 is a linear charger designed specifically for lithium-ion batteries. It uses the power MOSFET inside the chip
+to charge the battery with constant current/constant voltage. The charging current can be determined by external
+resistor programming, and the maximum charging current can reach 1000mA. TP4056 has two open-drain output
+status indication output terminals, the charging status indication terminal CHRG and the battery charging completion
+indication output terminal STDBY. The power tube circuit inside the chip automatically reduces the charging current
+when the junction temperature of the chip exceeds 135℃. This function allows users to maximize the use of chip
+charging without worrying about chip overheating and damage to the chip or external components.
+
+Working Principle
+When the input voltage exceeds the UVLO detection threshold and the chip enable input terminal CE is connected
+to a high level, TP4056 starts charging the battery. If the battery voltage is below 2.9V, the charger will pre charge
+the battery with a small current. When the battery voltage exceeds 2.9V, the charger adopts a constant current
+mode to charge the battery, and the charging current is determined by the resistance between the prog terminal
+and the gnd terminal. When the battery voltage approaches 4.2v, the charging current gradually decreases and
+TP4056 enters constant voltage charging mode. When the charging current decreases to the charging end
+threshold, the charging cycle ends.
+The charge end threshold is 1/10 of the constant current charge current. When the battery voltage drops below the
+recharge threshold, a new charge cycle automatically starts. The high-precision voltage reference source, error
+amplifier and resistor divider network inside the chip ensure that the accuracy of the BAT modulation voltage is
+within 1%, meeting the requirements of lithium-ion and lithium polymer batteries. When the input voltage is powered
+off or the input voltage is lower than the battery voltage, the charger enters shutdown mode, and the current
+consumed by the battery terminal is less than 2uA, thereby increasing the standby time.
+If the enable input terminal ce is connected to a low level, the charger stops charging.
+
+Charging Current Setting
+The charging current is set by a resistor connected between the prog pin and ground. Determine the resistor value
+according to the required charging current, and use the following formula to calculate the setting resistor and
+charging current:
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+11 of 18
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+The relationship between rprog and charging current can be determined by referring to the following table:
+RPROG=
+
+1200
+IBAT
+
+(Error ± 10%)
+
+RPROG(K)
+
+IBAT(mA)
+
+1.2
+
+1000
+
+2.4
+
+500
+
+3
+
+400
+
+4
+
+300
+
+6
+
+200
+
+12
+
+100
+
+Charging Termination
+When the charging current drops to 1/10 of the set value after reaching the final float voltage, the charging cycle is
+terminated. This condition is detected by monitoring the PROG terminal with an internal filter comparator. When the
+voltage at the PROG terminal drops below 100mV for more than 1.8ms, charging is terminated and the TP4056
+enters standby mode, at which time the input power supply current drops to about 50uA.
+
+During charging, transient loads on the BAT terminal can cause the PROG terminal voltage to drop below 100mV
+briefly before the DC charging current drops to 1/10 of the set value. The 1.8ms delay time of the comparator
+ensures that transient loads of this nature do not cause the charging cycle to terminate prematurely. Once the
+average charging current drops below 1/10 of the set value, the TP4056 centralized charging cycle and stops
+providing any current through the BAT terminal. In this state, all loads on the BAT terminal must be powered by the
+battery.
+
+12 of 18
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+Charging Status Indication
+TP4056 has two open-drain status indication outputs chrg and stdby. When the charger is in the charging state,
+chrg is pulled to a low level, and in other states chrg is in a high impedance state; when the battery is charged,
+stdby is pulled to a low level, and in other states stdby is in a high impedance state.
+When the battery is not connected to the charger, chrg flashes to indicate that the battery is not installed.
+
+Charging Status
+Charging
+Charge Complete
+Undervoltage, battery temperature too high, too low
+Fault conditions, or no battery connected (temp use)
+1uF capacitor connected to the BAT terminal, no battery
+
+CHRG
+
+STDBY
+
+bright
+
+extinguish
+
+extinguish
+
+bright
+
+extinguish
+
+extinguish
+
+Flashing (frequency about 20Hz)
+
+bright
+
+Thermal Limitation
+If the chip temperature rises above 135 c, an internal thermal feedback loop will reduce the set charging current.
+This function prevents TP4056 from overheating and allows the user to increase the upper limit of the power
+handling capability of a given circuit board while reducing the risk of damaging TP4056.
+
+Battery Temperature Detection
+In order to prevent damage to the battery caused by excessively high or low temperatures, the TP4056 has an
+internal battery temperature monitoring circuit. Battery temperature monitoring is achieved by measuring the voltage
+of the TEMP pin, which is realized by the NTC thermistor in the battery and a resistor divider network, as shown in
+the typical application diagram. If the voltage of the TEMP pin is less than 45% of the input voltage or greater than
+80% of the input voltage, it means that the battery temperature is too low or too high, and charging is suspended.
+If the temp pin is directly connected to gnd, the battery temperature detection function is canceled and other
+charging functions are normal.
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+13 of 18
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+Determine the relationship between r1 and r2price
+The values of r1 and r2 should be determined based on the temperature monitoring range of the battery and the
+resistance value of the thermistor. Here is an example to illustrate:
+Assuming the set battery temperature range is tl~th (where tl<th); The negative temperature coefficient thermistor
+(NTC) is used in the battery. RTL is its resistance at temperature tl, and rth is its resistance at temperature th.
+
+VTEMPL=
+
+R2||RTL
+R1+R2||RTL
+
+x VIN
+
+Therefore, RTL>rth. At temperature tl, the voltage at the first pin temp is:
+At temperature th, the voltage of the first pin temp is:
+VTEMPH=
+
+R2||RTH
+R1+R2||RTH
+
+x VIN
+
+Then, vtempl vhigh k 2 vcc (k 2 0.8)
+VTEMPH=VLOW=K1 x VCC (K1=0.45)
+Then it can be solved that:
+
+R1=
+
+RTLRTH(K2-K1)
+(RTL-RTH)K1K2
+
+R2=
+
+RTLRTH(K2-K1)
+RTL(K1-K1K2)-RTH(K2-K1K2)
+
+Similarly, if the battery has a positive temperature coefficient (ptc) thermistor, then >, we can calculate:
+
+R1=
+
+RTLRTH(K2-K1)
+(RTH-RTL)K1K2
+
+R2=
+
+RTLRTH(K2-K1)
+RTH(K1-K1K2)-RTL(K2-K1K2)
+
+From the above derivation, it can be seen that the temperature range to be set is independent of the power supply
+voltage vcc, only related to r1, r2, rth, and rtl; Among them, rth and rtl can be obtained by consulting relevant battery
+manuals or through experimental testing.
+
+In practical applications, if we only focus on the temperature characteristics of one end, such as overheating
+protection, then r2 can be omitted and only r1 can be used. The derivation of r1 has also become simple and will
+not be repeated here.
+
+14 of 18
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+Undervoltage locking
+TP4056 has an internal undervoltage lockout circuit to monitor the input voltage and keep the chip in shutdown
+mode before VCC rises to the undervoltage lockout threshold voltage. When the VCC voltage rises to 3.8V, the chip
+exits UVLO and starts normal operation. The UVLO hysteresis voltage when VCC drops is 200mV.
+
+Automatic Charging Cycle
+After the battery voltage reaches the floating charge voltage and the charging cycle is terminated, the TP4056
+immediately monitors the BAT terminal voltage. When the BAT terminal voltage is lower than 4.1V, the charging
+cycle restarts. This ensures that the battery is maintained in a state close to full charge, while eliminating the need
+to start the periodic charging cycle.
+
+VBAT>2.9V
+
+turn off
+VDD<VUVLO(3.6 V)
+
+VBAT<4.1V
+
+precharge
+VBAT<2.9V
+
+Constant current charging
+
+Charging current=1/10 IBAT
+
+VBAT>2.9V
+
+Charging current=IBAT
+
+Constant voltage charging
+VBAT=4.2V
+
+Charging voltage=4.2V
+
+Charging
+current
+<1/10 IBAT
+
+No charge curent at end of
+charge
+
+VDD<VBAT
+
+CHRG=strong pull-down
+
+CHRG=strong pull-down
+
+CHRG =strong pull-down
+
+CHRG=high impedance
+
+CHRG=high impedance
+
+STDBY=high impedance
+
+STDBY= high impedance
+
+STDBY=high impedance
+
+STDBY=strang pull down
+
+STDBY=high impedance
+
+State diagram of a typical charging cycle
+Battery Reverse Polarity Protection
+TP4056 has a lithium battery reverse connection protection function. When the positive and negative poles of the
+battery are reversely connected to the TP4056 voltage output BAT pin, TP4056 will stop and display a fault state,
+and there is no charging current. The charging indicator pin is in a high impedance state, and RLED is off. At this
+time, the reverse battery leakage current is less than 1mA. Connect the reverse battery correctly, and TP4056
+automatically starts the charging cycle.
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+15 of 18
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+12.ESOP-8 Package Outline Dimensions
+
+E
+
+E2
+D
+
+e
+
+D1
+b
+A1
+
+A2
+A
+
+E1
+L
+c
+
+θ
+
+DIMENSIONS (mm are the original dimensions)
+Symbol
+
+A
+
+A1
+
+A2
+
+b
+
+c
+
+D
+
+D1
+
+E
+
+E1
+
+E2
+
+e
+
+L
+
+θ
+
+Min
+
+1.300 0.000 1.350 0.330 0.170 4.700 3.202 3.800 5.800 2.313 1.270 0.400
+
+0°
+
+Max
+
+1.700 0.100 1.550 0.510 0.250 5.100 3.402 4.000 6.200 2.513
+
+8°
+
+16 of 18
+
+BSC
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+1.270
+
+UMW TP4056
+
+www.umw-ic.com
+
+1A Linear Lithium - ION Battery Charger
+
+13.Ordering Information
+
+4056
+UMW yyww
+yy: Year Code
+ww: Week Code
+
+Order Code
+
+Package
+
+Base QTY
+
+Delivery Mode
+
+UMW TP4056
+
+ESOP-8
+
+4000
+
+Tape and reel
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+17 of 18
+
+www.umw-ic.com
+
+UMW TP4056
+1A Linear Lithium - ION Battery Charger
+
+14.Disclaimer
+UMW reserves the right to make changes to all products, specifications. Customers should obtain the latest version
+of product documentation and verify the completeness and currency of the information before placing an order.
+When applying our products, please do not exceed the maximum rated values, as this may affect the reliability of the
+entire system. Under certain conditions, any semiconductor product may experience faults or failures. Buyers are
+responsible for adhering to safety standards and implementing safety measures during system design, prototyping,
+and manufacturing when using our products to prevent potential failure risks that could lead to personal injury or
+property damage.
+Unless explicitly stated in writing, UMW products are not intended for use in medical, life-saving, or life-sustaining
+applications, nor for any other applications where product failure could result in personal injury or death. If customers
+use or sell the product for such applications without explicit authorization, they assume all associated risks.
+When reselling, applying, or exporting, please comply with export control laws and regulations of China, the United
+States, the United Kingdom, the European Union, and other relevant countries, regions, and international
+organizations.
+This document and any actions by UMW do not grant any intellectual property rights, whether express or implied,
+by estoppel or otherwise. The product names and marks mentioned herein may be trademarks of their respective
+owners.
+
+18 of 18
+
+UTD Semiconductor Co.,Limited
+May.2025
+
+

@@ -1,0 +1,1068 @@
+                                                                                                                                           INMP441
+              Omnidirectional Microphone with Bottom Port and I2S Digital Output
+
+GENERAL DESCRIPTION                                                                         APPLICATIONS
+
+The INMP441 is a high-performance, low power, digital-output,                                     •      Teleconferencing Systems
+omnidirectional MEMS microphone with a bottom port. The                                           •      Remote Controls
+complete INMP441 solution consists of a MEMS sensor, signal                                       •      Gaming Consoles
+conditioning, an analog-to-digital converter, anti-aliasing filters,                              •      Mobile Devices
+power management, and an industry-standard 24-bit I²S interface.                                  •      Laptops
+The I²S interface allows the INMP441 to connect directly to digital                               •      Tablets
+processors, such as DSPs and microcontrollers, without the need                                   •      Security Systems
+for an audio codec in the system.
+                                                                                            FEATURES
+The INMP441 has a high SNR, making it an excellent choice for
+near field applications. The INMP441 has a flat wideband                                          •      Digital I²S Interface with High-Precision 24-Bit Data
+frequency response, resulting in natural sound with high                                          •      High SNR of 61 dBA
+intelligibility.                                                                                  •      High Sensitivity of -26 dBFS
+                                                                                                  •      Flat Frequency Response from 60 Hz to 15 kHz
+The INMP441 is available in a thin 4.72 × 3.76 × 1 mm surface-                                    •      Low Current Consumption of 1.4 mA
+mount package. It is reflow- solder compatible with no sensitivity                                •      High PSR of -75 dBFS
+degradation. The INMP441 is halide free.                                                          •      Small 4.72 × 3.76 × 1 mm Surface-Mount Package
+*Protected by U.S. Patents 7,449,356; 7,825,484; 7,885,423; and 7,961,897.
+                                                                                                  •      Compatible with Sn/Pb and Pb-Free Solder Processes
+Other patents are pending.                                                                        •      RoHS/WEEE Compliant
+
+
+
+FUNCTIONAL BLOCK DIAGRAM                                                                    ORDERING INFORMATION
+
+                                                     INMP441                                             PART               TEMP RANGE
+                                                                                              INMP441ACEZ-R0*                −40°C to +85°C
+                                      FILTER
+                          ADC                                      SCK                        INMP441ACEZ-R7†                −40°C to +85°C
+                                                        I2S
+                                                      SERIAL       SD                         EV_INMP441                           —
+                                                       PORT
+              POWER                  HARDWARE                                                 EV_INMP441-FX                        —
+            MANAGEMENT                CONTROL                      WS                       * – 13” Tape and Reel
+
+                                                                                            † – 7” Tape and reel to be discontinued. Contact sales@invensense.com for
+                                                                                            availability.
+                                               L/R
+                   GND
+                         GND
+                               GND
+
+
+
+                                      CHIPEN
+             VDD
+
+
+
+
+                                                                                                         BOTTOM                               TOP
+
+
+
+
+                                                                              InvenSense Inc.
+     InvenSense reserves the right to change the detail        1745 Technology Drive, San Jose, CA 95110 U.S.A      Document Number: DS-INMP441-00
+ specifications as may be required to permit improvements                    +1(408) 988–7339                       Revision: 1.1
+                 in the design of its products.                            www.invensense.com                       Rev Date: 05/21/2014
+                                                                                                                                                  INMP441
+TABLE OF CONTENTS
+      General Description ................................................................................................................................................... 1
+      Applications ............................................................................................................................................................... 1
+      Features ..................................................................................................................................................................... 1
+      Functional Block Diagram .......................................................................................................................................... 1
+      Ordering Information ................................................................................................................................................. 1
+Table of Contents .............................................................................................................................................................. 2
+Specifications .................................................................................................................................................................... 4
+      Table 1. Electrical Characteristics .............................................................................................................................. 4
+                    2
+      Table 2. I S Digital Input/Output Characteristics ....................................................................................................... 5
+      Table 3. Serial Data Port Specifications ..................................................................................................................... 5
+      Timing Diagram .......................................................................................................................................................... 5
+Absolute Maximum Ratings .............................................................................................................................................. 6
+      Table 4. Absolute Maximum Ratings ......................................................................................................................... 6
+      ESD Caution ............................................................................................................................................................... 6
+      Soldering Profile......................................................................................................................................................... 7
+      Table 5. Recommended Soldering Profile*................................................................................................................ 7
+Pin Configurations And Function Descriptions ................................................................................................................. 8
+      Table 6. Pin Function Descriptions............................................................................................................................. 8
+Typical Performance Characteristics................................................................................................................................. 9
+Theory of Operation ....................................................................................................................................................... 10
+      Understanding Sensitivity ........................................................................................................................................ 10
+      Power Management ................................................................................................................................................ 10
+       Normal Operation ................................................................................................................................................... 10
+       Standby Mode ......................................................................................................................................................... 10
+       Power-Down Mode ................................................................................................................................................. 10
+       Startup .................................................................................................................................................................... 10
+      I²S Data Interface ..................................................................................................................................................... 11
+       Data Output Mode .................................................................................................................................................. 11
+       Data Word Length ................................................................................................................................................... 11
+       Data-Word Format .................................................................................................................................................. 11
+      Digital Microphone Sensitivity ................................................................................................................................. 12
+      Synchronizing Microphones .................................................................................................................................... 13
+      Digital Filter Characteristics ..................................................................................................................................... 13
+      High-Pass Filter ........................................................................................................................................................ 13
+      Table 7. High Pass Filter Characteristics .................................................................................................................. 13
+      Low-Pass Filter ......................................................................................................................................................... 13
+Applications Information ................................................................................................................................................ 15
+                                                                                   Page 2 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                                               INMP441
+      Power-Supply Decoupling ........................................................................................................................................ 15
+Supporting Documents ................................................................................................................................................... 16
+      Evaluation Board User Guide ................................................................................................................................... 16
+      Application Notes (Product Specific) ....................................................................................................................... 16
+      Application Notes (General) .................................................................................................................................... 16
+PCB Design And Land Pattern Layout ............................................................................................................................. 17
+      PCB Material And Thickness .................................................................................................................................... 18
+Handling Instructions ...................................................................................................................................................... 18
+      Pick And Place Equipment ....................................................................................................................................... 18
+      Reflow Solder ........................................................................................................................................................... 18
+      Board Wash.............................................................................................................................................................. 18
+Outline Dimensions ......................................................................................................................................................... 19
+      Ordering Guide ........................................................................................................................................................ 20
+      Revision History ....................................................................................................................................................... 20
+      Compliance Declaration Disclaimer ......................................................................................................................... 21
+
+
+
+
+                                                                                 Page 3 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                      INMP441
+SPECIFICATIONS
+TABLE 1. ELECTRICAL CHARACTERISTICS
+(TA = −40 to 85°C, VDD = 1.8 to 3.3 V, CLK = 2.4 MHz, CLOAD = 30 pF, unless otherwise noted. All minimum and
+maximum specifications are guaranteed across temperature, voltage, and clock frequency specified in Table 1, Table
+2, Table 3, unless otherwise noted. Typical specifications are not guaranteed.)
+
+    PARAMETER                                            CONDITIONS                             MIN          TYP         MAX          UNITS      NOTES
+PERFORMANCE
+Directionality                                                                                               Omni
+Sensitivity                                              1 kHz, 94 dB SPL                          −29        −26           −23        dBFS        1
+Signal-to-Noise Ratio (SNR)                              20 Hz to 20 kHz, A-weighted                           61                       dBA
+Equivalent Input Noise (EIN)                             20 Hz to 20 kHz, A-weighted                           33                     dBA SPL
+                                                         Derived from EIN and
+Dynamic Range                                                                                                   87                        dB
+                                                         maximum acoustic input
+                                                         Low frequency −3 dB point                              60                       Hz
+Frequency Response                                                                                                                                 2
+                                                         High frequency −3 dB point                             15                       kHz
+Total Harmonic Distortion (THD)                          105 dB SPL                                                          3            %
+                                                         217 Hz, 100 mVp-p square
+Power-Supply Rejection (PSR)                             wave superimposed on VDD =                            −75                      dBFS
+                                                         1.8 V
+Maximum Acoustic Input                                   Peak                                                  120                     dB SPL
+                                                         20 Hz to 20 kHz, A-weighted,
+Noise Floor                                                                                                    −87                      dBFS
+                                                         RMS
+POWER SUPPLY
+Supply Voltage (VDD)                                                                               1.62                    3.63            V
+Supply Current (IS)
+                            Normal Mode                                                                         1.4         1.6          mA
+VDD = 1.8 V                 Standby                                                                                         0.8          mA
+                            Power Down                                                                                       2            µA
+                            Normal Mode                                                                         2.2         2.5          mA
+VDD = 3.3 V                 Standby                                                                                         0.8          mA
+                            Power Down                                                                                      4.5          µA
+DIGITAL FILTER
+                                                                                                                         17.2/fS          sec
+Group Delay                                              fS = 48 kHz                                                        359           µs
+
+                                                         fS = 16 kHz                                                       1078           µs
+Pass-Band Ripple                                                                                                          ±0.04          dB
+Stop-Band Attenuation                                                                                           60                       dB
+Pass Band                                                0.423 × fS                                            20.3                      kHz
+Note 1: The peak-to-peak amplitude relative to peak-to-peak amplitude of (224 − 1.) The stimulus is a 104 dB SPL sinusoid having RMS amplitude
+ of 3.1623 Pa. Sensitivity is relative to 1 Pa.
+Note 2: See Figure 4 and Figure 5.
+
+
+
+
+                                                                  Page 4 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                INMP441
+TABLE 2. I2S DIGITAL INPUT/OUTPUT CHARACTERISTICS
+
+  PARAMETER                                        CONDITIONS                                  MIN       TYP       MAX        UNITS   NOTES
+  DIGITAL INPUT
+  Input Voltage High (VIH)                         L/R, WS, SCK                              0.7 x VDD              VDD        V        1
+  Input Voltage Low (VIL)                          L/R, WS, SCK                                 0                0.25 x VDD    V        1
+  SD DIGITAL INPUT
+  Voltage Output Low (VOL)                         VDD = 1.8 V, ISINK = 0.25 mA                                  0.1 × VDD     V        1
+
+  Voltage Output Low (VOL)                         VDD = 1.8 V, ISINK = 0.7 mA                                   0.3 × VDD     V        1
+  Voltage Output High (VOH)                        VDD = 1.8 V, ISINK = 0.7 mA               0.7 × VDD                         V        1
+  Voltage Output High (VOH)                        VDD = 1.8 V, ISINK = 0.25 mA              0.9 × VDD                         V        1
+  Voltage Output Low (VOL)                         VDD = 3.3 V, ISINK = 0.5 mA                                   0.1 × VDD     V        1
+  Voltage Output Low (VOL)                         VDD = 3.3 V, ISINK = 1.7 mA                                   0.3 × VDD     V        1
+  Voltage Output High (VOH)                        VDD = 3.3 V, ISINK = 1.7 mA               0.7 × VDD                         V        1
+  Voltage Output High (VOH)                        VDD = 3.3 V, ISINK = 0.5 mA               0.9 × VDD                         V        1
+Note 1: Limits based on characterization results; not production tested.
+
+
+TABLE 3. SERIAL DATA PORT TIMING SPECIFICATIONS
+
+  PARAMETER                                            CONDITIONS                              MIN       TYP       MAX        UNITS   NOTES
+  tSCH                                                 SCK high                                50                              ns
+
+  tSCL                                                 SCK low                                  50                              ns
+  tSCP                                                 SCK period                              312                              ns
+  fSCK                                                 SCK frequency                           0.5                  3.2        MHz
+
+  tWSS                                                 WS setup                                 0                               ns
+
+  tWSH                                                 WS hold                                  20                              ns
+
+  fWS                                                  WS frequency                            7.8                  50         kHz
+
+
+TIMING DIAGRAM
+                                                                tSCP
+                                                         tSCH
+
+                    SCK
+                                           tWSS                        tSCL                              tWSH
+
+                    WS
+
+
+
+                     SD
+
+
+
+
+                                                                Figure 1. Serial Data Port Timing
+
+
+                                                                              Page 5 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                               INMP441
+ABSOLUTE MAXIMUM RATINGS
+Stress above those listed as Absolute Maximum Ratings may cause permanent damage to the device. These are stress ratings only
+and functional operation of the device at these conditions is not implied. Exposure to the absolute maximum ratings conditions for
+extended periods may affect device reliability.
+
+
+
+TABLE 4. ABSOLUTE MAXIMUM RATINGS
+
+            PARAMETER                                        RATING
+            Supply Voltage (VDD)                             −0.3 V to +3.63 V
+            Digital Pin Input Voltage                        −0.3 V to VDD + 0.3 V or 3.63 V, whichever is less
+            Sound Pressure Level                             160 dB
+            Mechanical Shock                                 10,000 g
+            Vibration                                        Per MIL-STD-883 Method 2007, Test Condition B
+            Temperature Range
+             Biased                                          −40°C to +85°C
+             Storage                                         −55°C to +150°C
+
+
+
+
+                                           ESD CAUTION
+                                                         ESD (electrostatic discharge) sensitive device.
+                                                         Charged devices and circuit boards can
+                                                         discharge without detection. Although this
+                                                         product features patented or proprietary
+                                                         protection circuitry, damage may occur on
+                                                         devices subjected to high energy ESD.
+                                                         Therefore proper ESD precautions should be
+                                                         taken to avoid performance degradation or
+                                                         loss of functionality.
+
+
+
+
+                                                            Page 6 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                         INMP441
+SOLDERING PROFILE
+                                                                                                         CRITICAL ZONE
+                                                                                               tP           TL TO TP
+                                                    TP
+                                                                                 RAMP-UP
+
+                                                    TL
+
+
+
+
+                                      TEMPERATURE
+                                                            TSMAX                                   tL
+
+                                                         TSMIN
+
+
+                                                                         tS
+                                                                     PREHEAT                 RAMP-DOWN
+
+
+
+                                                                 t25°C TO PEAK TEMPERATURE
+                                                                                      TIME
+
+                                                           Figure 2. Recommended Soldering Profile Limits
+
+
+
+
+TABLE 5. RECOMMENDED SOLDERING PROFILE*
+
+            PROFILE FEATURE                                          Sn63/Pb37                                       Pb-Free
+            Average Ramp Rate (TL to TP)                             1.25°C/sec max                                  1.25°C/sec max
+                         Minimum Temperature
+                                                                     100°C                                           100°C
+                         (TSMIN)
+            Preheat      Minimum Temperature
+                                                                     150°C                                           200°C
+                         (TSMIN)
+                         Time (TSMIN to TSMAX), tS                   60 sec to 75 sec                                60 sec to 75 sec
+            Ramp-Up Rate (TSMAX to TL)                               1.25°C/sec                                      1.25°C/sec
+            Time Maintained Above Liquidous (tL)                     45 sec to 75 sec                                ~50 sec
+            Liquidous Temperature (TL)                               183°C                                           217°C
+            Peak Temperature (TP)                                    215°C +3°C/−3°C                                 260°C +0°C/−5°C
+            Time Within +5°C of Actual Peak                                                                          20 sec to 30 sec
+                                                                     20 sec to 30 sec
+            Temperature (tP)
+            Ramp-Down Rate                                           3°C/sec max                                     3°C/sec max
+
+            Time +25°C (t25°C) to Peak Temperature                   5 min max                                       5 min max
+
+
+*The reflow profile in Table 5 is recommended for board manufacturing with InvenSense MEMS microphones. All microphones are
+also compatible with the J-STD-020 profile.
+
+
+
+
+                                                                                Page 7 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                    INMP441
+PIN CONFIGURATIONS AND FUNCTION DESCRIPTIONS
+
+
+                                                       L/R 4                             6 GND
+
+
+
+                                                       WS 3                              7 VDD
+
+
+
+
+                                                                            GND 5
+                                                       SD 2                              8 CHIPEN
+
+
+
+                                                      SCK   1                            9 GND
+
+
+                                                                      BOTTOM VIEW
+                                                                       (Not to Scale)
+
+                                                                Figure 3. Pin Configuration
+
+
+TABLE 6. PIN FUNCTION DESCRIPTIONS
+
+ PIN     NAME              FUNCTION
+   1          SCK          Serial-Data Clock for I²S Interface
+                           Serial-Data Output for I²S Interface. This pin tri-states when not actively driving the
+                           appropriate output channel. The SD trace should have a 100 kΩ pulldown resistor to
+   2           SD
+                           discharge the line during the time that all microphones on the bus have tri-stated their
+                           outputs.
+
+   3          WS           Serial Data-Word Select for I²S Interface
+
+                           Left/Right Channel Select. When set low, the microphone outputs its signal in the left channel
+   4          L/R
+                           of the I²S frame. When set high, the microphone outputs its signal in the right channel.
+
+   5          GND          Ground. Connect to ground on the PCB.
+
+   6          GND          Ground. Connect to ground on the PCB.
+
+   7          VDD          Power, 1.8 V to 3.3 V. This pin should be decoupled to Pin 6 with a 0.1 μF capacitor.
+                           Microphone Enable. When set low (ground), the microphone is disabled and put in power-
+   8        CHIPEN
+                           down mode. When set high (VDD), the microphone is enabled.
+   9          GND          Ground. Connect to ground on the PCB.
+
+
+
+
+                                                                        Page 8 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                                            INMP441
+TYPICAL PERFORMANCE CHARACTERISTICS
+                              10                                                                                      10
+
+                               8
+
+                               6
+
+                               4
+          SENSITIVITY (dB)
+
+
+
+
+                                                                                                                       0
+
+
+
+
+                                                                                                    AMPLITUDE (dB)
+                               2
+
+                               0
+
+                              –2
+                                                                                                                     –10
+                              –4
+
+                              –6
+
+                              –8
+
+                             –10                                                                                     –20
+                                50    100               1k               10k                                            10           100              1k        10k
+                                                  FREQUENCY (Hz)                                                                           FREQUENCY (Hz)
+
+                                     Figure 4. Frequency Response Mask                                               Figure 5. Typical Frequency Response (Measured)
+
+                               0
+
+                             –10
+
+
+                             –20
+
+
+                             –30
+      PSR (dB)
+
+
+
+
+                             –40
+
+
+                             –50
+
+
+                             –60
+
+
+                             –70
+
+                             –80
+                               100                     1k                      10k
+                                                 FREQUENCY (Hz)
+
+
+               Figure 6. Power-Supply Rejection (PSR) vs. Frequency
+
+
+
+
+                                                                                     Page 9 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                INMP441
+THEORY OF OPERATION
+The INMP441 is a high-performance, low-power, digital-output, omni-directional MEMS microphone with a bottom port. The
+complete INMP441 solution consists of a MEMS sensor, signal conditioning, an analog-to-digital converter, anti-aliasing filters,
+power management, and an industry-standard 24-bit I²S interface.
+
+The INMP441 complies with the TIA-920 Telecommunications Telephone Terminal Equipment Transmission Requirements for
+Wideband Digital Wireline Telephones standard.
+
+UNDERSTANDING SENSITIVITY
+The casual user of digital microphones may have difficulty understanding the sensitivity specification. Unlike an analog microphone
+(whose specification is easily confirmed with an oscilloscope), the digital microphone output has no obvious unit of measure.
+
+The INMP441 has a nominal sensitivity of −26 dBFS at 1 kHz with an applied sound pressure level of 94 dB. The units are in decibels
+                                                                              23
+referred to full scale. The INMP441 default full-scale peak output word is 2 − 1 (integer representation), and −26 dBFS of that scale
+     23         (−26/20)
+is (2 − 1) × 10          = 420,426. A pure acoustic tone at 1 kHz having a 1Pa RMS amplitude results in an output digital signal whose
+peak amplitude is 420,426.
+
+Although the industry uses a standard specification of 94 dB SPL, the INMP441 test method applies a 104 dB SPL signal. The higher
+sound pressure level reduces noise and improves repeatability. The INMP441 has excellent gain linearity, and the sensitivity test
+result at 94 dB is derived with very high confidence from the test data.
+
+POWER MANAGEMENT
+The INMP441 has three different power states: normal operation, standby mode, and power-down mode.
+
+Normal Operation
+                                        18
+The microphone becomes operational 2 clock cycles (85 ms with SCK at 3.072 MHz) after initial power-up. The CHIPEN pin then
+controls the power modes. The part is in normal operation mode when SCK is active and the CHIPEN pin is high.
+
+Standby Mode
+                                                                                                                              14
+The microphone enters standby mode when the serial-data clock SCK stops and CHIPEN is high. Normal operation resumes 2 clock
+cycles (5 ms with SCK at 3.072 MHz) after SCK restarts.
+
+The INMP441 should not be transitioned from standby to power-down mode, or vice versa. Standby mode is only intended to be
+entered from the normal operation state.
+
+Power-Down Mode
+The microphone enters power-down mode when CHIPEN is low, regardless of the SCK operation. Normal mode operation resumes
+ 17
+2 SCK clock cycles (43 ms with SCK at 3.072 MHz) after CHIPEN returns high while SCK is active.
+                   17
+It always takes 2 clock cycles to restart the INMP441 after VDD is applied.
+
+It is not recommended to supply active clocks (WS and SCK) to the INMP441 while there is no power supplied to VDD. Doing this
+continuously turns on ESD protection diodes, which may affect long-term reliability of the microphone.
+
+Startup
+                                                 18
+The microphones have zero output for the first 2 SCK clock cycles (85ms with SCK at 3.072 MHz) following power-up.
+
+
+
+
+                                                             Page 10 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                       INMP441
+I²S DATA INTERFACE
+The slave serial-data port’s format is I²S, 24-bit, twos complement. There must be 64 SCK cycles in each WS stereo frame, or 32 SCK
+cycles per data-word. The L/R control pin determines whether the INMP441 outputs data in the left or right channel. For a stereo
+application, the SD pins of the left and right INMP441 microphones should be tied together as shown in Figure 7. The format of a
+stereo I²S data stream is shown in Figure 8. Figures 9 and 10 show the formats of a mono microphone data stream for left and right
+microphones, respectively.
+
+Data Output Mode
+The output data pin (SD) is tri-stated when it is not actively driving I²S output data. SD immediately tri-states after the LSB is output
+so that another microphone can drive the common data line.
+
+The SD trace should have a pull-down resistor to discharge the line during the time that all microphones on the bus have tri-stated
+their outputs. A 100 kΩ resistor is sufficient for this, as shown in Figure 7.
+
+Data Word Length
+The output data word length is 24 bits per channel. The INMP441 must always have 64 clock cycles for every stereo data-word (fSCK
+= 64 × fWS).
+
+Data-Word Format
+The default data format is I²S (two’s complement), MSB-first. In this format, the MSB of each word is delayed by one SCK cycle from
+the start of each half-frame.
+
+
+
+
+                                             FROM VOLTAGE                 SYSTEM MASTER
+                                               REGULATOR             (DSP, MICROCONTROLLER,
+                                              (1.8V TO 3.3V)                  CODEC)
+                                                                           SCK
+
+                                                                                  WS
+
+                                                                                         SD
+
+
+
+
+                                         0.1µF                                                     0.1µF
+
+                                 VDD                                                                                        VDD
+                                                  VDD                                                       VDD
+
+                                       CHIPEN                  SCK                            SCK                  CHIPEN
+                                                               WS                             WS
+                                       L/R       LEFT           SD                            SD           RIGHT      L/R
+                                              INMP441                            100kΩ
+                                                                                                      INMP441
+
+                                             GND GND GND                                            GND GND GND
+
+
+
+
+                                                               Figure 7. System Block Diagram
+
+
+
+
+                                                                          Page 11 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                                                                                             INMP441
+         WS               1       2         3          4                               24             25           26           32          33          34           35            36        56        57         58           64
+
+
+SCK (64 × fS)
+
+
+ SD (24-BIT)                      MSB                                                                 LSB                                               MSB                                            LSB
+
+                     HIGH-Z                         LEFT CHANNEL                                                             HIGH-Z                                         RIGHT CHANNEL                                   HIGH-Z
+
+                                                                                                             Figure 8. Stereo-Output I²S Format
+
+
+
+                WS            1       2         3          4                                24             25           26            32         33          34            35           36        56        57         58            64
+
+
+   SCK (64 × fS)
+
+
+     SD (24-BIT)                      MSB                                                                   LSB
+                                                                                                                                                                         HIGH-Z
+                       HIGH-Z                         LEFT CHANNEL
+
+                                                                                        Figure 9. Mono-Output I²S Format Left Channel (L/R = 0)
+
+
+
+                WS            1       2         3          4                                24             25           26            32         33          34            35           36        56        57         58            64
+
+
+   SCK (64 × fS)
+
+
+     SD (24-BIT)                                                                                                                                             MSB                                            LSB
+
+                                                                                       HIGH-Z                                                                                     RIGHT CHANNEL                               HIGH-Z
+
+                                                                                       Figure 10. Mono-Output I²S Format Right Channel (L/R = 1)
+
+
+DIGITAL MICROPHONE SENSITIVITY
+The sensitivity of a PDM output microphone is specified in units of dBFS (decibels relative to a full-scale digital output). A 0 dBFS sine
+wave is defined as a signal whose peak just touches the full-scale code of the digital word (see Figure 5). This measurement
+convention means that signals with a different crest factor may have an RMS level higher than 0dBFS. For example, a full-scale
+square wave has an RMS level of 3dBFS.
+
+                                                                                            1.0
+
+                                                                                            0.8
+
+                                                                                            0.6
+                                                               DIGITAL AMPLITUDE (D)
+
+
+
+
+                                                                                            0.4
+
+                                                                                            0.2
+
+                                                                                             0
+
+                                                                                        –0.2
+
+                                                                                        –0.4
+
+                                                                                        –0.6
+
+                                                                                        –0.8
+
+                                                                                        –1.0
+                                                                                                  0        0.1    0.2    0.3     0.4       0.5    0.6   0.7        0.8     0.9     1.0
+                                                                                                                                       TIME (ms)
+
+                                                                                                           Figure 11. 1 kHz, 0 dBFS Sine Wave
+
+
+The definition of a 0 dBFS signal must be understood when measuring the sensitivity of the INMP441. An acoustic input signal of a
+1 kHz sine wave at 94 dB SPL applied to the INMP441 results in an output signal with a −26 dBFS level. This means that the output
+digital word peaks at −26 dB below the digital full-scale level. A common misunderstanding is that the output has an RMS level of
+−29 dBFS; however, this is not the case because of the definition of a 0 dBFS sine wave.
+
+                                                                                                                              Page 12 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                INMP441
+There is no commonly accepted unit of measurement to express the instantaneous level of a digital signal output from the
+microphone, as opposed to the RMS level of the signal. Some measurement systems express the instantaneous level of an individual
+sample in units of D, where 1.0 D is digital full scale (see Figure 11). In this case, a −26 dBFS sine wave has peaks at 0.05 D.
+
+For more information about digital microphone sensitivity, see the AN-1112 Application Note, Microphone Specifications Explained.
+
+SYNCHRONIZING MICROPHONES
+Stereo INMP441 microphones are synchronized by the WS signal, so audio captured from two microphones sharing the same clock
+will be in sync. If the mics are enabled separately, this synchronization may take up to 0.35 ms after the enable signal is asserted
+while internal data paths are flushed.
+
+DIGITAL FILTER CHARACTERISTICS
+The INMP441 has an internal digital band-pass filter. A high-pass filter eliminates unwanted low-frequency signals. A low-pass filter
+allows the user to scale the pass band with the sampling frequency, as well as perform required noise reduction.
+
+HIGH-PASS FILTER
+The INMP441 incorporates a high-pass filter to remove unwanted DC and very low frequency components. This shows the high-pass
+characteristics for a nominal sampling rate of 48 kHz. The cutoff frequency scales with changes in sampling rate.
+
+TABLE 7. HIGH PASS FILTER CHARACTERISTICS
+
+        FREQUENCY                  ATTENTUATION
+
+            3.7 Hz                       −3 dB
+
+           10.4 Hz                      −0.5 dB
+           21.6 Hz                      −0.1 dB
+
+This digital filter response is in addition to the natural high-pass response of the INMP441 MEMS acoustic transducer that has a -3 dB
+cutoff of 60 Hz.
+
+LOW-PASS FILTER
+The analog-to-digital converter in the INMP441 is a single-bit, high-order, sigma-delta (Σ-Δ) running at a high oversampling ratio. The
+noise shaping of the converter pushes the majority of the noise well above the audio band and gives the microphone a wide
+dynamic range. However, it does require a good quality low-pass filter to eliminate the high-frequency noise.
+
+Figure 12 shows the response of this digital low-pass filter included in the microphone. The pass band of the filter extends to 0.423 ×
+fS and, in that band, has an unnoticeable 0.04 dB of ripple. The high-frequency cutoff of −6 dB occurs at 0.5 × fS. A 48 kHz sampling
+rate results in a pass band of 20.3 kHz and a half amplitude corner at 24 kHz. The stop-band attenuation of the filter is greater than
+60 dB. Note that these filter specifications scale with sampling frequency.
+
+
+
+
+                                                              Page 13 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                          INMP441
+
+                                                     0
+
+                                                   –10
+
+                                                   –20
+
+                                                   –30
+
+
+
+
+                                 MAGNITUDE (dB)
+                                                   –40
+
+                                                   –50
+
+                                                   –60
+
+                                                   –70
+
+                                                   –80
+
+                                                   –90
+
+                                                  –100
+
+                                                         0   0.1   0.2    0.3   0.4   0.5   0.6   0.7   0.8   0.9   1.0
+                                                                         NORMALIZED FREQUENCY (fS)
+
+                                                   Figure 12. Digital Low-Pass Filter Magnitude Response
+
+
+
+
+                                                                            Page 14 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                 INMP441
+APPLICATIONS INFORMATION
+POWER-SUPPLY DECOUPLING
+For best performance and to avoid potential parasitic artifacts, placing a 0.1 µF ceramic type X7R or better capacitor between Pin 7
+(VDD) and ground is strongly recommended. The capacitor should be placed as close to Pin 7 as possible.
+
+The connections to each side of the capacitor should be as short as possible, and the trace should stay on a single layer with no vias.
+For maximum effectiveness, locate the capacitor equidistant from the power and ground pins, or if equidistant placement is not
+possible, slightly closer to the power pin. Thermal connections to the ground planes should be made on the far side of the capacitor,
+as shown in Figure 13.
+                                                                      VDD    GND
+
+
+
+
+                                                          CAPACITOR
+
+
+
+
+                                                            TO VDD
+
+
+
+
+                                                                            TO GND
+
+
+                                     Figure 13. Recommended Power-Supply Bypass Capacitor Layout
+
+
+
+
+                                                              Page 15 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                         INMP441
+SUPPORTING DOCUMENTS
+For additional information, see the following documents.
+
+EVALUATION BOARD USER GUIDE
+                                        2
+UG-303, EV_INMP441Z-FX: Bottom Port I S Output MEMS Microphone Evaluation Board
+                                                        2
+UG-362, EV_INMP441Z SDP Daughter Board for the INMP441 I S MEMS Microphone
+
+APPLICATION NOTES (PRODUCT SPECIFIC)
+AN-0208, High Performance Digital MEMS Microphone’s Simple Interface to SigmaDSP Audio Processor
+AN-0266, High Performance Digital MEMS Microphone Standard Digital Audio Interface to Blackfin DSP
+
+APPLICATION NOTES (GENERAL)
+AN-1003, Recommendations for Mounting and Connecting the Invensense, Inc., Bottom-Ported MEMS Microphones
+AN-1068, Reflow Soldering of the MEMS Microphone
+AN-1112, Microphone Specifications Explained
+AN-1124, Recommendations for Sealing Invensense, Inc., Bottom-Port MEMS Microphones from Dust and Liquid Ingress
+AN-1140, Microphone Array Beamforming
+
+
+
+
+                                                           Page 16 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                INMP441
+PCB DESIGN AND LAND PATTERN LAYOUT
+Lay out the PCB land pattern for the INMP441 at a 1:1 ratio to the solder pads on the microphone package (see Figure 14.) Take care
+to avoid applying solder paste to the sound hole in the PCB. Figure 15 shows a suggested solder paste stencil pattern layout.
+The response of the INMP441 is not affected by the PCB hole size, as long as the hole is not smaller than the sound port of the micro-
+phone (0.25 mm, or 0.010 inch, in diameter). A 0.5 mm to 1 mm (0.020 inch to 0.040 inch) diameter for the hole is recommended.
+
+Align the hole in the microphone package with the hole in the PCB. The exact degree of the alignment does not affect the
+performance of the microphone as long as the holes are not partially or completely blocked.
+
+                                                          1.05
+                                                          (6×)
+
+
+
+
+                                                                                                          0.25 DIA.
+                                                                                                          (THRU HOLE)
+
+                                       2.66 (4×)
+
+
+
+                                                                                                              0.96    1.33 (2×)
+                                                                                                              1.56
+
+
+
+
+                                                                      3.16
+                                 0.40 × 0.60
+                                    (8×)
+
+                                                            DIMENSIONS SHOWN IN MILLIMETERS
+
+                                                        Figure 14. Suggested PCB Land Pattern Layout
+
+
+                                                          1.05
+                                                          (6×)
+
+
+
+
+                                                                                                     0.20
+
+
+
+                                                                                            1.05
+                                   2.66 (4×)                                                                                      3.76
+
+
+
+                                                                                                                     1.33 (2×)
+                                                                                                               1.6
+
+
+
+
+                          0.350 × 0.550                                                            1.07
+                              (8×)
+                                                                             4.72
+
+
+                                                                 DIMENSIONS SHOWN IN MILLIMETERS
+
+                                                   Figure 15. Suggested Solder Paste Stencil Pattern Layout
+
+
+                                                                         Page 17 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                               INMP441
+PCB MATERIAL AND THICKNESS
+The performance of the INMP441 is not affected by PCB thickness. The INMP441 can be mounted on either a rigid or flexible PCB. A
+flexible PCB with the microphone can be attached directly to the device housing with an adhesive layer. This mounting method
+offers a reliable seal around the sound port while providing the shortest acoustic path for good sound quality.
+
+
+HANDLING INSTRUCTIONS
+PICK AND PLACE EQUIPMENT
+The MEMS microphone can be handled using standard pick-and-place and chip shooting equipment. Take care to avoid damage to the
+MEMS microphone structure as follows:
+   • Use a standard pickup tool to handle the microphone. Because the microphone hole is on the bottom of the package, the
+      pickup tool can make contact with any part of the lid surface.
+   • Do not pick up the microphone with a vacuum tool that makes contact with the bottom side of the microphone.
+      Do not pull air out of or blow air into the microphone port.
+   • Do not use excessive force to place the microphone on the PCB.
+
+REFLOW SOLDER
+For best results, the soldering profile must be in accordance with the recommendations of the manufacturer of the solder paste used to
+attach the MEMS microphone to the PCB. It is recommended that the solder reflow profile not exceed the limit conditions specified
+in Figure 2 and Table 5.
+
+BOARD WASH
+When washing the PCB, ensure that water does not make contact with the microphone port. Do not use blow-off procedures or
+ultrasonic cleaning.
+
+
+
+
+                                                             Page 18 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                                          INMP441
+OUTLINE DIMENSIONS
+                                                4.82
+                                                4.72
+                                                4.62                     REFERENCE                  0.30
+                                 4.10 REF                                CORNER                                                   1.07
+                                                                                 0.40 × 0.60                   1.05 BSC
+                                        PIN 1                                     (PINS 1-8)                                         1.56 DIA.
+                                                                                                                                         0.96 DIA.
+                                                                                                           1                  4     0.275
+                                                                            3.86
+                                                                                                                                    0.250 DIA.
+                                                                            3.76         2.66 BSC
+                                                                                                                                    0.225
+                                                                            3.66                                          5
+
+                                                                     3.14                                                            1.33 BSC
+                                                                     REF
+                                                                                                           9                  6
+
+
+                                      TOP VIEW                                                                  BOTTOM VIEW
+
+               1.05
+               0.98                                                    0.73 REF
+               0.88
+
+
+                                      SIDE VIEW
+                                                                       0.24 REF
+
+
+                                       Figure 16. 9-Terminal Chip Array Small Outline No Lead Cavity [LGA_CAV]
+                                                         4.72 mm × 3.76 mm × 1.00 mm Body
+                                                           Dimensions shown in millimeters
+
+
+
+
+                                                         PART NUMBER          PIN 1 INDICATION
+
+
+
+
+                                                              441
+                                                              YY XXXX
+                                                         DATE CODE     LOT TRACEABILITY CODE
+
+
+
+                                                       Figure 17. Package Marking Specification (Top View)
+
+
+
+
+                                                                                   Page 19 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                      INMP441
+ORDERING GUIDE
+ PART                             TEMP RANGE            PACKAGE                            QUANTITY
+ INMP441ACEZ-R0*                  −40°C to +85°C        9-Terminal LGA_CAV                 4,500
+ INMP441ACEZ-R7†                  −40°C to +85°C        9-Terminal LGA_CAV                 1,000
+ EV_INMP441-FX                    —                     Flexible Evaluation Board          —
+ EV_INMP441                       —                     Evaluation Board                   —
+* – 13” Tape and Reel
+† – 7” Tape and reel to be discontinued. Contact sales@invensense.com for availability.
+
+
+
+
+REVISION HISTORY
+ REVISION DATE                               REVISION         DESCRIPTION
+
+ 02/06/2014                                  1.0              Initial Release
+
+ 05/21/2014                                  1.1              Updated Compliance Disclaimer
+
+
+
+
+                                                                           Page 20 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+                                                                                                  INMP441
+COMPLIANCE DECLARATION DISCLAIMER
+
+InvenSense believes the environmental and other compliance information given in this document to be correct but cannot
+guarantee accuracy or completeness. Conformity documents substantiating the specifications and component characteristics are on
+file. InvenSense subcontracts manufacturing and the information contained herein is based on data received from vendors and
+suppliers, which has not been validated by InvenSense.
+
+
+
+
+This information furnished by InvenSense is believed to be accurate and reliable. However, no responsibility is assumed by
+InvenSense for its use, or for any infringements of patents or other rights of third parties that may result from its use. Specifications
+are subject to change without notice. InvenSense reserves the right to make changes to this product, including its circuits and
+software, in order to improve its design and/or performance, without prior notice. InvenSense makes no warranties, neither
+expressed nor implied, regarding the information and specifications contained in this document. InvenSense assumes no
+responsibility for any claims or damages arising from information contained in this document, or from the use of products and
+services detailed therein. This includes, but is not limited to, claims or damages based on the infringement of patents, copyrights,
+mask work and/or other intellectual property rights.
+
+Certain intellectual property owned by InvenSense and described in this document is patent protected. No license is granted by
+implication or otherwise under any patent or patent rights of InvenSense. This publication supersedes and replaces all information
+previously supplied. Trademarks that are registered trademarks are the property of their respective companies. InvenSense sensors
+should not be used or sold in the development, storage, production or utilization of any conventional or mass-destructive weapons
+or for any other weapons or life threatening applications, as well as in any other life critical applications such as medical equipment,
+transportation, aerospace and nuclear instruments, undersea equipment, power plant equipment, disaster prevention and crime
+prevention equipment.
+
+©2014 InvenSense, Inc. All rights reserved. InvenSense, MotionTracking, MotionProcessing, MotionProcessor, MotionFusion,
+MotionApps, DMP, AAR, and the InvenSense logo are trademarks of InvenSense, Inc. Other company and product names may be
+trademarks of the respective companies with which they are associated.
+
+
+
+
+                                              ©2014 InvenSense, Inc. All rights reserved.
+
+                                                               Page 21 of 21
+Document Number: DS-INMP441-00
+Revision: 1.1
+

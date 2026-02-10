@@ -1,0 +1,523 @@
+                                                                                                            AMS1117
+                                                                               et         1A LDO Voltage Regulator
+
+   DESCRIPTION
+
+     The AMS1117 is a positive low voltage dropout regulator;
+     typical voltage dropout is only 1.2V at 1A.
+     AMS1117     provides    two     versions:   fixed   and   adjustable
+     versions. VOUT has a tolerance of less than 1.5% for fixed
+                                                                                           TO-252-2L
+     versions 1.2V 1.5V, 1.8V, 2.5V, 3.3V, 5.0V and adjustable
+     version or 2% output accuracy for fixed version 1.2V.
+     The AMS1117 offers some key features include thermal
+     shutdown and current limiting. It is suitable for all electronic
+     products.
+                                                                                    SOT-223-3L      SOT-89-3L
+
+   FEATURES
+
+         1.5% output accuracy for fixed versions 1.2V,1.5V, 1.8V
+          2.5V, 3.3V, 5.0V and adjustable version
+         Adjustable output voltage
+         Low Dropout Voltage: Typical 1.2V@1A
+         Current Limiting
+         Thermal Shutdown
+         Temperature Range: -40C to 125C
+
+   APPLICATIONS
+
+         Laptop, Palmtop, and Notebook Computers
+         Battery Charger
+         SCSI-II Active Terminator
+         Cellular Phone
+         Cordless Telephones
+         Battery Powered Systems
+         Portable Instrumentation
+         SMPS Post-Regulator
+
+
+   NOMENCLATURE
+
+
+                                         AMS1117
+
+                            Device
+                                                                            S:SOT-89-3L
+                         Package                                                ADJ: Adjustable output
+                        : SOT-223-3L                                            1.2: Fixed output 1.2V
+                      CD: TO-252-2L                                             1.5: Fixed output 1.5V
+                        : SOT-89-3L                                             1.8: Fixed output 1.8V
+                                                                                2.5: Fixed output 2.5V
+                                                                                3.3: Fixed output 3.3V
+                                                                                5.0: Fixed output 5.0V
+
+
+www.umw-ic.com                                                 1                                  友台半导体有限公司
+                                                                                                                                      AMS1117
+                                                                                                et         1A LDO Voltage Regulator
+   BLOCK DIAGRAM
+
+
+                             VIN
+                         3
+
+
+
+
+                                                                                        TSD
+
+
+                                                                                      Current
+                                                                                       Limit
+
+
+                                                                                                                        VOUT
+                                BandGap                                                                                        2
+                                                                         Fixed: F1 and F2 connect, disconnect A
+                                          F1
+                                                               F2          Adj: A connect, F1 and F2 disconnect
+                                                                                                                               1
+                                                A
+                                                                                                                    ADJ/GND
+
+
+
+
+   ABSOLUTE MAXIMUM RATINGS
+
+                         Characteristics                                 Symbol                           Rating                            Unit
+    Input Supply Voltage                                                  VIN                                 18                              V
+    Lead Temperature (Soldering, 5 seconds)                               TLead                               260                            °C
+    Operating Junction Temperature Range                                   TJ                                 150                            °C
+    Storage Temperature Range                                             Tstg                          -65 ~ +150                            V
+    Power Dissipation                                                      PD                   Internally Limited (Note1)                  mW
+                                     SOT-223-3L                                                               88
+    Thermal Resistance from
+                                     TO-252-2L                            Rja                                 86                            ℃/W
+    Junction to Ambient
+                                     SOT-89-3L                                                                102
+    ESD Tolerance (Minimum)                                               ESD                              2000                               V
+
+   Note1: The maximum allowable power dissipation is a function of maximum operating junction temperature, TJ (max), the junction to ambient
+   thermal resistance, Rja, and the ambient temperature Tamb. The maximum allowable power dissipation at any ambient temperature is given:
+   PD (max) = (TJ (max) - Tamb)/ Rja, exceeding the maximum allowable power limit will result in excessive die temperature; thus, the regulator will go
+   into thermal shutdown. The junction to ambient thermal resistance, θJA of some packages may be different, The value of θJA depends on
+   mounting technique.
+
+
+   RECOMMENDED OPERATING CONDITIONS
+
+                     Characteristics                          Symbol                                  Rating                                 Unit
+    Input voltage                                                VIN                                     12                                    V
+    Operating Junction Temperature Range                            TJ                               -40 ~ +125                               °C
+
+
+
+
+www.umw-ic.com                                                            2                                             友台半导体有限公司
+                                                                                                       AMS1117
+                                                                          et     1A LDO Voltage Regulator
+   ELECTRICAL CHARACTERISTICS
+
+           Characteristics      Symbol                Conditions               Min.     Typ.    Max.     Unit
+                                          AMS1117-ADJ,
+                                                                               1.231    1.250   1.268
+    Reference Voltage            VREF     IOUT=10mA, VIN-VOUT=2V, TJ=25C                                 V
+                                                                               1.225    1.250   1.275
+                                          10mA≤IOUT≤1A, 1.4V≤VIN-VOUT≤10V
+                                          AMS1117-1.2,
+                                                                               1.176     1.2    1.224
+                                          IOUT=10mΑ, VIN=3.2V ,TJ=25C                                    V
+                                                                               1.152     1.2    1.248
+                                          10mA≤IOUT≤1A, 3.0V≤VIN≤10V
+
+                                          AMS1117-1.5,
+                                                                               1.477    1.500   1.5221
+                                          IOUT=10mΑ, VIN=3.5V ,TJ=25C                                    V
+                                                                               1.470    1.500    .530
+                                          10mA≤IOUT≤1A, 3.0V≤VIN≤10V
+                                          AMS1117-1.8,
+                                                                               1.7731   1.800   1.827
+                                          IOUT=10mA, VIN=3.8V, TJ=25C ,                                  V
+                                                                                .746    1.800   1.854
+                                          0≤IOUT≤1A, 3.2V≤VIN≤10V
+    Output Voltage               VOUT
+                                          AMS1117-2.5,
+                                                                               2.462    2.500   2.538
+                                          IOUT=10mA, VIN=4.5V,TJ=25C ,                                   V
+                                                                               2.450    2.500   2.550
+                                          0≤IOUT≤1A, 3.9V≤VIN ≤10V
+                                          AMS1117-3.3,
+                                                                               3.250    3.300   3.349
+                                          IOUT=10mA, VIN=5V,TJ=25C ,                                     V
+                                                                               3.235    3.300   3.365
+                                          0≤IOUT≤1A, 4.75V≤VIN≤10V
+                                          AMS1117-5.0,
+                                                                               4.925    5.000   5.075
+                                          IOUT=10mA, VIN=7V, TJ=25C ,                                    V
+                                                                               4.900    5.000    5.10
+                                          0≤ IOUT≤1A, 6.5V≤VIN≤12V
+    Output Voltage
+                                TSOUT                                            --      0.3      --      %
+    Temperature Stability
+                                          VINMIN ≤VIN≤ 12V,
+    Line Regulation              Rline                                           --      9       18      mV
+                                          VOUT=Fixed/Adj,IOUT=10mA
+    Load Regulation              Rload    10mA≤IOUT≤1A, VOUT=Fixed/Adj           --      10      18      mV
+                                          IOUT=100mA                                    1.00     1.20
+    Dropout Voltage              Vdrop    IOUT=500mA                             --     1.05     1.25     V
+                                          IOUT=1A                                       1.20     1.30
+    Quiescent Current             Iq      4.25V≤VIN≤ 6.5V                        --      5       10      mA
+                                          fRIPPLE=120Hz, (VIN-VOUT)=3V,
+    Ripple Rejection             PSRR                                           60       75       --     dB
+                                          VRIPPLE=1VPP
+    Adjust pin Current            Iadj                                           --      60      120     A
+    Adjust pin Current Change             0≤ IOUT≤1A, 1.4V ≤VIN-VOUT≤10V         --      0.2      5      A
+    Thermal shutdown             TSD                                             --     150       --     °C
+    Current limitting            Ilimit                                         2.1      --      2.5      A
+    Temperature Stabiliy                                                         --      0.5      --      %
+    Long Term Stability                   TA=125°C, 1000Hrs                      --     0. 3      --      %
+
+
+
+www.umw-ic.com                                        3                                   友台半导体有限公司
+                                                                                                                                        AMS1117
+                                                                                             et        1A LDO Voltage Regulator
+
+
+
+           Characteristics                   Symbol                     Conditions                    Min.          Typ.        Max.     Unit
+    RMS Output Noise                                  % of VOUT, 10Hz≤f≤10kHz                          --         0.003            --     %
+
+
+   PIN CONFIGURATION
+
+                          SOT-223-3L                               TO-252-2L                                           SOT-89-3L
+
+
+
+
+                                                               1117 CD                                                 STK17
+                       AMS1117                                                                                         3.3 KXXX
+                          3.3 xxxx                              3.3 XXXX
+                                                                                                                1          2        3
+                                                               1         2       3
+                   1          2        3
+
+
+
+
+                                                                                                                                 VIN
+                                                                                                                         VOUT
+                                                                                                             ADJ/GND
+                                       VIN
+                             VOUT
+                ADJ/GND
+
+
+
+
+                                                                                VIN
+                                                                        VOUT
+                                                              ADJ/GND
+
+
+
+
+   PIN DESCRIPTION
+
+         Pin No.                    Pin name            I/O                                            Functions
+            1                       GND/ADJ             --/O                   Ground/ADJ
+            2                        VOUT                O                     Output voltage
+            3                         VIN                I                     Input supply voltage
+
+
+   FUNCTION DESCRIPTION
+
+   The AMS1117 is a LDO regulator, it’s pass transistor is made up of a single NPN transistor being driven by a PNP.
+   The dropout voltage is defined as: VDROP = VBE+ VSAT.
+   The AMS1117 series of fixed and adjustable regulators are easy to use. Output voltages are 1.2V, 1.5V, 1.8V, 2.5V,
+   3.3V, and 5.0V.On-chip thermal shut down provides protection against any combination of overload and ambient
+   temperature that would create excessive junction temperature.
+   The AMS1117 requires an output capacitor for device stability. Its value of 22F tantalum covers all cases of
+   bypassing the adjustment terminal. Without bypassing the adjustment terminal smaller capacitors can be used with
+   equally good results which depend upon the application circuit. In general, linear regulator stability decreases with
+   higher output currents.
+
+
+
+
+www.umw-ic.com                                                          4                                               友台半导体有限公司
+                                                                                                                                                                      AMS1117
+                                                                                                                                et           1A LDO Voltage Regulator
+
+
+  TYPICAL APPLICATION CIRCUIT
+
+
+
+
+                                          VIN                                   VIN     AMS1117 VOUT                                                           VOUT
+                                                                                          GND
+                                                      10F                                                                                        22F
+
+
+
+
+                                                                       Figure 1. Typical Fixed Output Voltage
+
+
+                                                                                  AMS1117-ADJ
+                                                    VIN                           VIN                                   VOUT                            VOUT
+                                                                                          ADJ
+                                                             10F                                                              R1                22F
+
+
+
+
+                                                                                                                               R2
+                                                          VOUT=V REF x (1+R2/R1)+I ADJ x R2
+
+
+
+
+                                                                    Figure 2. Typical Adjustable Output Voltage
+
+   Note: The circuit and parameters are reference only, please set the parameters of the real application circuit based on the real
+                       test.
+
+   TYPICAL CHARACTERISTICS
+
+                                          Temperature Stability                                                                       Adjust Pin Current
+
+                                   2.0                                                                                   100
+                                                                                                                          90
+                                   1.5
+       Output voltage change(%)
+
+
+
+
+                                                                                                                         80
+                                                                                              Adjust pin current (A)
+
+
+
+
+                                   1.0
+                                                                                                                         70
+                                   0.5
+                                                                                                                         60
+                                    0                                                                                    50
+                                  -0.5                                                                                   40
+                                  -1.0                                                                                   30
+                                                                                                                         20
+                                  -1.5
+                                                                                                                         10
+                                  -2.0
+                                      -50 -25   0     25 50 75 100 125 150                                                 0
+                                                                                                                            -50 -25    0    25    50     75 100 125   150
+                                                    Temperature(C)
+                                                                                                                                           Temperature(C)
+
+
+
+
+www.umw-ic.com                                                                           5                                                                友台半导体有限公司
+                                                                                                                                                                              AMS1117
+                                                                                                                                   et         1A LDO Voltage Regulator
+
+  TYPICAL CHARACTERISTICS CURVES(continued)
+
+                               VOUT=5 V Load Transient Response                                                               VOUT=5 V Line Transient Response
+
+                               0.3                                                                                        9.50
+                                           CIN =10F                                                                               CIN =1F
+     Output voltage
+
+
+
+
+                               0.2 COUT =10F tantalum
+
+
+
+
+                                                                                               Input voltage
+                                                                                                                                   COUT =10F tantalum
+      deviation(V)
+
+
+
+
+                                                                                                deviation(V)
+                                                                                                                          8.50
+                               0.1 VIN =6.5V                                                                                       IOUT =0.1A
+                                           Preload=100mA                                                                  7.50
+                                   0
+                              -0.1                                                                                        6.50
+                              -0.2                                                                                         40
+                                                                                                                           20
+
+
+
+
+                                                                                               Output Voltage
+                                                                                               deviation (mV)
+     current (A)
+
+
+
+
+                                  0.5
+                                                                                                                               0
+        Load
+
+
+
+
+                                   0                                                                                       -20
+                              -0.5                                                                                         -40
+                                  0                            50                    100                                           0 20 40 60 80 100 120 140 160 180 200
+                                                           Time(s)                                                                              Time(s)
+
+
+                                           Ripple Rejection VS Current                            Power Dissipation VS Ambient Temperature(SOT-223)
+
+                              100                                                                                         12
+                               90                                   fRIPPLER=120Hz
+                                                                    VRIPPLE3Vpp                                          10
+                               80
+                                                                                                   Power Dissipation(W)
+       Ripple relection(dB)
+
+
+
+
+                               70                                                                                                                        test result of PCB
+                                                                                                                          8
+                               60           fRIPPLE=20KHz
+                               50           VRIPPLE0.5Vpp
+                                                                                                                          6
+                               40
+                               30                                                                                         4
+                                           VOUT=5V
+                               20          CADJ=25F
+                               10                                                                                         2
+                                           COUT=25F
+                                0
+                                       0           200         400        600        800                                   0
+                                                                                                                           -40 -20 0        20 40 60    80 100 120 140
+                                                           ILOAD(mA)                                                                    Ambient Temperature(°C)
+
+      Power Dissipation VS Ambient Temperature(TO-252)
+
+                              15
+
+
+                              12                                test result of PCB
+       Power Dissipation(W)
+
+
+
+
+                              9
+
+                              6
+
+
+                              3
+
+                              0
+                                  -40 -20 0            20 40    60 80
+                                                                    100 120 140
+                                                Ambient Temperature(°C)
+
+
+
+
+www.umw-ic.com                                                                             6                                                                友台半导体有限公司
+                                                                                                                                                                                      AMS1117
+                                                                                                                                        et                       1A LDO Voltage Regulator
+   PACKAGE OUTLINE
+
+    SOT-223-3L                                                                                                                                                                        UNIT: mm
+
+                                                                               5.90～6.70
+
+
+                                                                               3.00±0.20
+                                                                                                                                                              0.30±0.10
+
+
+
+
+                                                                                                                                          0.90～1.15
+                                                                                                                                        0.25
+                                          3.50±0.30
+
+
+
+
+                                                                                                                      7.00±0.30
+                                                                    2.30 TYP                                +0.15
+                                                                                                   0.70
+                                                                                                            -0.10
+                                                                               4.60±0.15
+                                                                                                                                                      0～10°
+                                                  0.00～0.10
+
+
+
+
+                                                                                                          1.60±0.15
+
+                                                                                                                            1.65±0.15
+
+
+
+
+    SOT-89-3L                                                                                                                                                                         UNIT: mm
+
+
+
+
+                                                                     4.50±0.30
+
+                                                                                                                                                                          1.50±0.20
+                 4.155±0.40
+
+
+
+
+                                                                                                                2.45±0.30
+                              1.00±0.20
+
+
+
+
+                                                              0.48±0.20                        2-0.42±0.20                                            0.40±0.20
+
+                                                                     3.00BSC
+
+
+
+
+www.umw-ic.com                                                                             7                                                                                   友台半导体有限公司
+                                                                                                                       AMS1117
+                                                                                                      et   1A LDO Voltage Regulator
+   PACKAGE OUTLINE (continued)
+
+    TO-252-2L                                                                                                           UNIT: mm
+
+
+
+
+         NOTE1：There are two conditions for this position:has an eject pin or has no eject pin.
+
+
+
+
+www.umw-ic.com                                                                                    8             友台半导体有限公司
+

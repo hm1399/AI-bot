@@ -1,0 +1,684 @@
+                           南京拓品微电子有限公司
+                          NanJing Top Power ASIC Corp.         TP4056
+
+
+
+
+                 南京拓品微电子有限公司
+
+                 NanJing Top Power ASIC Corp.
+
+
+
+
+            TP4056
+    (1A Standalone Linear
+    Li-Ion Battery Charger)
+
+
+
+
+www.toppwr.com                   1                       REV_2.4
+                                     南京拓品微电子有限公司
+                                    NanJing Top Power ASIC Corp.                         TP4056
+
+DESCRIPTION
+The TP4056 is a complete constant-current/constant-voltage linear charger for single cell
+lithium-ion batteries. It’s ESOP8/EMSOP8 package and low external component count
+make the TP4056 ideally suited for portable applications. The TP4056 is designed to work
+within USB power specifications (wall adaptor or USB supply).
+No external sense resistor or blocking diode is required due to it’s internal PMOSFET
+architecture and integrated reverse discharge protection. TP4056 limits the charge current
+based on die temperature during high power operation or high ambient temperature. The
+charge voltage is fixed at 4.2V, and the charge current can be programmed externally with
+a resistor. TP4056 automatically terminates the charge cycle when the charge current drops
+to 1/10th of the programmed value after reaching the final float voltage.
+When input power supply is removed, TP4056 will enter a low current state with battery
+drain current less than 2uA. TP4056 can also enter a shut-down mode with power supply,
+lowering supply current to less than 55uA.
+Other features include cell temperature monitor, under voltage lockout, automatic recharge
+and two LED status indication pins for charge termination and presence of an input voltage.
+
+
+FEATURES                                            ·BAT Pin Current：1200mA
+·Programmable Charge Current Up to                  ·PROG Pin Current：1200uA
+1000mA                                              ·Maximum Junction Temperature：145℃
+·No MOSFET, Sense Resistor or Blocking              ·Operating Ambient Temperature Range：-
+Diode Required                                      40℃~85℃
+·Complete single-cell linear Li-Ion battery
+                                                    ·Storage Temperature Range：-65℃~125℃
+charger in ESOP8/EMSOP8 Package
+·Constant-Current/Constant-Voltage                  ·Lead Temp.(Soldering, 10sec)：260℃
+operation with thermal regulation
+·Preset 4.2V Charge Voltage with 1%                 APPLICATIONS
+Accuracy                                            ·Cellular Telephones, PDAs, GPS
+·Automatic Recharge                                 ·Charging Docks
+·Automatic End-of-charge control                    ·Digital Cameras, Portable Devices
+·UVLO                                               ·USB Bus-Powered Chargers
+·Two Charge Status Output Pins
+·C/10 Charge Termination                            COMPLETE CHARGE CYCLE
+·55uA Charge Current in Standby Mode                (1000mAh Battery)
+·2.9V Trickle Charge Threshold
+·Soft-Start Limits Inrush Current
+·8-Lead ESOP /EMSOP Package
+ABSOLUTE MAXIMUM RATINGS
+·Input Supply Voltage(VCC)：-0.3V～8V
+·PROG：-0.3V～Vcc+0.3V
+·BAT：-0.3V～0.7V
+·EMBED PBrush：-0.3V～10V
+·TEMP：-0.3V～10V
+·CE：-0.3V～10V
+·BAT Short-Circuit Duration：Continuous
+
+
+
+
+www.toppwr.com                             2                                    REV_2.4
+                                    南京拓品微电子有限公司
+                                   NanJing Top Power ASIC Corp.                      TP4056
+
+TYPICAL APPLICATIONS
+1.     With temperature monitoring and charging status indicators.
+
+
+
+
+2.     With charging status indicator but no battery temperature monitoring (Left)
+3.     With neither charging status indicator nor battery temperature monitoring (Right)
+
+
+
+
+4.      Applications for both USB and Wall adaptor charging (Left)
+5.      Red LED for charging, green LED for charging completes. External R for heat
+dissipation. (Right)
+
+
+
+
+www.toppwr.com                            3                                   REV_2.4
+                           南京拓品微电子有限公司
+                          NanJing Top Power ASIC Corp.                        TP4056
+
+
+
+PACKAGE/ORDER INFORMATION
+
+
+                                                         ORDER PART NUMBER
+
+                                                          TP4056-42-ESOP8
+
+                                                           PART MARKING
+
+                                                               TP4056
+
+
+
+
+                 ESOP8
+
+
+
+
+                                                         ORDER PART NUMBER
+                                                          TP4056-42-EMSOP8
+                                                           PART MARKING
+
+                                                               TP4056
+
+
+
+
+                 EMSOP8
+
+
+
+
+www.toppwr.com                   4                                      REV_2.4
+                                                南京拓品微电子有限公司
+                                               NanJing Top Power ASIC Corp.                              TP4056
+
+      ELECTRICAL CHARACTERISTICS
+       The ● denotes specifications which apply over the full operating temperature range, otherwise
+       specifications are at TA=25℃，VCC =5V, unless otherwise noted.
+SYMBOL       PARAMETER                   CONDITIONS                             MIN     TYP      MAX      UNITS
+VCC          Input Supply Voltage                                           ● 4.0       5        8.0      V
+                                         Charge Mode, RPROG = 1.1K          ●           150      500      μA
+                                         Standby       Mode       (Charge ●             55       100      μA
+                                         Terminated),
+ICC          Input Supply Current
+                                         Shutdown Mode (RPROG Not ●                     55       100      μA
+                                         Connected, VCC < VBAT, or VCC <
+                                         VUV)
+             Regulated           Output
+VFLOAT                                   0℃≤TA≤85℃，IBAT=40mA                    4.158 4.2        4.242    V
+             (Float) Voltage
+                                         RPROG=2.2K, Current Mode           ● 425       500      575      mA
+                                         RPROG=1.1K, Current Mode           ● 850       1000 1150         mA
+             BAT Pin Current (Test
+                                         Standby Mode, VBAT = 4.2V          ● 0         -2.5     -6       μA
+IBAT         condition:
+                                         Shutdown Mode((RPROG Not                       ±1       ±2       μA
+             VBAT=4.0V)
+                                         Connected)
+                                         Sleep Mode, VCC =0V                            -1       -2       μA
+ITRIKL       Trickle Charge Current VBAT<VTRIKL, RPROG=1.1K                 ● 120       130      140      mA
+             Trickle Charge
+VTRIKL                                   RPROG=1.1K, VBAT Rising                2.8     2.9      3.0      V
+             Threshold Voltage
+             Trickle Charge
+VTRHYS                                   RPROG=1.1K                             60      80       100      mV
+             Hysteresis Voltage
+VUV          VCC UVLO Voltage            VCC from low to high               ● 3.5       3.7      3.9      V
+VUVHYS       VCC UVLO Hysteresis                                            ● 150       200      300      mV
+             VCC-VBAT           lockout VCC from low to high                    60      100      140      mV
+VASD
+             threshold voltage           VCC from high to low                   5       30       50       mV
+             C/10 termination            RPROG=2.2K                         ● 60        70       80       mA
+ITERM
+             current threshold           RPROG=1.1K                         ● 120       130      140      mA
+VPROG        PROG pin voltage            RPROG=1.2K，current mode            ● 0.9       1.0      1.1      V
+                     Pin output low
+ VCHRG                                    ICHRG =5mA                                    0.3      0.6      V
+             voltage
+                     Pin output low
+ VSTDBY                                  ISTDBY =5mA                                    0.3      0.6      V
+             voltage
+             TEMP         upper     trip
+VTEMP-H                                                                                 80       82       %Vcc
+             threshold
+             TEMP         lower     trip
+VTEMP-L                                                                         43      45                %Vcc
+             threshold
+             Recharge battery
+ΔVRECHRG                                 VFLOAT-VRECHRG                         100     150      200      mV
+             threshold voltage
+             Junction Temperature in
+TLIM         Constant Temperature                                                       145               ℃
+             Mode
+             The resistance of power
+RON          FET “ON” （between                                                          650               mΩ
+             VCC and BAT
+tss          Soft-start time             IBAT=0 to IBAT=1100V/RPROG                     20                μs
+             Recharge comparator
+tRECHARGE                                VBAT from high to low                  0.8     1.8      4        ms
+             filter time
+             Termination comparator
+tTERM                                    IBAT drops below ICHG/10               0.8     1.8      4        ms
+             filter time
+             PROG pin pull-up
+IPROG                                                                                   2.0               μA
+             current
+
+      www.toppwr.com                                   5                                        REV_2.4
+                                         南京拓品微电子有限公司
+                                        NanJing Top Power ASIC Corp.                                TP4056
+
+TYPICAL PERFORMANCE CHARACTERISTICS
+PROG Pin Voltage vs Supply Voltage        PROG Pin Voltage                        Charge Current
+(Constant Current Mode)                     vs Temperature                        vs PROG Pin Voltage
+
+
+
+
+Regulated Output (Float) Voltage     Regulated Output (Float) Voltage    Regulated Output (Float) Voltage
+vs Charge Current                     vs Temperature                     vs Supply Voltage
+
+
+
+
+Trickle Charge Threshold Voltage     Charge Current                     Charge Current vs Supply Voltage
+vs Temperature                       vs Battery Voltage
+
+
+
+
+Charge Current                       Recharge Threshold Voltage         Power FET “ON” Resistance
+vs Ambient Temperature               vs Temperature                     vs Temperature
+
+
+
+
+www.toppwr.com                                  6                                           REV_2.4
+                                     南京拓品微电子有限公司
+                                    NanJing Top Power ASIC Corp.                       TP4056
+
+
+
+PIN FUNCTIONS
+TEMP (Pin 1) : Temperature Sense Input.
+Connecting TEMP pin to NTC thermistor’s               BAT (Pin5): Battery Connection. Connect
+output pin in Lithium ion battery pack. If            the positive terminal of the battery to the
+TEMP pin’s voltage is below 45% or above              BAT pin. BAT pin provides charge current to
+80% of supply voltage VIN, this means that            the battery and regulates the final float
+battery’s temperature is too high or too low,         voltage to 4.2V. BAT pin draws less than
+charging is suspended. The temperature                2uA current in chip disable mode or in sleep
+sense function can be disabled by grounding           mode.
+the TEMP pin.
+                                                      STDBY (Pin6): Charge Status Open-Drain
+PROG (Pin 2): Constant Charge Current                 Output. When battery charge cycle
+Programming and Charge Current Monitor.               completes, STDBY pin is pulled low by an
+Charge current is programmed by                       internal switch, otherwise STDBY pin is
+connecting a resistor RISET from this pin to          high impedance.
+GND. When in recharge mode, this pin’s
+voltage is regulated to 0.1V. When in                 CHRG (Pin7): Charge Status Open Drain
+constant-current mode, this pin is regulated          Output. When the battery is charging, the
+to 1V. In all modes during charging, the              CHRG pin is pulled low by an internal
+voltage on this pin can be used to measure            switch, otherwise CHRG pin is high
+the charge current as follows:                        impedance.
+IBAT=(VPROG/RPROG) • 1100
+                                                      CE (Pin8): Chip Enable Input. A logic high
+GND (Pin3): Ground Terminal                           on CE pin will put the device in normal
+                                                      operation mode. Pulling the CE pin to low
+Vcc (Pin 4): Positive Input Supply Voltage.           will put the TP4056 into shutdown mode.
+Provides power to the charger. When VCC is            The CE pin can be driven by TTL or CMOS
+within 30mV of the BAT pin voltage, the               logic level.
+TP4056 enters shutdown mode dropping
+BAT pin’s current to less than 2µA.
+
+
+
+
+www.toppwr.com                             7                                     REV_2.4
+                                      南京拓品微电子有限公司
+                                     NanJing Top Power ASIC Corp.                        TP4056
+
+BLOCK DIAGRAM
+
+
+
+
+OPERATION
+The TP4056 is a complete CC/CV linear                  board without risk of damaging the TP4056.
+charger for single cell lithium-ion batteries.         Another benefit of adopting thermal
+It can deliver up to 1A of charge current with         regulation is that charge current can be set
+a final float voltage accuracy of ±1%. The             according to typical, not worst-case, ambient
+TP4056 includes an internal PMOS                       temperature for a given application with the
+architecture and thermal regulation circuitry.         assurance that the charger will automatically
+No blocking diode or external current sense            reduce the current in worst-case conditions.
+resistor is required. TP4056 includes two              Normal Charge Cycle
+charge status open-drain pins: charge status           The charge cycle begins when the voltage at
+indicator CHRG and battery failure status              the VCC pin rises above the UVLO threshold
+output STDBY . The internal thermal                    level, a program resistor is connected from
+regulation circuit reduces the programmed              the PROG pin to ground, and the CE pin is
+charge current if the die temperature                  pulled above the chip enable threshold. The
+attempts to rise above a preset value of               CHRG pin outputs a logic low to indicate that
+approximately 145 ℃. This feature protects             the charge cycle is on going. When the
+the TP4056 from excessive temperature, and             battery voltage is below 3V, the charger
+allows the user to push the limits of the              enters trickle charge mode to bring the
+power handling capability of a given circuit           battery voltage up to a safe level for
+
+www.toppwr.com                              8                                      REV_2.4
+                                      南京拓品微电子有限公司
+                                     NanJing Top Power ASIC Corp.                         TP4056
+
+charging. When voltage on the BAT pin rises            Charge Termination
+above 3V, the charger goes into the fast               A charge cycle terminates when the charge
+charge CC mode. In CC mode, the charge                 current falls to 1/10th the programmed value
+current is set by RPROG. When the battery              after the final float voltage is reached. This
+approaches the final float voltage of 4.2V,            condition is detected by using an internal
+the charge current begins to decrease as the           filtered comparator to monitor the PROG
+TP4056 enters the CV mode. When the                    pin. When the PROG pin voltage falls below
+charge current drops to 1/10th of the                  100mV for longer than tTEMP (typically
+programmed value, the charge cycle                     1.8ms), charging is terminated. The charge
+terminates, and CHRG pin becomes high                  current is latched off and the TP4056 enters
+impedance while STDBY pin is pulled low.               standby mode, where the input supply
+The charge cycle can also be automatically             current drops to 55 μA.
+restarted if the BAT pin voltage falls below           ( Note: C/10 termination is disabled in
+the recharge threshold. The on-chip                    trickle charging and thermal limiting
+reference voltage, error amplifier and the             modes).
+resistor divider network provide regulation            When charging, transient loads on the BAT
+voltage with 1% accuracy, which can meet               pin can cause the PROG pin to fall below
+the requirement of lithium-ion and lithium             100mV for short periods of time before the
+polymer batteries. When the input voltage is           DC charge current has dropped to 1/10th the
+not present, or input voltage is below VBAT,           programmed value. The 1.8ms filter time
+the charger enters a sleep mode, dropping              (tTEMP) on the termination comparator
+battery drain current to less than 3 μ A. This         ensures that transient loads of this nature do
+greatly reduces the current drain on the               not result in premature charge cycle
+battery and increases the standby time. The            termination. Once the average charge
+charger can be shut down by forcing the CE             current drops below 1/10th the programmed
+pin to GND.                                            value, the TP4056 terminates the charge
+Programming Charge Current                             cycle and ceases to provide any current
+The charge current is programmed using a               through the BAT pin. In this state all loads
+single resistor from the PROG pin to ground.           on the BAT pin must be supplied by the
+The program resistor and the charge current            battery.
+are calculated using the following equations.          The TP4056 constantly monitors the BAT
+                          1100                         pin voltage in standby mode. If this voltage
+                𝑅𝑃𝑅𝑂𝐺 =                                drops below the 4.05V recharge threshold
+                          𝐼𝐵𝐴𝑇
+In applications, one can refer to the                  (VRECHRG), another charge cycle begins and
+following chart showing the relation                   charge current is once again supplied to the
+between RPROG and charge current:                      battery. Figure 1 shows the state diagram of
+       RPROG (k)             IBAT (mA)                 a typical charge cycle.
+          30                     50
+          20                     70
+          10                     130
+           5                     250
+           4                     300
+           3                     400
+           2                     580
+          1.6                    690
+          1.4                    780
+          1.2                    900
+          1.1                   1000
+
+
+
+
+www.toppwr.com                              9                                      REV_2.4
+                                                           南京拓品微电子有限公司
+                                                          NanJing Top Power ASIC Corp.                        TP4056
+                    Shutdown Mode
+              VDD<VUVLO(3.6V)
+                                                                            Thermal limiting
+              VDD<VBAT
+              CHRG =High Impendence
+                                                                            An internal thermal feedback loop reduces
+              STDBY =High Impendence                                        the programmed charge current if the die
+                                 VBAT<2.9V                                  temperature attempts to rise above a preset
+                     Trickle Mode
+                                                                            value of approximately 140 ℃, and current
+              Charge Current=1/10 IBAT
+              CHRG =Strong pull-down
+                                                                            will be reduced to zero if die temperature
+              STDBY =High Impendence                                        reaches beyond 150 ℃. This feature protects
+                                VBAT>2.9V                                   the TP4056 from excessive temperature and
+                    CC Charge Mode
+                                             VBAT>2.9V
+                                                                            allows the user to push the limits of the
+              Charge Current=IBAT
+              CHRG =Strong pull-down                                        power handling capability of a given circuit
+              STDBY =High Impendence
+                                             VBAT<4.12V                     board without risk of damaging the TP4056.
+                               VBAT=4.2V                                    The charge current can be set according to
+                    CV Charge Mode                                          typical (not worst-case) ambient temperature
+              Charge Voltage=4.2V
+              CHRG =Strong pull-down                                        with the assurance that the charger will
+              STDBY =High Impendence
+                                                                            automatically reduce the current in worst-
+                                   ICHARGE<10%IBAT                          case conditions.
+                     Standby Mode
+              No Charge Current
+                                                                            To prevent the damage caused by the very
+              CHRG =Strong pull-down
+              STDBY =High Impendence
+                                                                            high or very low temperature done to the
+                                                                            battery pack, the TP4056 continuously
+      Fig.1 State diagram of a typical charge cycle
+                                                                            senses battery pack temperature by
+   Charge status indicator
+                                                                            measuring the voltage at TEMP pin
+   TP4056 has two open-drain status indicator:
+                                                                            determined by the internal voltage divider
+   CHRG and STDBY . CHRG is pull-down
+                                                                            circuit and the battery’s internal NTC
+   when the TP4056 is in a charge cycle, and
+                                                                            thermistor as shown in Figure 1.
+   CHRG becomes high impedance for other
+                                                                            The TP4056 compares the voltage at TEMP
+   states. Both CHRG and STDBY will be high                                 pin (VTEMP) against it’s internal VTEMP_L and
+   impedance when the battery is operating out                              VTEMP_H thresholds to determine if charging
+   of the normal temperature.                                               is allowed. VTEMP_Lis fixed at (45%×Vcc),
+   When TEMP pin is connected, and battery is                               while VTEMP_H is fixed at (80%×Vcc). If
+   not connected to charger: both red LED and                               VTEMP<VTEMP_L or VTEMP>VTEMP_H, it
+   green LED are OFF to indicate a failure                                  indicates that the battery temperature is too
+   mode. When TEMP is grounded, the battery                                 high or too low and the charge cycle is
+   temperature sense function is disabled. If                               suspended. When VTEMP is in between
+   battery is not connected to charger, CHRG                                VTEMP_L and VTEMP_H , charging cycle
+   pin outputs a PWM level to indicate no                                   resumes. The battery temperature sense
+   battery failure mode. If BAT pin connects to                             function can be disabled by connecting
+   a 10 μ F capacitor, the frequency of CHRG                                TEMP pin to GND.
+   flicking will be with T=1-4s.                                            Selecting R1 and R2
+   If not using a status indicator, the pins                                The values of R1 and R2 in the application
+   should be connected to GND.                                              circuit can be determined according to the
+                                         Red LED          Green LED         assumed temperature monitor range and
+Charger’s Status
+                                          CHRG             STDBY            thermistor’s values. See following example
+Charging                                   ON                OFF            as a reference:
+Charging Completes                         OFF               ON
+Under-voltage,        battery’s
+                                                                            Assume temperature monitor range is TL～
+temperature is too high or too
+                                           OFF               OFF
+                                                                            TH，(TL＜TH)；the thermistor in battery
+low, or not connect to battery                                              has negative temperature coefficient (NTC).
+(TEMP pin in use)
+BAT pin is connected to 10uF                                                RTL is thermistor’s resistance at TL， RTH
+                                           Green LED ON, Red
+capacitor, and not connect to                                               is the resistance at TH，so RTL＞RTH.
+battery (TEMP connects to
+                                         LED flickering with T=1-
+GND)                                                4s                      Then at temperature TL, the voltage at
+                                                                            TEMP pin is:
+   www.toppwr.com                                                10                                     REV_2.4
+                                          南京拓品微电子有限公司
+                                         NanJing Top Power ASIC Corp.                          TP4056
+
+             R 2 RTL              .                        charge cycle, pullup CE pin or connect a
+VTEMPL =                   VIN                            programming resistor.
+           R1 + R 2 RTL
+                                                           If TP4056 is in the under voltage Lockout
+At temperature TH, the voltage at TEMP pin                 mode, both CHRG and STDBY become high
+is: .                                                      impedance, meaning VCC is not at least
+           R 2 RTH                                         100mV above BAT pin voltage, or VCC is too
+VTEMPH =               VIN
+         R1 + R 2 RTH                                      low.
+We know VTEMPL＝VHIGH＝K2×Vcc                                Automatic Recharge
+                                                           Once the charge cycle is terminated, the
+(K2=0.8)；VTEMPH＝VLOW＝K1×Vcc
+                                                           TP4056 continues to monitor the voltage on
+(K1=0.45)
+                                                           BAT pin using a termination comparator
+Then we can have：                                          with 1.8ms filter time (tRECHARGE). If battery
+                 RTL RTH ( K 2 − K1 )                      voltage drops below the 4.05V recharge
+             R1 =
+                 ( RTL − RTH ) K1 K 2                      threshold (approximately 80% to 90% of
+                                                           battery capacity), another charge cycle
+                 RTL RTH ( K 2 − K1 )
+  R2 =                                                     begins. This ensures the battery is kept at, or
+       RTL ( K1 − K1 K 2 ) − RTH ( K 2 − K1K 2 )           near, a fully charged condition to avoid the
+Likewise, for positive temperature                         requirement of periodic charge cycle
+coefficient thermistor in battery, we have                 initiations. During recharge cycles, CHRG
+RTH＞RTL and we can calculate:                              pin enters a pulled down state.
+                 RTL RTH ( K 2 − K1 )                      Stability Considerations
+             R1 =                                          In constant-current mode, the PROG pin is
+                ( RTH − RTL ) K1 K 2
+                                                           in the feedback loop, not the battery. The
+                 RTL RTH ( K 2 − K1 )                      constant-current mode stability is affected
+  R2 =
+       RTH ( K1 − K1 K 2 ) − RTL ( K 2 − K1K 2 )           by the impedance at the PROG pin.
+We can conclude that temperature monitor                   Additional capacitance on this node reduces
+range is independent of power supply                       the maximum allowed program resistor. If
+voltage VCC and it only depends on R1, R2,                 the PROG pin is loaded with a capacitance,
+RTL and RTH. The values of RTH and RTL can                 CPROG, the following equation can be used to
+be found in the related battery handbook or                calculate the maximum resistance value for
+deduced from testing data. In actual                       RPROG:
+application, if considering only one terminal
+temperature (normally protecting from
+overheating), there is no need to use R2.                  Typically, average rather than instantaneous
+Under Voltage lockout (UVLO)                               charge current may be of more interest to the
+An internal under voltage lockout circuit                  user. For example, if a switching power
+monitors the input voltage and keeps the                   supply operating in low current mode is
+charger in shutdown mode until VCC rises                   connected in parallel with the battery, the
+above the under voltage lockout threshold .                average current being pulled out of the BAT
+If the UVLO comparator is tripped, the                     pin is typically of more interest than the
+charger will not come out of shutdown mode                 instantaneous current pulses. In such a case,
+until VCC rises 100mV above the battery                    a simple RC filter can be used on the PROG
+voltage.                                                   pin to measure the average battery current,
+Manual Shutdown                                            as shown in Figure 2. A 10k resistor has been
+At any time in the charge cycle, the TP4056                added between the PROG pin and the filter
+can be put into shutdown mode by pulling                   capacitor to ensure stability.
+CE pin to GND, or removing RPROG(PROG
+pin is float). This reduces the battery drain
+current to less than 2μA and the supply
+current to less than 55μA. To restart the
+www.toppwr.com                                     11                                   REV_2.4
+                                       南京拓品微电子有限公司
+                                      NanJing Top Power ASIC Corp.                           TP4056
+
+                                                        dissipation of the IC during thermal
+                                                        regulation. An option is to dissipate some
+                                                        portion of the heat through an external
+                                                        component (resistor or a diode).
+                                                        An example: A TP4056 operating from a 5V
+                                                        supply is programmed to supply 800mA full-
+                                                        scale current to a discharged Li-Ion battery
+Fig.2 Isolating Capacitive Load on PROG Pin and
+                                                        with a voltage of 3.75V. Assuming θJA is
+                    Filtering
+                                                        125°C/W, at 25°C the charge current is
+Power Dissipation
+                                                        approximately:
+The conditions that cause the TP4056 to
+reduce charge current through thermal
+feedback can be approximated by
+considering the power dissipated in the IC.             Power dissipation can be reduced by
+Nearly all of this power dissipation is                 lowering voltage across the resistor that’s in
+generated by the internal MOSFET—this is                series with the 5V supply, increasing charge
+calculated to be approximately:                         current:
+
+where PD is the power dissipated, VCC is the
+input supply voltage, VBAT is the battery
+voltage and IBAT is the charge current. The
+approximate ambient temperature at which
+the thermal feedback begins to protect the IC
+is:
+
+
+
+It is important to remember that TP4056
+applications do not need to be designed for
+worst-case thermal conditions since the IC
+will automatically reduce power dissipation
+                                                           Fig.3 Circuit Example to Increase Charging
+when the junction temperature reaches                                       Current
+approximately 145°C.
+Thermal Considerations
+Because of the small size of the thin SOP-8
+or ESOP-8 package, it is important to use a
+good thermal PC board layout to maximize
+                                                        IBAT = 948mA, which shows such a circuit
+the available charge current. The PC board
+                                                        can supply 800mA full-scale charge current
+copper is the heat sink. The footprint of the
+                                                        at a higher temperature.
+copper pads should be as wide as possible to
+                                                        Although this application can supply more
+spread and dissipate the heat to the
+                                                        charge current to save charging time, if Vcc
+surrounding ambient. Other heat sources on
+                                                        drops low enough to make TP4056 at a low
+the board, not related to the charger, must
+                                                        dropout mode, charging time may increase.
+also be considered when designing a PC
+                                                        Rcc needs to be carefully picked and dropout
+board layout because they will have an
+                                                        should be avoided to make this technique
+impact on overall temperature rise and the
+                                                        fully effective.
+maximum charge current.
+Increasing Charge Current with Thermal
+Mode
+Furthermore, lowering voltage across
+MOSFET can effectively reduce power
+
+www.toppwr.com                               12                                       REV_2.4
+                                      南京拓品微电子有限公司
+                                     NanJing Top Power ASIC Corp.                            TP4056
+                                                        Fig.5 Reverse Polarity Input Voltage Protection
+
+                                                       USB and Wall Adapter Power
+                                                       The TP4056 supports charging from both a
+                                                       wall adapter and a USB port. Figure 6 shows
+                                                       an example of how to combine a wall
+                                                       adapter and USB power inputs.
+
+
+
+
+        Fig.4 Charging Current and Rcc
+CC bypass capacitor
+                                                              Fig.6 USB and Wall Adaptor Power
+Many types of capacitors can be used for
+                                                       Board Layout Considerations
+input bypassing, however, caution must be
+                                                       RPROG at PROG pin should be as close to
+exercised when using multilayer ceramic
+                                                       TP4056 as possible, also the parasitic
+capacitors. Because of the self-resonant and
+                                                       capacitance at PROG pin should be kept as
+high Q characteristics of some types of
+                                                       small as possible.
+ceramic capacitors, high voltage transients
+                                                       The capacitance at VCC pin and BAT pin
+can be generated under some start-up
+                                                       should be as close to TP4056 as possible.
+conditions, such as connecting the charger
+                                                       It is very important to use a good thermal PC
+input to a live power source. Adding a 1.5 Ω
+                                                       board layout to maximize charging current.
+resistor in series with a ceramic capacitor
+                                                       The thermal path for the heat generated by
+will minimize start-up voltage transients.
+                                                       the IC is from the die to the copper lead
+Charge Current Soft-Start
+                                                       frame through the package lead (especially
+TP4056 includes a soft-start circuit to reduce
+                                                       the ground lead) to the PC board copper,
+the inrush current in the beginning of the
+                                                       where the PC board copper is the heat sink.
+charge cycle. When restarting a new charge
+                                                       The footprint of copper pads should be as
+cycle, the charging current ramps up from 0
+                                                       wide as possible and expand out to larger
+to the full charging current over a period of
+                                                       copper areas to spread and dissipate the heat
+20μs, which can effectively minimize the
+                                                       to the surrounding ambient. Feed through
+transient current load on power supply
+                                                       vias to inner or backside copper layers are
+during startup.
+                                                       also useful in improving the overall thermal
+Reverse Polarity Input Voltage Protection
+                                                       performance of the charger. The ability to
+In some applications, protection from
+                                                       deliver maximum charge current under all
+reverse polarity
+                                                       conditions requires that the exposed metal
+voltage on VCC is required, and a series
+                                                       pad on the back side of the TP4056 package
+blocking diode can be used with high supply
+                                                       be soldered to the PC board ground. Failure
+voltage while a P-channel MOSFET can be
+                                                       to make the thermal contact between the
+used when voltage drop needs to be kept low.
+                                                       exposed pad on the backside of the package
+                                                       and the copper board will result in larger
+                                                       thermal resistance.
+
+
+
+
+www.toppwr.com                              13                                       REV_2.4
+                               南京拓品微电子有限公司
+                              NanJing Top Power ASIC Corp.                       TP4056
+
+PACKAGE DESCRIPTION: ESOP8
+                 MIN(mm)   MAX(mm)                           MIN(mm)   MAX(mm)
+
+
+
+
+www.toppwr.com                       14                                 REV_2.4
+                             南京拓品微电子有限公司
+                            NanJing Top Power ASIC Corp.                    TP4056
+
+PACKAGE DESCRIPTION: EMSOP8
+                 MIN(mm)   MAX(mm)                         MIN(mm)    MAX(mm)
+
+
+
+
+www.toppwr.com                       15                              REV_2.4
+
