@@ -2,6 +2,62 @@
 
 ---
 
+## 2026-03-07~08 - PCB焊接与硬件测试
+
+### 3月7日：PCB焊接
+- 完成主板大部分元件焊接
+- 发现两个采购错误：
+  - **ST7789 屏幕 FPC 接口**：买成上下接反的型号，无法插入排线，需重新采购
+  - **INMP441 麦克风封装**：买错封装，与PCB焊盘不匹配，重新采购正确封装后焊接成功
+
+### 3月8日：硬件逐模块测试
+- 编写硬件测试计划（`功能讨论区/硬件测试.md`），共10项测试
+- 测试代码存放于 `firmware/arduino/` 目录
+
+**已通过（7/10）：**
+- ✅ 测试1：串口通信 — USB CDC 正常，回显和心跳包正常
+- ✅ 测试3：INMP441 麦克风 — I2S 采集正常，音量条显示正确
+- ✅ 测试6：触摸感应 — ESP32-S3 内置电容触摸，单击/双击/长按识别正常
+- ✅ 测试7：MPU6050 六轴传感器 — I2C 通信正常，加速度/陀螺仪/温度数据正确，摇一摇/敲击/翻转/倾斜/旋转检测正常
+- ✅ 测试9：WiFi 连接 — 热点扫描、WiFi连接、HTTP请求均正常
+- ✅ 测试10：电源与充电 — TP4056 充电指示灯正常，AMS1117 3.3V 稳压正常，电池独立供电正常
+
+**待测（3/10）：**
+- 🔄 测试2：ST7789 屏幕 — FPC接口买错（上下接反），待重新采购
+- ⬜ 测试4/5：MAX98357A 功放与喇叭 — 喇叭未焊接
+- ⬜ 测试8：WS2812B 灯带 — 灯带未焊接
+
+### TFT_eSPI 库配置记录
+- 驱动：ST7789_DRIVER
+- 分辨率：240x240（1.54寸屏）
+- 引脚：MOSI=IO11, SCK=IO12, CS=IO9, DC=IO10, RST=IO46
+- SPI频率：40MHz，使用 HSPI 端口
+- 启用 TFT_INVERSION_ON
+
+---
+
+## 2026-03-05 - Nanobot 移植后端计划（更新版）
+
+### 架构决策：nanobot 作为 AI 核心引擎，task.md 服务端大幅简化
+- nanobot AgentLoop 替代自建 LLM + Tool Use 引擎
+- nanobot 内置 exec 工具替代 subprocess 调用 nanobot 的原计划
+- nanobot MEMORY.md 替代自建 SQLite 对话历史/摘要系统
+- task.md 7.2/7.3/7.6/7.7/7.8（对话部分）全部由 nanobot 承担
+
+### task.md 保留部分
+- 7.4 ASR：`server/services/asr.py`（faster-whisper 本地部署）
+- 7.5 TTS：`server/services/tts.py`（Edge-TTS）
+- 7.8 SQLite：仅保留 tasks + events 两张表（自定义 nanobot 工具读写）
+
+### 新 server/ 结构
+- `channels/device_channel.py`：ESP32 WebSocket + ASR + TTS（替代 /ws/device）
+- `channels/app_channel.py`：Flutter WebSocket（替代 /ws/app）
+- `main.py`：直接构建 nanobot 核心，注入自定义 Channel
+- `tools/task_queue_tool.py` + `tools/events_tool.py`：自定义 nanobot 工具
+- 八个阶段完整计划保存在 `功能讨论区/移植修改nanobot.md`
+
+---
+
 ## 2026-02-25 - 系统架构设计 + 任务清单更新
 
 ### task.md 根据架构文档全面更新
@@ -194,9 +250,29 @@
 
 ---
 
+## 2026-03-04 - Nanobot 安装部署与测试
+
+### Nanobot 安装与部署
+- 将 nanobot 源码克隆到本地（`nanobot-src/`目录）
+- 安装 nanobot 并完成初始化配置（`nanobot onboard`）
+- 配置 LLM Provider 和 API Key
+- 成功启动 nanobot 并通过 CLI 模式（`nanobot agent`）完成对话测试
+
+### 技术调研与文档整理
+- 阅读 nanobot 源码（`nanobot-src/nanobot/`），梳理核心架构
+- 生成 `功能讨论区/nanobot功能架构.md`，详细记录：
+  - 整体数据流架构（Channel → MessageBus → AgentLoop → Tools）
+  - 8 个核心模块（AgentLoop、MemoryStore、CronService、HeartbeatService 等）
+  - 11 个内置工具（文件读写、Shell、Web 搜索、子 Agent、定时任务等）
+  - 8 个内置技能（memory、cron、weather、tmux、github 等）
+  - 11 个消息通道（Telegram、Discord、WhatsApp、飞书、钉钉、Slack 等）的配置方式
+  - 17 个 LLM Provider 对照表
+
+---
+
 ## 当前状态
 
-**阶段：** PCB已下单，元件已采购，3D外壳设计中
+**阶段：** 硬件测试基本完成（7/10通过），准备进入固件开发
 
 **已完成：**
 - [x] 项目规划与功能定义
@@ -211,12 +287,14 @@
 - [x] 触摸子板（顶板）原理图与布线完成（DRC通过）
 - [x] 嘉立创PCB下单
 - [x] 元件采购
+- [x] PCB焊接
+- [x] 硬件测试（串口、麦克风、触摸、MPU6050、WiFi、电源 通过）
 
 **进行中：**
 - [ ] Autodesk Fusion 3D外壳设计（3D打印）
+- [ ] 补充硬件测试（屏幕FPC重买、喇叭焊接、灯带焊接）
 
 **待完成：**
-- [ ] 焊接、调试
 - [ ] 固件开发
 - [ ] 服务端开发
 - [ ] 系统联调
