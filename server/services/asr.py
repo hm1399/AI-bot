@@ -21,7 +21,7 @@ class ASRService:
 
     def __init__(self, model: str = "base", language: str = "zh", device: str = "cpu"):
         self.model_name = model
-        self.language = language
+        self.language = language if language else None
         self.device = device
         self._model = None
 

@@ -402,9 +402,43 @@
 
 ---
 
+## 2026-03-11 - Demo 准备（WhatsApp Channel + ESP32 固件）
+
+### Demo 方案
+
+- 因 MAX98357A 功放 IO8 不可用无法发声，采用 WhatsApp 渠道展示 AI 对话
+- 演示流程：用户对硬件说话 → ASR识别 → AI回复 → WhatsApp显示回复 + ESP32屏幕显示
+
+### 服务端修改
+
+- `server/config.yaml`：添加 whatsapp 配置段（enabled, bridge_url, bridge_token, allow_from）
+- `server/config.py`：`generate_nanobot_config()` 添加 channels.whatsapp 到 config.json
+- `server/main.py`：
+  - 集成 WhatsApp Channel（直接初始化 WhatsAppChannel，不使用 ChannelManager 避免复杂度）
+  - 新增 `unified_outbound_consumer()` 替代 DeviceChannel 单独的 outbound 消费者
+  - 解决 MessageBus 单队列竞争问题：统一消费者同时路由到设备屏幕和 WhatsApp
+  - 设备 channel 的回复自动转发到 WhatsApp（demo 模式，发给最近联系人）
+
+### ESP32 Demo 固件
+
+- 新建 `firmware/arduino/demo/demo.ino`，整合：
+  - WiFi 连接（SSID: EE3070_P1615_1）
+  - WebSocket 客户端连接服务端
+  - INMP441 麦克风 I2S 采集（16kHz 16bit 单声道）
+  - 触摸 IO7（按住录音，松开发送 audio_end）
+  - ST7789 屏幕显示（连接状态 + AI 回复文字）
+  - 连接成功后发送 text_input 触发 AI 自我介绍
+- 依赖库：TFT_eSPI, arduinoWebSockets, ArduinoJson
+
+### 工作流程文档
+
+- 更新 `功能讨论区/工作流程.md`，记录完整 demo 搭建步骤和消息流
+
+---
+
 ## 当前状态
 
-**阶段：** 硬件测试基本完成（8/10通过），IO8需飞线修复，准备进入固件开发
+**阶段：** 硬件测试基本完成（8/10通过），IO8需飞线修复，Demo 准备中
 
 **已完成：**
 

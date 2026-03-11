@@ -12,8 +12,14 @@ nanobot:
   memory_window: 50
 
 asr:
-  model: base
-  language: zh
+  model: medium
+  language: ""
 
 tts:
   voice: zh-CN-XiaoxiaoNeural
+
+whatsapp:
+  enabled: true
+  bridge_url: ws://localhost:3001
+  bridge_token: ""
+  allow_from: ["*"]

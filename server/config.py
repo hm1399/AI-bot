@@ -84,6 +84,13 @@ def generate_nanobot_config(cfg: dict) -> None:
                 "apiKey": nanobot_cfg.get("api_key", ""),
             }
         },
+        "channels": {
+            "whatsapp": {
+                "bridgeUrl": cfg.get("whatsapp", {}).get("bridge_url", "ws://localhost:3001"),
+                "bridgeToken": cfg.get("whatsapp", {}).get("bridge_token", ""),
+                "allowFrom": cfg.get("whatsapp", {}).get("allow_from", ["*"]),
+            }
+        } if cfg.get("whatsapp", {}).get("enabled", False) else {},
         "tools": {
             "exec": {
                 "timeout": 60,
