@@ -1,0 +1,19 @@
+server:
+  host: 0.0.0.0
+  port: 8765
+
+nanobot:
+  model: z-ai/glm-4.7
+  provider: openrouter
+  api_key: ${OPENROUTER_API_KEY}
+  max_tokens: 8192
+  temperature: 0.1
+  max_tool_iterations: 20
+  memory_window: 50
+
+asr:
+  model: base
+  language: zh
+
+tts:
+  voice: zh-CN-XiaoxiaoNeural
