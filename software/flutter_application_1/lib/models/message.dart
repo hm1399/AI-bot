@@ -1,11 +1,11 @@
-enum MessageSender { device, app }  // 设备端(麦克风) / App端(文字)
+enum MessageSender { device, app }
 
 class Message {
   final String id;
   final String text;
   final MessageSender sender;
   final DateTime timestamp;
-  final Map<String, dynamic>? toolResult; // 工具调用结果（如日程卡片）
+  final Map<String, dynamic>? toolResult;
 
   Message({
     required this.id,

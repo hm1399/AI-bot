@@ -1,9 +1,9 @@
 enum DeviceMode { standby, recording, playing }
 
 class DeviceStatus {
-  final bool isOnline;          // 在线/离线（由心跳决定）
-  final int batteryLevel;       // 0-100
-  final int wifiStrength;       // 0-100 (RSSI 转换)
+  final bool isOnline;
+  final int batteryLevel;
+  final int wifiStrength;
   final DeviceMode mode;
   final bool isMuted;
   final bool ledOn;
