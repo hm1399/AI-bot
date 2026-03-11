@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'config/routes.dart';
+import 'config/theme.dart';
+import 'services/ws_service.dart';
 
 void main() {
-  runApp(const MyApp());
+  WebSocketService().init();
+  runApp(ProviderScope(child: const MyApp()));
 }
 
 class MyApp extends StatelessWidget {

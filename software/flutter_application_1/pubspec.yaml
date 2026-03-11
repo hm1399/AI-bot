@@ -31,6 +31,26 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # 状态管理
+  hooks_riverpod: ^2.4.0          # Riverpod 核心 + 钩子支持
+  flutter_hooks: ^0.20.0          # 可选，用于简化组件
+
+  # 网络
+  http: ^1.1.0                     # REST API 请求
+  web_socket_channel: ^2.4.0       # WebSocket 通信
+  connectivity_plus: ^5.0.0        # 监听网络变化（用于重连）
+
+  # 本地存储
+  shared_preferences: ^2.2.0       # 存储服务端地址、用户偏好
+
+  # 路由
+  go_router: ^12.0.0                # 声明式路由
+
+  # UI 辅助
+  intl: 0.20.2                     # 日期格式化
+  flutter_localizations:            # 本地化支持（可选）
+    sdk: flutter
+
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
