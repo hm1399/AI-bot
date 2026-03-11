@@ -1,0 +1,14 @@
+aiohttp>=3.9
+litellm>=1.40
+pydantic>=2.0
+pyyaml>=6.0
+loguru>=0.7
+json-repair>=0.25
+eval-type-backport>=0.2
+
+# ASR
+faster-whisper>=1.0
+
+# TTS
+edge-tts>=6.1
+miniaudio>=1.59
