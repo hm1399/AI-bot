@@ -1,126 +1,116 @@
-// ESP32-S3 MAX98357A + SAM TTS 语音合成测试
+// ESP32-S3 MAX98357A + ESP32-audioI2S 库 TTS 语音合成测试
 // 引脚: BCLK=IO17, LRC=IO18, DIN=IO8
-// 使用 IDF5 新版 I2S API
+// 使用 ESP32-audioI2S 库的 connecttospeech() (Google TTS)
+// 需要 WiFi 连接
+// 库安装: Arduino Library Manager 搜索 "ESP32-audioI2S" (作者 schreibfaul1)
+// 分区方案: 选择 "Huge APP (3MB No OTA/1MB SPIFFS)"
 
 #include <Arduino.h>
-#include <driver/i2s_std.h>
-#include <ESP8266SAM_ES.h>
+#include <WiFi.h>
+#include "Audio.h"
 
-SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+// ===== WiFi 配置 =====
+const char* WIFI_SSID     = "AAAAA";
+const char* WIFI_PASSWORD = "92935903";
+// =====================
 
+// ===== I2S 引脚 (MAX98357A) =====
 #define I2S_BCLK  17
 #define I2S_LRC   18
-#define I2S_DIN    8
+#define I2S_DOUT   8
+// =================================
 
 // ===== 音量控制 =====
-// 范围 0.0 ~ 1.0，改这个值调音量
-// 0.1 = 很小声, 0.3 = 中等, 0.5 = 较大, 1.0 = 满幅
-float VOLUME = 0.03;
+// 范围 0~21
+uint8_t VOLUME = 3;
 // ====================
 
-i2s_chan_handle_t tx_handle = NULL;
+Audio audio;
 
-class I2SOutput : public AudioOutput {
-public:
-  float volume = 0.15;
-
-  bool begin() override {
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
-    chan_cfg.dma_desc_num = 8;
-    chan_cfg.dma_frame_num = 256;
-    if (i2s_new_channel(&chan_cfg, &tx_handle, NULL) != ESP_OK) return false;
-
-    i2s_std_config_t std_cfg = {
-      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(22050),
-      .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
-      .gpio_cfg = {
-        .mclk = I2S_GPIO_UNUSED,
-        .bclk = (gpio_num_t)I2S_BCLK,
-        .ws = (gpio_num_t)I2S_LRC,
-        .dout = (gpio_num_t)I2S_DIN,
-        .din = I2S_GPIO_UNUSED,
-        .invert_flags = { false, false, false },
-      },
-    };
-    if (i2s_channel_init_std_mode(tx_handle, &std_cfg) != ESP_OK) return false;
-    if (i2s_channel_enable(tx_handle) != ESP_OK) return false;
-    return true;
-  }
-
-  bool ConsumeSample(int16_t sample[2]) override {
-    // 应用音量缩放
-    int16_t frame[2];
-    frame[0] = (int16_t)(sample[0] * volume);
-    frame[1] = (int16_t)(sample[1] * volume);
-    size_t written;
-    i2s_channel_write(tx_handle, frame, sizeof(frame), &written, portMAX_DELAY);
-    return written > 0;
-  }
-
-  bool SetRate(int hz) override {
-    i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(hz);
-    i2s_channel_disable(tx_handle);
-    i2s_channel_reconfig_std_clock(tx_handle, &clk_cfg);
-    i2s_channel_enable(tx_handle);
-    return true;
-  }
-
-  bool stop() override {
-    if (tx_handle) {
-      i2s_channel_disable(tx_handle);
-      i2s_del_channel(tx_handle);
-      tx_handle = NULL;
-    }
-    return true;
-  }
+// 待播放的 TTS 文本队列
+struct TTSItem {
+  const char* text;
+  const char* lang;
 };
 
-I2SOutput *out = NULL;
+TTSItem ttsQueue[] = {
+  {"Hello, I am your AI assistant.",          "en"},
+  {"one, two, three, four, five.",            "en"},
+  {"The weather today is sunny and warm.",    "en"},
+  {"AI Bot is ready.",                        "en"},
+};
 
-void sayText(const char* text) {
-  ESP8266SAM_ES *sam = new ESP8266SAM_ES;
-  if (sam) {
-    sam->Say(out, text);
-    delete sam;
-  }
+int ttsIndex = 0;
+int ttsTotal = sizeof(ttsQueue) / sizeof(ttsQueue[0]);
+bool ttsPlaying = false;
+bool ttsDone = false;
+
+// 音频事件回调
+void audio_info(const char* info) {
+  Serial.print("Audio Info: ");
+  Serial.println(info);
+}
+
+void audio_eof_speech(const char* info) {
+  Serial.printf("  语音播放完成: %s\n", info);
   Serial.printf("  堆内存剩余: %d bytes\n", ESP.getFreeHeap());
+  ttsPlaying = false;
+}
+
+void playNext() {
+  if (ttsIndex >= ttsTotal) {
+    ttsDone = true;
+    return;
+  }
+  Serial.printf("\n测试%d: %s\n", ttsIndex + 1, ttsQueue[ttsIndex].text);
+  audio.connecttospeech(ttsQueue[ttsIndex].text, ttsQueue[ttsIndex].lang);
+  ttsPlaying = true;
+  ttsIndex++;
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(3000);  // 多等一会让 USB CDC 稳定
-  Serial.println("SAM TTS 语音合成测试开始...");
+  delay(3000);
+  Serial.println("ESP32-audioI2S TTS 语音合成测试");
   Serial.printf("空闲堆内存: %d bytes\n", ESP.getFreeHeap());
 
-  out = new I2SOutput();
-  out->volume = VOLUME;  // 应用音量设置
-
-  if (!out->begin()) {
-    Serial.println("I2S 初始化失败!");
-    return;
+  // 连接 WiFi
+  Serial.printf("连接 WiFi: %s ...\n", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int retry = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    if (++retry > 40) {  // 20秒超时
+      Serial.println("\nWiFi 连接失败! 请检查 SSID 和密码。");
+      return;
+    }
   }
-  Serial.println("I2S 初始化成功!");
-  Serial.printf("音量: %.0f%%\n", VOLUME * 100);
+  Serial.printf("\nWiFi 已连接! IP: %s\n", WiFi.localIP().toString().c_str());
 
-  Serial.println("\n测试1: Hola");
-  sayText("Hola");
-  delay(500);
+  // 初始化 I2S 音频
+  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+  audio.setVolume(VOLUME);
+  Serial.printf("音量: %d/21\n", VOLUME);
+  Serial.println("I2S 初始化成功!\n");
 
-  Serial.println("测试2: 数字计数");
-  sayText("uno, dos, tres, cuatro, cinco");
-  delay(500);
-
-  Serial.println("测试3: 完整句子");
-  sayText("Soy tu asistente.");
-  delay(500);
-
-  Serial.println("测试4: AI Bot");
-  sayText("ey ay bot, lista.");
-  delay(500);
-
-  Serial.println("\nTTS 测试完成!");
-  Serial.println("如果声音太大或太小，修改代码顶部的 VOLUME 值 (0.0~1.0)");
+  // 播放第一条
+  playNext();
 }
 
 void loop() {
+  audio.loop();
+
+  // 当前语音播放完成后，播放下一条
+  if (!ttsPlaying && !ttsDone) {
+    delay(500);
+    playNext();
+  }
+
+  if (ttsDone) {
+    Serial.println("\nTTS 测试全部完成!");
+    Serial.println("如果声音太大或太小，修改代码顶部的 VOLUME 值 (0~21)");
+    ttsDone = false;  // 只打印一次
+    ttsIndex = -1;    // 标记已结束
+  }
 }

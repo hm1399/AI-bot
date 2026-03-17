@@ -340,10 +340,10 @@
 
 ### 关键发现：IO8 不可用于 I2S
 
-- 查阅 ESP32-S3 数据手册，发现 **IO8 的 IO MUX 功能为 SUBSPICS1**（SPI1 CS1，用于 PSRAM）
-- N16R8 模组使用 Octal SPI PSRAM，虽然文档仅标注 GPIO26~37 为受限引脚，但 IO8 实际被 SPI 子系统锁定
-- GPIO Matrix 无法覆盖已被 IO MUX 占用的引脚，因此软件层面无法修复
-- **结论：IO8 在 N16R8 模组上不可用于 I2S DIN，需要飞线到其他 GPIO**
+- ~~查阅 ESP32-S3 数据手册，发现 IO8 的 IO MUX 功能为 SUBSPICS1（SPI1 CS1，用于 PSRAM）~~ ← 3月17日已更正，见下方
+- ~~N16R8 模组使用 Octal SPI PSRAM，虽然文档仅标注 GPIO26~37 为受限引脚，但 IO8 实际被 SPI 子系统锁定~~
+- ~~GPIO Matrix 无法覆盖已被 IO MUX 占用的引脚，因此软件层面无法修复~~
+- **结论：IO8 在 ESP32-S3 上不可用于 I2S DIN，需要飞线到其他 GPIO**（根因已在3月17日更正）
 - 建议飞线目标：IO21（完全空闲，已通过 test4_debug 验证可用）
 - ⚠️ 测试4/5 待飞线后重新测试
 
@@ -436,40 +436,63 @@
 
 ---
 
+## 2026-03-11（续）- Demo 联调完成 + Flutter App 开发启动 + 文档整理
+
+### Demo 联调
+
+- ESP32 demo 固件烧录并成功连接服务端 WebSocket
+- 语音全链路调通：触摸录音 → ASR 识别 → AI 回复 → 屏幕显示 + WhatsApp 转发
+- ASR 模型升级：base → small → medium（1.5GB），解决英文识别准确率过低问题
+- ASR 语言设置从 `zh` 改为自动检测（`language: ""`），支持中英文混合识别
+- 修复 faster-whisper 空字符串 language 导致 ValueError 的 bug（`asr.py`）
+- WhatsApp 转发调通：需要外部用户先发消息给 bridge 绑定的 WhatsApp 号码才能激活转发
+
+### Flutter 手机 App 开发启动
+
+- 在 `software/flutter_application_1/` 中搭建 Flutter 项目框架
+- 实现数据模型：`models/message.dart`（消息模型）、`models/device_status.dart`（设备状态模型）
+- 实现 Provider 状态管理：`chat_provider.dart`、`config_provider.dart`、`device_provider.dart`、`event_provider.dart`、`task_provider.dart`
+- 实现服务层：`api_service.dart`（REST API）、`ws_service.dart`（WebSocket 通信）、`discovery_service.dart`（局域网服务发现）
+- 在 `AI-Bot Mobile App (Flutter)/` 目录添加项目文档和配置参考
+
+### 文档整理
+
+- 新建 `功能讨论区/demo流程.md`：项目介绍、完整项目历程、系统架构图、Demo 演示流程、硬件清单、软件技术栈
+- 重写 `功能讨论区/工作流程.md`：11步 demo 搭建指南（从查 IP 到语音交互），含常见问题排查
+- 新建 `功能讨论区/待做.md`：记录已知待优化项（WhatsApp 信任 ID 过滤、nanobot 功能扩展、屏幕/喇叭、ASR 准确率、响应速度）
+
+---
+
 ## 当前状态
 
-**阶段：** 硬件测试基本完成（8/10通过），IO8需飞线修复，Demo 准备中
+**阶段：** Demo 已完成，Flutter App 开发中
 
 **已完成：**
 
 - [x] 项目规划与功能定义
-- [x] 全部元件选型
-- [x] 引脚分配规划
-- [x] 7个模块原理图设计文档
-- [x] 触摸方案优化（TTP223 → ESP32-S3内置触摸）
-- [x] 在嘉立创EDA中绘制完整原理图
-- [x] PCB布局布线
-- [x] 原理图审查（ERC检查通过）
-- [x] PCB审查（DRC检查通过）
-- [x] 触摸子板（顶板）原理图与布线完成（DRC通过）
-- [x] 嘉立创PCB下单
-- [x] 元件采购
-- [x] PCB焊接
-- [x] 硬件测试（串口、屏幕、麦克风、触摸、MPU6050、WiFi、电源 通过）
-- [x] 后端搭建 Phase 1~4（nanobot移植、ASR、TTS、WebSocket、语音交互全链路）
+- [x] 全部元件选型与引脚分配
+- [x] 7个模块原理图设计 + PCB 布局布线（ERC/DRC通过）
+- [x] 触摸子板设计（DRC通过）
+- [x] 嘉立创PCB下单 + 元件采购
+- [x] PCB焊接 + 硬件测试（8/10通过）
+- [x] 后端搭建 Phase 1~4（nanobot移植、ASR、TTS、WebSocket、语音全链路）
+- [x] WhatsApp Channel 集成 + ESP32 demo 固件
+- [x] Demo 联调完成（语音交互 + 屏幕显示 + WhatsApp 转发）
+- [x] Demo 文档（demo流程.md、工作流程.md）
 
 **进行中：**
 
+- [ ] Flutter 手机 App 开发（框架已搭建，Provider/Service 已实现）
 - [ ] Autodesk Fusion 3D外壳设计（3D打印）
-- [ ] IO8飞线至IO21（MAX98357A功放DIN引脚修复）
-- [ ] 补充硬件测试（功放飞线后重测、灯带焊接）
-- [ ] 后端 Phase 5~6（屏幕/LED控制、状态机、稳定性完善）
 
 **待完成：**
 
-- [ ] 固件开发
-- [ ] 服务端开发
-- [ ] 系统联调
+- [ ] AMS1117→AP2114H-3.3 更换 + 功放/喇叭/灯带重新测试
+- [ ] WhatsApp 信任 ID 过滤（当前任何人发消息都能触发 AI）
+- [ ] nanobot 功能扩展（日历、摇一摇等）
+- [ ] 屏幕和喇叭功能完善
+- [ ] ASR 准确率优化 + 响应速度优化
+- [ ] 后端 Phase 5~6（屏幕/LED控制、状态机、稳定性完善）
 
 ---
 
@@ -484,7 +507,7 @@
 | IO5 | I2C_SDA | 陀螺仪 |
 | IO6 | I2C_SCL | 陀螺仪 |
 | IO7 | TOUCH_MAIN（主触摸） | 触摸交互 |
-| IO8 | I2S_DOUT（功放DIN） | MAX98357A |
+| IO8 | ~~I2S_DOUT（功放DIN）~~ 被SPI Flash占用，不可用 | MAX98357A → 需飞线IO21 |
 | IO9 | SPI_CS | ST7789 |
 | IO10 | SPI_DC | ST7789 |
 | IO11 | SPI_MOSI | ST7789 |
@@ -515,3 +538,70 @@
   5. **Phase 5** — 屏幕/LED 控制 + 设备状态机同步
   6. **Phase 6** — 稳定性、错误处理、日志、配置完善
 - 明确了从 `nanobot-src/` 复制哪些模块、删除哪些模块、新写哪些文件
+
+---
+
+## 2026-03-17 - IO8 问题根因更正 & 喇叭调试
+
+### IO8 根因更正（推翻3月10日结论）
+
+3月10日的结论认为 IO8 崩溃是因为 SUBSPICS1（SPI1 CS1，PSRAM 占用），**经系统排查证实该结论有误**。
+
+排查过程：
+
+1. **Disable PSRAM 测试**：Arduino IDE 中将 PSRAM 设为 Disabled，运行 `test4_tts`，IO8 仍然在 `i2s_channel_init_std_mode()` 崩溃 → 排除 PSRAM
+2. **QSPI PSRAM 测试**：改用 Quad SPI PSRAM 模式，仍然崩溃 → 排除 Octal SPI 特有问题
+3. **逐步诊断**（`test10_i2s_debug`）：将 I2S 初始化拆为 5 步，确认崩溃精确发生在 `i2s_channel_init_std_mode()` 调用时
+4. **对比测试**（`test11_io8_diag`）：
+   - TEST_MODE 2: IO8 做 I2S DIN → 崩溃
+   - TEST_MODE 3: IO21 做 I2S DIN → 正常，串口稳定
+5. **尝试软件绕过**（`test11_io8_diag` TEST_MODE 5）：
+   - `gpio_reset_pin(GPIO_NUM_8)` 重置 IO8 → 仍崩溃
+   - 将 SUBSPICS1 信号通过 GPIO Matrix 重定向到 IO39 → 仍崩溃
+   - → 排除 SUBSPICS1 是根因
+
+### 真正的根因：IO8 被 SPI Flash 保留
+
+- ESP32-S3 的 SPI Flash 在 QIO 模式下占用 **GPIO 6, 7, 8, 9, 10, 11**
+- 在 DIO 模式下也占用 **GPIO 6, 7, 8, 11**
+- **GPIO8 在所有 Flash 模式下都被 SPI Flash 接口占用，无法释放**
+- `i2s_channel_init_std_mode()` 检测到 IO8 是 Flash 保留引脚，触发 crash
+- 这是硬件级限制，软件无法绕过（`gpio_reset_pin`、重定向信号均无效）
+- 与 PSRAM 模式（Octal/Quad/Disabled）完全无关
+
+### 结论与后续
+
+- **IO8 在 ESP32-S3 上永远不可用于 I2S（或其他外设）**，这是原理图设计时的引脚分配错误
+- **解决方案：飞线 IO8 → IO21**（已通过 test11_io8_diag TEST_MODE 3 验证 IO21 可正常跑 I2S）
+- 下一版 PCB 需将 MAX98357A DIN 从 IO8 改为 IO21
+- 新增调试固件：`firmware/arduino/test10_i2s_debug/`、`firmware/arduino/test11_io8_diag/`
+
+### 喇叭飞线IO21后TTS测试
+
+- 飞线 IO8 → IO21 完成，MAX98357A I2S 通信正常
+- 使用 `firmware/arduino/test4_tts/test4_tts.ino`（ESP32-audioI2S 库 + Google TTS）进行语音播放测试
+- **低音量（VOLUME=5）可正常播放**，确认 I2S 链路和功放芯片工作正常
+
+### 发现电源问题：AMS1117 压差不足导致系统崩溃
+
+- **现象**：音量调高（VOLUME≥10）时 ESP32-S3 触发 Brownout Detector 重启，VOLUME=3 也崩溃
+- **排查过程**：
+  1. 尝试软件关闭欠压检测（`RTCCNTL.brown_out.ena = 0`）→ 无效，芯片在代码执行前就已重启
+  2. 示波器测量 AMS1117 输出：空载时仅 **2.9V**（应为 3.3V）
+- **根因**：AMS1117 是高压差 LDO（dropout 1.1V），需要输入至少 4.4V 才能稳定输出 3.3V。锂电池满电仅 4.2V，输入电压不足，导致输出仅约 2.9V，ESP32-S3 供电不稳
+- **解决方案**：将 AMS1117 更换为 **AP2114H-3.3**（低压差 LDO，dropout 0.25V，最大 1A，SOT-223 封装可直接替换）
+  - 锂电池 3.5V 时仍可稳定输出 3.3V
+  - 发热量大幅降低：(3.7-3.3)×0.5 = 0.2W vs AMS1117 无法稳压
+
+### WS2812B 灯带
+
+- 灯带待下周焊接后再测试
+
+---
+
+## 当前待办更新
+
+- [x] IO8 飞线至 IO21 — 已完成，I2S 通信正常
+- [x] AMS1117 电源问题定位 — 已确认压差不足，更换为 AP2114H-3.3
+- [ ] AP2114H-3.3 焊接更换 + 重新测试大音量 TTS 播放
+- [ ] WS2812B 灯带焊接与测试（下周）
