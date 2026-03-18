@@ -12,8 +12,11 @@ nanobot:
   memory_window: 50
 
 asr:
-  model: medium
-  language: ""
+  model: FunAudioLLM/SenseVoiceSmall
+  language: auto
+  device: cpu
+  use_vad: true
+  use_itn: true
 
 tts:
   voice: zh-CN-XiaoxiaoNeural

@@ -738,6 +738,126 @@
 - `channels/manager.py` 中其他 channel（Telegram、Discord 等）的导入在 `if enabled:` 条件内，config.yaml 中均为 `false`，不会触发
 - `nanobot-src/` 中的 templates/、skills/、其他 channel 文件在当前 WhatsApp 测试阶段不需要
 
+### self_only 配置传递修复
+
+- 修复 `server/main.py` 中创建 `WhatsAppConfig` 时遗漏 `self_only` 参数的 bug
+- 原因：`main.py:273` 构造 `WhatsAppConfig` 时没有从 `config.yaml` 读取 `self_only` 字段，导致始终为默认值 `False`，别人发消息仍能触发 AI
+- 修复：添加 `self_only=wa_cfg.get("self_only", False)`，现在 config.yaml 中的 `self_only: true` 正确生效
+- 验证通过：别人发来的消息已被成功屏蔽
+
+### Demo 启动指南更新
+
+- `DEMO/启动指南.md` 中所有 `cd` 命令和路径更新为完整绝对路径
+
+---
+
+## 2026-03-18 - ASR 引擎更换：faster-whisper → SenseVoice-Small
+
+### 调研
+
+- 完成 SenseVoice 语音识别调研报告（`功能讨论区/SenseVoice调研.md`）
+- 对比结论：SenseVoice-Small 推理速度快 5 倍（10秒音频 70ms vs 350ms），中文识别精度更高，额外支持情感识别和音频事件检测
+
+### ASR 引擎替换
+
+- 编写详细更换计划（`功能讨论区/output.md`）
+- 替换 `server/services/asr.py`：用 FunASR AutoModel 替代 faster-whisper，保持 `transcribe()` 接口不变
+- 更新 `server/config.yaml`：新增 `device`、`use_vad`、`use_itn` 配置项，模型改为 `FunAudioLLM/SenseVoiceSmall`
+- 更新 `server/main.py`：适配新的 ASRService 构造参数
+- 更新 `server/requirements.txt`：`faster-whisper` → `funasr`（需额外安装 `torchaudio`）
+- 修改 `server/channels/device_channel.py`：ASR 识别后将情感信息（`last_emotion`）附加到消息 metadata
+
+### 新增能力
+
+- **情感识别**：SenseVoice 输出包含情感标签（happy/sad/angry/neutral），解析后存入 `ASRService.last_emotion`，通过 metadata 传递给 AI 引擎
+- **音频输入优化**：PCM 数据直接用 numpy 解析为 float32 数组，避免临时文件 I/O
+- **逆文本正则化（ITN）**：口语数字自动转书面形式（如"二零二六年"→"2026年"）
+
+### 调试记录
+
+- 修复 `torchaudio` 缺失问题：FunASR 依赖 torchaudio 但未自动安装，需手动 `pip install torchaudio`
+- 修复 VAD 参数冲突：`model.generate()` 传入 `key="wav"` 与 FSMN-VAD 内部参数冲突，移除 `key` 和 `fs` 参数解决
+- ESP32 固件无需改动：音频格式（PCM 16kHz 16bit 单声道）和 WebSocket 协议均未变化
+
+### 测试结果
+
+- 硬件端到端测试通过：ESP32 触摸录音 → SenseVoice 识别 → AI 回复
+- 中文识别准确率大幅提升
+
+---
+
+## 2026-03-18 - 屏幕表情显示系统（Phase 1~3）
+
+### 设计计划
+
+- 编写屏幕表情显示系统设计文档（`功能讨论区/output.md`）
+- 设计理念："屏幕 = 脸"，不画轮廓框，眼睛和嘴巴直接绘制在黑色背景上
+- 三区布局：状态栏 (24px) + 表情区 (168px) + 文字区 (48px) = 240px
+- 5 种表情状态：IDLE（空闲）、ACTIVE（最近聊过天）、LISTENING（聆听）、PROCESSING（思考）、SPEAKING（回复）
+- 技术方案：TFT_eSPI 基本图形绘制（fillCircle/drawLine/drawPixel），零位图资源
+
+### Phase 1: 静态表情框架
+
+新增 3 个文件：
+
+- **`firmware/arduino/demo/face_config.h`**：布局常量、颜色定义、眼睛/嘴巴尺寸参数、动画参数预定义
+- **`firmware/arduino/demo/face_display.h`**：FaceState 枚举 + 接口声明（faceInit/faceSetState/faceUpdate/faceSetText/faceSetStatusBar）
+- **`firmware/arduino/demo/face_display.cpp`**：5 种静态表情绘制实现
+  - IDLE：圆眼 + 微笑抛物线嘴
+  - ACTIVE：大圆眼 + 上扬笑嘴
+  - LISTENING：歪头倾听（一大一小不对称眼 + 偏侧短横嘴，模拟透视歪头效果）
+  - PROCESSING：横线眯眼 + 波浪嘴 + 三个加载点
+  - SPEAKING：圆眼 + 弯眉毛 + 椭圆张嘴
+  - 状态栏：时间 + WiFi/WS 连接状态指示
+  - 文字区：自动换行显示
+
+修改 **`firmware/arduino/demo/demo.ino`**：
+- 集成 face_display 模块，替代原有纯文字显示函数
+- `handleServerMessage()` 映射 `state_change` 到 `faceSetState()`
+- 新增处理 `face_update` 消息类型（ACTIVE 状态）
+- `handleTouch()` 中使用表情状态切换
+
+### Phase 2: 动画系统
+
+在 `face_display.cpp` 中实现 `faceUpdate()` 动画驱动（~15fps 帧率控制）：
+
+| 状态 | 动画效果 | 实现方式 |
+|------|----------|----------|
+| IDLE | 定期眨眼 | 每 3~5 秒随机触发，圆眼→横线眼→圆眼，持续 200ms |
+| ACTIVE | 眼球左右移动 | 正弦波驱动 ±3px，周期 2 秒 |
+| LISTENING | 歪头摇摆 + 单眼眨眼 | tiltX 在 3~7 间正弦摇摆，大眼侧每 2~3 秒眨一次 |
+| PROCESSING | 加载点循环 | 依次显示 1→2→3→0 个点，500ms 切换 |
+| SPEAKING | 嘴巴开合 + 音符上飘 | 嘴巴 400ms 开合交替 + ♪ 音符从右侧上飘 2 秒并渐淡 |
+
+- 使用局部刷新（clearEyeArea/clearMouthArea/clearDotArea/clearNoteArea）避免全屏刷新闪烁
+- `faceSetState()` 切换状态时自动重置所有动画变量
+- 新增 `drawNote()` 绘制像素风音符 ♪
+
+### Phase 3: 状态栏与文字区
+
+**固件端改进：**
+
+- 状态栏升级：
+  - WiFi 图标改为弧线图形（替代"WiFi"文字+圆点），断开时显示 X
+  - 新增电池图标（16×10px，带电量颜色：≤20% 红色、≤50% 黄色、>50% 绿色）
+  - 新增 `faceSetBattery(int percent)` 接口
+- 文字区升级：
+  - 文字 buffer 从 128→256 字节
+  - 超出 3 行时自动滚动显示（3 秒一次循环），右下角显示↓箭头提示
+  - 新增 `countTextLines()`、`updateTextScroll()` 辅助函数
+- `demo.ino` 新增处理 `status_bar_update` 消息类型（接收时间 + 电池电量）
+
+**服务端改进：**
+
+- `server/models/protocol.py`：新增 `STATUS_BAR_UPDATE` 和 `FACE_UPDATE` 消息类型
+- `server/models/device_state.py`：去除 `STATE_DISPLAY_HINTS` 中的 emoji（ST7789 默认字库不支持），状态提示改为由表情系统承担
+- `server/channels/device_channel.py`：
+  - 定时推送时间：连接后立即推送 + 每 60 秒自动更新
+  - ACTIVE 状态判定：记录 `_last_chat_time`，回到 IDLE 时如果 30 秒内聊过天则发送 `face_update: ACTIVE`
+  - 新方法：`_time_push_loop()`、`_send_status_bar_update()`
+  - 断线/关闭时正确取消时间推送任务
+  - 修正屏幕参数注释：1.69寸→1.54寸
+
 ---
 
 ## 当前待办更新
@@ -748,6 +868,8 @@
 - [x] WhatsApp self-chat 安全过滤（self_only 模式）
 - [x] WhatsApp Bridge 移植到 server/bridge/
 - [x] Demo 启动指南文档
+- [x] 屏幕表情显示系统 Phase 1~3（静态表情 + 动画 + 状态栏文字区）
+- [ ] 屏幕表情显示系统 Phase 4（服务端集成联调）
 - [ ] AP2114H-3.3 焊接更换 + 重新测试大音量 TTS 播放
 - [ ] WS2812B 灯带焊接与测试
 - [ ] LED 灯效控制（后端 Phase 5.2，等硬件就绪）

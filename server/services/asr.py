@@ -1,38 +1,64 @@
 """
 ASR 语音识别服务
-使用 faster-whisper 将 PCM/WAV 音频转换为文字
+使用 SenseVoice-Small (FunASR) 将 PCM/WAV 音频转换为文字
 
 音频格式约定:
 - ESP32 → 服务端: PCM 16kHz 16bit 单声道 (raw bytes, little-endian)
-- Whisper 输入: WAV 16kHz 16bit 单声道
+- SenseVoice 输入: numpy float32 数组 (归一化到 [-1, 1])
 """
 from __future__ import annotations
 
 import asyncio
 import io
+import re
 import wave
 from typing import Optional
 
+import numpy as np
 from loguru import logger
+
+# 情感标签映射
+_EMOTION_PATTERN = re.compile(r"<\|(HAPPY|SAD|ANGRY|NEUTRAL)\|>", re.IGNORECASE)
 
 
 class ASRService:
-    """基于 faster-whisper 的语音识别服务。"""
+    """基于 SenseVoice-Small (FunASR) 的语音识别服务。"""
 
-    def __init__(self, model: str = "base", language: str = "zh", device: str = "cpu"):
+    def __init__(
+        self,
+        model: str = "FunAudioLLM/SenseVoiceSmall",
+        language: str = "auto",
+        device: str = "cpu",
+        use_vad: bool = True,
+        use_itn: bool = True,
+    ):
         self.model_name = model
-        self.language = language if language else None
+        self.language = language
         self.device = device
+        self.use_vad = use_vad
+        self.use_itn = use_itn
         self._model = None
+        self.last_emotion: Optional[str] = None
 
     def _ensure_model(self):
-        """懒加载 Whisper 模型（首次调用时加载）。"""
+        """懒加载 SenseVoice 模型（首次调用时加载）。"""
         if self._model is not None:
             return
-        from faster_whisper import WhisperModel
-        logger.info("正在加载 Whisper 模型: {} (device={})", self.model_name, self.device)
-        self._model = WhisperModel(self.model_name, device=self.device, compute_type="int8")
-        logger.info("Whisper 模型加载完成")
+        from funasr import AutoModel
+
+        logger.info("正在加载 SenseVoice 模型: {} (device={})", self.model_name, self.device)
+
+        model_kwargs = {
+            "model": self.model_name,
+            "device": self.device,
+            "hub": "hf",
+        }
+        if self.use_vad:
+            model_kwargs["vad_model"] = "fsmn-vad"
+            model_kwargs["vad_kwargs"] = {"max_single_segment_time": 30000}
+
+        self._model = AutoModel(**model_kwargs)
+        logger.info("SenseVoice 模型加载完成")
 
     @staticmethod
     def pcm_to_wav(pcm_data: bytes, sample_rate: int = 16000, channels: int = 1, sample_width: int = 2) -> bytes:
@@ -55,6 +81,19 @@ class ASRService:
             wf.writeframes(pcm_data)
         return buf.getvalue()
 
+    @staticmethod
+    def _pcm_to_float32(pcm_data: bytes) -> np.ndarray:
+        """将 PCM 16bit 原始字节转为归一化 float32 numpy 数组。"""
+        audio_int16 = np.frombuffer(pcm_data, dtype=np.int16)
+        return audio_int16.astype(np.float32) / 32768.0
+
+    def _parse_emotion(self, raw_text: str) -> Optional[str]:
+        """从 SenseVoice 原始输出中解析情感标签。"""
+        match = _EMOTION_PATTERN.search(raw_text)
+        if match:
+            return match.group(1).lower()
+        return None
+
     def _transcribe_sync(self, audio_bytes: bytes) -> str:
         """同步识别（在线程池中运行）。
 
@@ -63,25 +102,40 @@ class ASRService:
                          如果没有 WAV 头（前4字节不是 RIFF），会自动当作 PCM 处理。
         """
         self._ensure_model()
+        from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
-        # 判断是否有 WAV 头
-        if audio_bytes[:4] != b"RIFF":
-            audio_bytes = self.pcm_to_wav(audio_bytes)
+        # 提取 PCM 数据并转为 float32
+        if audio_bytes[:4] == b"RIFF":
+            # WAV 格式：读取 PCM 数据
+            with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+                pcm_data = wf.readframes(wf.getnframes())
+            audio_array = self._pcm_to_float32(pcm_data)
+        else:
+            audio_array = self._pcm_to_float32(audio_bytes)
 
-        audio_stream = io.BytesIO(audio_bytes)
-        segments, info = self._model.transcribe(
-            audio_stream,
+        res = self._model.generate(
+            input=audio_array,
+            cache={},
             language=self.language,
-            beam_size=5,
-            vad_filter=True,
+            use_itn=self.use_itn,
+            batch_size_s=60,
+            merge_vad=True,
         )
 
-        text_parts = []
-        for segment in segments:
-            text_parts.append(segment.text.strip())
+        if not res or not res[0].get("text"):
+            logger.debug("ASR 识别结果为空")
+            self.last_emotion = None
+            return ""
 
-        result = "".join(text_parts)
-        logger.debug("ASR 识别结果: '{}' (语言={}, 概率={:.2f})", result, info.language, info.language_probability)
+        raw_text = res[0]["text"]
+
+        # 解析情感标签
+        self.last_emotion = self._parse_emotion(raw_text)
+
+        # 清洗文本（去除特殊标记）
+        result = rich_transcription_postprocess(raw_text)
+
+        logger.debug("ASR 识别结果: '{}' (情感={}, 语言={})", result, self.last_emotion, self.language)
         return result
 
     async def transcribe(self, audio_bytes: bytes) -> str:

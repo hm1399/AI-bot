@@ -19,6 +19,7 @@
 #include <driver/i2s.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
+#include "face_display.h"
 
 // ===== WiFi 配置 =====
 const char* WIFI_SSID = "EE3070_P1615_1"; //EE3070_P1615_1   /  AAAAA
@@ -55,86 +56,15 @@ bool introSent = false;
 String lastReply = "";
 unsigned long lastTouchCheck = 0;
 
-// ===== 屏幕布局常量 =====
-#define SCREEN_W 240
-#define SCREEN_H 280
-#define STATUS_Y 10
-#define REPLY_Y  80
-#define REPLY_H  180
-
-// ──────────────────────────────────────────────
-// 屏幕显示函数
-// ──────────────────────────────────────────────
+// ===== 屏幕显示（通过 face_display 模块） =====
 
 void displayInit() {
-  tft.init();
-  tft.setRotation(0);
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(2);
-  tft.setCursor(50, 120);
-  tft.println("AI-Bot Demo");
-  tft.setTextSize(1);
-  tft.setCursor(60, 150);
-  tft.println("Starting...");
+  faceInit(tft);
 }
 
-void displayStatus(const char* wifi, const char* ws) {
-  // 状态区域 (顶部)
-  tft.fillRect(0, 0, SCREEN_W, 70, TFT_BLACK);
-  tft.setTextSize(1);
-
-  tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  tft.setCursor(10, STATUS_Y);
-  tft.printf("WiFi: %s", wifi);
-
-  tft.setCursor(10, STATUS_Y + 20);
-  tft.printf("Server: %s", ws);
-
-  // 分隔线
-  tft.drawLine(0, 68, SCREEN_W, 68, TFT_DARKGREY);
-}
-
-void displayRecording(bool recording) {
-  tft.fillRect(0, 70, SCREEN_W, 10, TFT_BLACK);
-  if (recording) {
-    tft.setTextColor(TFT_RED, TFT_BLACK);
-    tft.setTextSize(1);
-    tft.setCursor(10, 70);
-    tft.println("[ Recording... ]");
-  }
-}
-
-void displayReply(const String& text) {
-  // 回复区域
-  tft.fillRect(0, REPLY_Y, SCREEN_W, REPLY_H, TFT_BLACK);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.setTextSize(1);
-  tft.setCursor(10, REPLY_Y);
-
-  // 自动换行显示（每行约 38 个英文字符 / 19 个中文字符）
-  int x = 10, y = REPLY_Y;
-  int maxX = SCREEN_W - 10;
-  for (unsigned int i = 0; i < text.length(); i++) {
-    char c = text.charAt(i);
-    if (c == '\n' || x > maxX - 6) {
-      x = 10;
-      y += 12;
-      if (y > REPLY_Y + REPLY_H - 12) break;  // 超出区域
-      if (c == '\n') continue;
-    }
-    tft.setCursor(x, y);
-    tft.print(c);
-    x += 6;  // 英文字符宽度
-  }
-}
-
-void displayProcessing() {
-  tft.fillRect(0, 70, SCREEN_W, 10, TFT_BLACK);
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.setTextSize(1);
-  tft.setCursor(10, 70);
-  tft.println("Processing...");
+void updateStatusBar() {
+  bool wifiOk = (WiFi.status() == WL_CONNECTED);
+  faceSetStatusBar(nullptr, wifiOk, wsConnected);
 }
 
 // ──────────────────────────────────────────────
@@ -182,7 +112,7 @@ bool initMicrophone() {
 
 bool connectWiFi() {
   Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
-  displayStatus("Connecting...", "---");
+  faceSetText("WiFi 连接中...");
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -197,12 +127,13 @@ bool connectWiFi() {
 
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi connection failed!");
-    displayStatus("FAILED", "---");
+    faceSetText("WiFi 连接失败!");
     return false;
   }
 
   Serial.printf("WiFi connected! IP: %s\n", WiFi.localIP().toString().c_str());
-  displayStatus("Connected", "Connecting...");
+  updateStatusBar();
+  faceSetText("WiFi 已连接");
   return true;
 }
 
@@ -252,19 +183,43 @@ void handleServerMessage(uint8_t* payload, size_t length) {
     const char* text = data["text"] | "";
     Serial.printf("AI reply: %s\n", text);
     lastReply = String(text);
-    displayReply(lastReply);
+    faceSetText(text);
 
   } else if (strcmp(type, "state_change") == 0) {
     const char* state = data["state"] | "";
     Serial.printf("State: %s\n", state);
-    if (strcmp(state, "PROCESSING") == 0) {
-      displayProcessing();
+    if (strcmp(state, "IDLE") == 0) {
+      faceSetState(FACE_IDLE);
+    } else if (strcmp(state, "LISTENING") == 0) {
+      faceSetState(FACE_LISTENING);
+    } else if (strcmp(state, "PROCESSING") == 0) {
+      faceSetState(FACE_PROCESSING);
+      faceSetText("思考中...");
+    } else if (strcmp(state, "SPEAKING") == 0) {
+      faceSetState(FACE_SPEAKING);
     }
 
   } else if (strcmp(type, "display_update") == 0) {
     const char* text = data["text"] | "";
     lastReply = String(text);
-    displayReply(lastReply);
+    faceSetText(text);
+
+  } else if (strcmp(type, "face_update") == 0) {
+    const char* faceState = data["state"] | "";
+    if (strcmp(faceState, "ACTIVE") == 0) {
+      faceSetState(FACE_ACTIVE);
+    } else if (strcmp(faceState, "IDLE") == 0) {
+      faceSetState(FACE_IDLE);
+    }
+
+  } else if (strcmp(type, "status_bar_update") == 0) {
+    // 状态栏更新（时间、电池等）
+    const char* timeStr = data["time"] | nullptr;
+    int battery = data["battery"] | -1;
+    faceSetStatusBar(timeStr, WiFi.status() == WL_CONNECTED, wsConnected);
+    if (battery >= 0) {
+      faceSetBattery(battery);
+    }
   }
 }
 
@@ -274,13 +229,15 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       wsConnected = false;
       introSent = false;
       Serial.println("WebSocket disconnected");
-      displayStatus("Connected", "Disconnected");
+      updateStatusBar();
+      faceSetText("服务器已断开");
       break;
 
     case WStype_CONNECTED:
       wsConnected = true;
       Serial.println("WebSocket connected!");
-      displayStatus("Connected", "Connected");
+      updateStatusBar();
+      faceSetText("已连接服务器");
 
       // 连接成功后发送自我介绍请求
       if (!introSent) {
@@ -319,7 +276,8 @@ void handleTouch() {
     // 开始录音
     isRecording = true;
     Serial.println("Recording started");
-    displayRecording(true);
+    faceSetState(FACE_LISTENING);
+    faceSetText("聆听中...");
   }
 
   if (touched && isRecording) {
@@ -336,8 +294,8 @@ void handleTouch() {
     // 停止录音
     isRecording = false;
     Serial.println("Recording stopped, sending audio_end");
-    displayRecording(false);
-    displayProcessing();
+    faceSetState(FACE_PROCESSING);
+    faceSetText("思考中...");
     sendAudioEnd();
   }
 }
@@ -383,6 +341,9 @@ void setup() {
 void loop() {
   // 维持 WebSocket 连接
   webSocket.loop();
+
+  // 表情动画更新（Phase 2 生效）
+  faceUpdate();
 
   // 触摸录音检测（每 20ms 检查一次）
   if (millis() - lastTouchCheck >= 20) {

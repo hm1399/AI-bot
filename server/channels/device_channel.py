@@ -47,11 +47,17 @@ MIN_AUDIO_BYTES = 16000
 # 最大音频 buffer 长度 (30s @ 16kHz 16bit = 960000 bytes)
 MAX_AUDIO_BYTES = 960000
 
-# 屏幕显示参数 (1.69寸 ST7789, 240×280)
+# 屏幕显示参数 (1.54寸 ST7789, 240×240)
 DISPLAY_MAX_CHARS = 120  # 中文约每行10字 × 12行
 
 # WebSocket 心跳间隔 (秒)
 HEARTBEAT_INTERVAL = 30
+
+# 状态栏时间推送间隔 (秒)
+TIME_PUSH_INTERVAL = 60
+
+# ACTIVE 状态判定：最近对话时间窗口 (秒)
+ACTIVE_WINDOW = 30
 
 
 class DeviceChannel:
@@ -86,6 +92,10 @@ class DeviceChannel:
         self._connect_time: float = 0
         self._reconnect_count: int = 0
 
+        # ── 表情系统 (Phase 3) ────────────────────────────
+        self._last_chat_time: float = 0  # 最后对话时间戳
+        self._time_push_task: asyncio.Task | None = None
+
     # ── 状态机方法 ─────────────────────────────────────────
 
     async def _set_state(self, new_state: DeviceState) -> None:
@@ -109,6 +119,13 @@ class DeviceChannel:
         await self.send_json(make_server_message(
             ServerMessageType.STATE_CHANGE, {"state": new_state.value}
         ))
+
+        # IDLE 状态下判定是否为 ACTIVE（最近30秒内聊过天）
+        if new_state == DeviceState.IDLE and self._last_chat_time > 0:
+            if (time.time() - self._last_chat_time) < ACTIVE_WINDOW:
+                await self.send_json(make_server_message(
+                    ServerMessageType.FACE_UPDATE, {"state": "ACTIVE"}
+                ))
 
         # 状态切换时发送屏幕提示
         hint = STATE_DISPLAY_HINTS.get(new_state, "")
@@ -137,6 +154,14 @@ class DeviceChannel:
             self._heartbeat_task.cancel()
             try:
                 await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+        # 停止时间推送
+        if self._time_push_task and not self._time_push_task.done():
+            self._time_push_task.cancel()
+            try:
+                await self._time_push_task
             except asyncio.CancelledError:
                 pass
 
@@ -207,10 +232,20 @@ class DeviceChannel:
         # 启动心跳
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
+        # 启动时间推送
+        if self._time_push_task and not self._time_push_task.done():
+            self._time_push_task.cancel()
+        self._time_push_task = asyncio.create_task(self._time_push_loop())
+
         # 发送初始状态（重连后设备恢复到 IDLE）
         await self.send_json(make_server_message(
             ServerMessageType.STATE_CHANGE, {"state": DeviceState.IDLE.value}
         ))
+
+        # 发送初始时间
+        import datetime
+        now = datetime.datetime.now()
+        await self._send_status_bar_update(time=now.strftime("%H:%M"))
 
         try:
             async for msg in ws:
@@ -230,6 +265,8 @@ class DeviceChannel:
             self.state = DeviceState.IDLE
             if self._heartbeat_task and not self._heartbeat_task.done():
                 self._heartbeat_task.cancel()
+            if self._time_push_task and not self._time_push_task.done():
+                self._time_push_task.cancel()
             uptime = time.monotonic() - self._connect_time
             logger.info("设备已断开 (在线 {:.0f}s)", uptime)
 
@@ -253,6 +290,7 @@ class DeviceChannel:
             if not text:
                 return
             logger.info("收到文字输入: '{}'", text[:50])
+            self._last_chat_time = time.time()
             await self.bus.publish_inbound(InboundMessage(
                 channel=DEVICE_CHANNEL,
                 sender_id="esp32",
@@ -341,13 +379,21 @@ class DeviceChannel:
             await self._set_state(DeviceState.IDLE)
             return
 
+        # 记录对话时间（用于 ACTIVE 状态判定）
+        self._last_chat_time = time.time()
+
+        # 构建 metadata（含情感信息）
+        meta = {"source": "voice", "asr_ms": asr_ms}
+        if self.asr.last_emotion:
+            meta["emotion"] = self.asr.last_emotion
+
         # 发送到 AgentLoop
         await self.bus.publish_inbound(InboundMessage(
             channel=DEVICE_CHANNEL,
             sender_id="esp32",
             chat_id=DEVICE_CHAT_ID,
             content=text,
-            metadata={"source": "voice", "asr_ms": asr_ms},
+            metadata=meta,
         ))
 
     # ── 触摸事件处理 (Phase 5.4) ─────────────────────────────
@@ -429,6 +475,40 @@ class DeviceChannel:
             self.device_info["wifi_rssi"],
             self.device_info["charging"],
         )
+
+    # ── 状态栏定时推送 (Phase 3) ─────────────────────────────
+
+    async def _time_push_loop(self) -> None:
+        """每分钟推送一次当前时间到设备状态栏。"""
+        import datetime
+        while True:
+            try:
+                await asyncio.sleep(TIME_PUSH_INTERVAL)
+                if not self.connected:
+                    continue
+                now = datetime.datetime.now()
+                time_str = now.strftime("%H:%M")
+                await self._send_status_bar_update(time=time_str)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("时间推送异常")
+
+    async def _send_status_bar_update(
+        self,
+        time: str | None = None,
+        battery: int | None = None,
+    ) -> None:
+        """发送状态栏更新到设备。"""
+        data: dict[str, Any] = {}
+        if time is not None:
+            data["time"] = time
+        if battery is not None:
+            data["battery"] = battery
+        if data:
+            await self.send_json(make_server_message(
+                ServerMessageType.STATUS_BAR_UPDATE, data
+            ))
 
     # ── 屏幕显示控制 (Phase 5.3) ─────────────────────────────
 

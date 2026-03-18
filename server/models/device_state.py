@@ -45,11 +45,11 @@ VALID_TRANSITIONS: dict[DeviceState, set[DeviceState]] = {
     },
 }
 
-# 各状态对应的屏幕显示图标/提示文字
+# 各状态对应的屏幕显示提示文字（不使用 emoji，ST7789 默认字库不支持）
 STATE_DISPLAY_HINTS: dict[DeviceState, str] = {
     DeviceState.IDLE: "",
-    DeviceState.LISTENING: "🎤 聆听中...",
-    DeviceState.PROCESSING: "🤔 思考中...",
-    DeviceState.SPEAKING: "🔊 回复中...",
-    DeviceState.ERROR: "⚠️ 出错了",
+    DeviceState.LISTENING: "",
+    DeviceState.PROCESSING: "",
+    DeviceState.SPEAKING: "",
+    DeviceState.ERROR: "Error",
 }

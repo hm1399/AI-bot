@@ -24,6 +24,8 @@ class ServerMessageType(str, Enum):
     """服务端 → 设备 消息类型。"""
     STATE_CHANGE = "state_change"
     DISPLAY_UPDATE = "display_update"
+    STATUS_BAR_UPDATE = "status_bar_update"
+    FACE_UPDATE = "face_update"
     LED_CONTROL = "led_control"
     AUDIO_PLAY = "audio_play"
     AUDIO_PLAY_END = "audio_play_end"

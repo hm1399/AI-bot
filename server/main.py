@@ -253,8 +253,11 @@ async def main() -> None:
     asr_cfg = cfg.get("asr", {})
     tts_cfg = cfg.get("tts", {})
     asr_service = ASRService(
-        model=asr_cfg.get("model", "base"),
-        language=asr_cfg.get("language", "zh"),
+        model=asr_cfg.get("model", "FunAudioLLM/SenseVoiceSmall"),
+        language=asr_cfg.get("language", "auto"),
+        device=asr_cfg.get("device", "cpu"),
+        use_vad=asr_cfg.get("use_vad", True),
+        use_itn=asr_cfg.get("use_itn", True),
     )
     tts_service = TTSService(
         voice=tts_cfg.get("voice", "zh-CN-XiaoxiaoNeural"),
@@ -274,6 +277,7 @@ async def main() -> None:
             enabled=True,
             bridge_url=wa_cfg.get("bridge_url", "ws://localhost:3001"),
             bridge_token=wa_cfg.get("bridge_token", ""),
+            self_only=wa_cfg.get("self_only", False),
             allow_from=wa_cfg.get("allow_from", ["*"]),
         )
         whatsapp_channel = WhatsAppChannel(whatsapp_config, bus)
