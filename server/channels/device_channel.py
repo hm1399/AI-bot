@@ -59,6 +59,15 @@ TIME_PUSH_INTERVAL = 60
 # ACTIVE 状态判定：最近对话时间窗口 (秒)
 ACTIVE_WINDOW = 30
 
+# DeviceState → 表情状态映射
+_STATE_TO_FACE: dict[DeviceState, str] = {
+    DeviceState.IDLE: "IDLE",
+    DeviceState.LISTENING: "LISTENING",
+    DeviceState.PROCESSING: "PROCESSING",
+    DeviceState.SPEAKING: "SPEAKING",
+    DeviceState.ERROR: "IDLE",  # 错误状态显示默认表情
+}
+
 
 class DeviceChannel:
     """ESP32 WebSocket 通信通道，集成 ASR + TTS + 状态机。"""
@@ -120,12 +129,15 @@ class DeviceChannel:
             ServerMessageType.STATE_CHANGE, {"state": new_state.value}
         ))
 
+        # 发送表情指令：状态 → 表情映射
+        face_state = _STATE_TO_FACE.get(new_state, "IDLE")
         # IDLE 状态下判定是否为 ACTIVE（最近30秒内聊过天）
         if new_state == DeviceState.IDLE and self._last_chat_time > 0:
             if (time.time() - self._last_chat_time) < ACTIVE_WINDOW:
-                await self.send_json(make_server_message(
-                    ServerMessageType.FACE_UPDATE, {"state": "ACTIVE"}
-                ))
+                face_state = "ACTIVE"
+        await self.send_json(make_server_message(
+            ServerMessageType.FACE_UPDATE, {"state": face_state}
+        ))
 
         # 状态切换时发送屏幕提示
         hint = STATE_DISPLAY_HINTS.get(new_state, "")

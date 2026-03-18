@@ -244,10 +244,10 @@ void faceSetWeather(const char* weather); // 状态栏天气
 13. 服务端新增时间/天气推送逻辑
 
 ### Phase 4: 服务端集成
-14. protocol.py 新增 `face_update` / `status_bar_update` 消息类型
-15. device_channel.py 添加 ACTIVE 状态判定逻辑
-16. device_channel.py 状态切换时发送表情指令
-17. 联调测试全链路
+14. ✅ protocol.py 新增 `face_update` / `status_bar_update` 消息类型
+15. ✅ device_channel.py 添加 ACTIVE 状态判定逻辑
+16. ✅ device_channel.py 状态切换时发送表情指令（所有状态均发送 face_update）
+17. 联调测试全链路（需设备连接后测试）
 
 ---
 

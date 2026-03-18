@@ -860,6 +860,25 @@
 
 ---
 
+## 2026-03-18 - 屏幕表情系统 Phase 4: 服务端集成
+
+### Phase 4: 服务端表情指令集成
+
+- `server/channels/device_channel.py`：
+  - 新增 `_STATE_TO_FACE` 映射字典，将 DeviceState 映射为表情状态字符串（IDLE/LISTENING/PROCESSING/SPEAKING/ERROR→IDLE）
+  - 修改 `_set_state()` 方法：每次状态切换均发送 `face_update` 消息（之前仅 ACTIVE 状态发送）
+  - ACTIVE 判定保留：IDLE 状态下如果 30 秒内聊过天，face_state 覆盖为 "ACTIVE"
+  - 完整消息流：状态变化 → `state_change`（设备状态同步）+ `face_update`（表情切换）同时发送
+- 步骤14（protocol.py 消息类型）、步骤15（ACTIVE 判定逻辑）此前已完成
+- 步骤17（联调测试）需设备连接后进行
+
+### 后端 Skill 创建
+
+- 新增 `.claude/commands/backend.md`：后端开发助手 skill，可通过 `/backend` 调用
+- 内容涵盖：架构速查、关键文件表、6大设计模式、编码规范、开发工作流、启动测试命令
+
+---
+
 ## 当前待办更新
 
 - [x] IO8 飞线至 IO21 — 已完成，I2S 通信正常
@@ -869,7 +888,8 @@
 - [x] WhatsApp Bridge 移植到 server/bridge/
 - [x] Demo 启动指南文档
 - [x] 屏幕表情显示系统 Phase 1~3（静态表情 + 动画 + 状态栏文字区）
-- [ ] 屏幕表情显示系统 Phase 4（服务端集成联调）
+- [x] 屏幕表情显示系统 Phase 4 服务端集成（所有状态切换均发送 face_update）
+- [ ] 屏幕表情显示系统 联调测试（需设备连接）
 - [ ] AP2114H-3.3 焊接更换 + 重新测试大音量 TTS 播放
 - [ ] WS2812B 灯带焊接与测试
 - [ ] LED 灯效控制（后端 Phase 5.2，等硬件就绪）
