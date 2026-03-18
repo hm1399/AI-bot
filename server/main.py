@@ -1,12 +1,14 @@
 """
 AI-Bot 服务端入口
-Phase 1-4: aiohttp 服务 + AgentLoop + DeviceChannel WebSocket + 语音交互
+Phase 1-6: aiohttp 服务 + AgentLoop + DeviceChannel + 语音交互 + 状态机 + 稳定性
 Demo: 集成 WhatsApp Channel，AI 回复同时发送到设备屏幕和 WhatsApp
 """
 from __future__ import annotations
 
 import asyncio
+import signal
 import sys
+import time
 from pathlib import Path
 
 from aiohttp import web
@@ -16,8 +18,10 @@ from config import (
     load_yaml_config,
     generate_nanobot_config,
     get_server_config,
+    validate_config,
     WORKSPACE_DIR,
     NANOBOT_CONFIG_JSON,
+    SERVER_DIR,
 )
 from channels.device_channel import DeviceChannel, DEVICE_CHANNEL
 from services.asr import ASRService
@@ -30,11 +34,68 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.channels.whatsapp import WhatsAppChannel
 from nanobot.config.schema import WhatsAppConfig
 
+VERSION = "0.6.0"
+_start_time: float = 0
+
+
+# ── 日志配置 (Phase 6.3) ──────────────────────────────────────
+
+def setup_logging() -> None:
+    """配置 loguru: 控制台 INFO + 文件 DEBUG。"""
+    # 移除默认 handler
+    logger.remove()
+    # 控制台: INFO 级别，简洁格式
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+    )
+    # 文件: DEBUG 级别，详细格式，按天轮转，保留 7 天
+    log_dir = SERVER_DIR / "logs"
+    log_dir.mkdir(exist_ok=True)
+    logger.add(
+        str(log_dir / "server_{time:YYYY-MM-DD}.log"),
+        level="DEBUG",
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+        rotation="00:00",
+        retention="7 days",
+        encoding="utf-8",
+    )
+
 
 # ── aiohttp 路由 ──────────────────────────────────────────────
 
 async def health_handler(request: web.Request) -> web.Response:
-    return web.json_response({"status": "ok"})
+    """增强版健康检查: 返回版本、模型、ASR/TTS 状态、设备在线状态。"""
+    dc: DeviceChannel = request.app["device_channel"]
+    cfg: dict = request.app["config"]
+    nanobot_cfg = cfg.get("nanobot", {})
+
+    uptime = time.monotonic() - _start_time
+    return web.json_response({
+        "status": "ok",
+        "version": VERSION,
+        "uptime_s": round(uptime),
+        "model": nanobot_cfg.get("model", "unknown"),
+        "provider": nanobot_cfg.get("provider", "unknown"),
+        "asr_model": cfg.get("asr", {}).get("model", "base"),
+        "tts_voice": cfg.get("tts", {}).get("voice", "zh-CN-XiaoxiaoNeural"),
+        "device_connected": dc.connected,
+        "device_state": dc.state.value,
+    })
+
+
+async def device_info_handler(request: web.Request) -> web.Response:
+    """查询设备状态: 连接状态 + 电量 + WiFi + 当前状态 + 重连次数。"""
+    dc: DeviceChannel = request.app["device_channel"]
+    return web.json_response({
+        "connected": dc.connected,
+        "state": dc.state.value,
+        "battery": dc.device_info["battery"],
+        "wifi_rssi": dc.device_info["wifi_rssi"],
+        "charging": dc.device_info["charging"],
+        "reconnect_count": dc._reconnect_count,
+    })
 
 
 # ── 初始化 ────────────────────────────────────────────────────
@@ -155,17 +216,25 @@ async def unified_outbound_consumer(
 
 
 async def main() -> None:
+    global _start_time
+    _start_time = time.monotonic()
+
+    # 配置日志 (Phase 6.3)
+    setup_logging()
+    logger.info("AI-Bot 服务端 v{}", VERSION)
+
     # 加载配置
     cfg = load_yaml_config()
+
+    # 配置验证 (Phase 6.4)
+    errors = validate_config(cfg)
+    if errors:
+        for err in errors:
+            logger.error("配置错误: {}", err)
+        sys.exit(1)
+
     generate_nanobot_config(cfg)
     server_cfg = get_server_config(cfg)
-
-    # 检查 API Key
-    api_key = cfg.get("nanobot", {}).get("api_key", "")
-    if not api_key:
-        provider = cfg.get("nanobot", {}).get("provider", "anthropic")
-        logger.error("API Key 未设置！请在 config.yaml 的 nanobot.api_key 或对应环境变量中配置（provider: {}）。", provider)
-        sys.exit(1)
 
     # 创建 Agent
     bus, agent = create_agent(cfg)
@@ -178,8 +247,9 @@ async def main() -> None:
     # 启动 aiohttp 服务
     app = web.Application()
     app.router.add_get("/api/health", health_handler)
+    app.router.add_get("/api/device", device_info_handler)
 
-    # 初始化 ASR / TTS 服务 (Phase 4)
+    # 初始化 ASR / TTS 服务
     asr_cfg = cfg.get("asr", {})
     tts_cfg = cfg.get("tts", {})
     asr_service = ASRService(
@@ -190,7 +260,7 @@ async def main() -> None:
         voice=tts_cfg.get("voice", "zh-CN-XiaoxiaoNeural"),
     )
 
-    # 初始化 DeviceChannel (Phase 3 + 4)
+    # 初始化 DeviceChannel
     device_channel = DeviceChannel(bus, asr=asr_service, tts=tts_service)
     device_channel.register_routes(app)
 
@@ -214,11 +284,12 @@ async def main() -> None:
     app["bus"] = bus
     app["agent"] = agent
     app["device_channel"] = device_channel
+    app["config"] = cfg
 
     # 启动 AgentLoop 后台任务
     agent_task = asyncio.create_task(agent.run())
 
-    # 启动统一 outbound 消费者（替代 DeviceChannel 单独的消费者）
+    # 启动统一 outbound 消费者
     outbound_task = asyncio.create_task(
         unified_outbound_consumer(bus, device_channel, whatsapp_channel)
     )
@@ -227,37 +298,54 @@ async def main() -> None:
     await runner.setup()
     site = web.TCPSite(runner, server_cfg["host"], server_cfg["port"])
     await site.start()
-    logger.info("服务已启动: http://{}:{}", server_cfg["host"], server_cfg["port"])
-    logger.info("健康检查: http://localhost:{}/api/health", server_cfg["port"])
-    logger.info("WebSocket: ws://localhost:{}/ws/device", server_cfg["port"])
 
+    nanobot_cfg = cfg.get("nanobot", {})
+    logger.info("服务已启动: http://{}:{}", server_cfg["host"], server_cfg["port"])
+    logger.info("  模型: {} ({})", nanobot_cfg.get("model"), nanobot_cfg.get("provider"))
+    logger.info("  ASR: {} | TTS: {}", asr_cfg.get("model", "base"), tts_cfg.get("voice"))
+    logger.info("  健康检查: http://localhost:{}/api/health", server_cfg["port"])
+    logger.info("  WebSocket: ws://localhost:{}/ws/device", server_cfg["port"])
+
+    # 优雅关闭 (Phase 6.1)
+    shutdown_event = asyncio.Event()
+
+    def _signal_handler():
+        logger.info("收到关闭信号，正在优雅关闭...")
+        shutdown_event.set()
+
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, _signal_handler)
+
+    await shutdown_event.wait()
+
+    # 关闭顺序: WebSocket → outbound → agent → WhatsApp → HTTP
+    logger.info("正在关闭服务...")
+    await device_channel.stop()
+
+    agent_task.cancel()
+    outbound_task.cancel()
     try:
-        await asyncio.Event().wait()  # 永远运行
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        logger.info("正在关闭服务...")
-    finally:
-        agent_task.cancel()
-        outbound_task.cancel()
-        try:
-            await agent_task
-        except asyncio.CancelledError:
-            pass
-        try:
-            await outbound_task
-        except asyncio.CancelledError:
-            pass
-        if whatsapp_channel:
-            await whatsapp_channel.stop()
-            if whatsapp_task:
-                whatsapp_task.cancel()
-                try:
-                    await whatsapp_task
-                except asyncio.CancelledError:
-                    pass
-        await device_channel.stop()
-        await agent.close_mcp()
-        await runner.cleanup()
-        logger.info("服务已关闭")
+        await agent_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await outbound_task
+    except asyncio.CancelledError:
+        pass
+    if whatsapp_channel:
+        await whatsapp_channel.stop()
+        if whatsapp_task:
+            whatsapp_task.cancel()
+            try:
+                await whatsapp_task
+            except asyncio.CancelledError:
+                pass
+    await agent.close_mcp()
+    await runner.cleanup()
+
+    uptime = time.monotonic() - _start_time
+    logger.info("服务已关闭 (运行 {:.0f}s)", uptime)
 
 
 if __name__ == "__main__":

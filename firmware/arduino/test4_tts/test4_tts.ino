@@ -17,12 +17,12 @@ const char* WIFI_PASSWORD = "92935903";
 // ===== I2S 引脚 (MAX98357A) =====
 #define I2S_BCLK  17
 #define I2S_LRC   18
-#define I2S_DOUT   8
+#define I2S_DOUT   21
 // =================================
 
 // ===== 音量控制 =====
 // 范围 0~21
-uint8_t VOLUME = 3;
+uint8_t VOLUME = 17;
 // ====================
 
 Audio audio;

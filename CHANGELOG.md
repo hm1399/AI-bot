@@ -507,7 +507,7 @@
 | IO5 | I2C_SDA | 陀螺仪 |
 | IO6 | I2C_SCL | 陀螺仪 |
 | IO7 | TOUCH_MAIN（主触摸） | 触摸交互 |
-| IO8 | ~~I2S_DOUT（功放DIN）~~ 被SPI Flash占用，不可用 | MAX98357A → 需飞线IO21 |
+| IO8 | I2S_DOUT（功放DIN） | MAX98357A（原理图正确，之前崩溃是电源问题） |
 | IO9 | SPI_CS | ST7789 |
 | IO10 | SPI_DC | ST7789 |
 | IO11 | SPI_MOSI | ST7789 |
@@ -560,20 +560,20 @@
    - 将 SUBSPICS1 信号通过 GPIO Matrix 重定向到 IO39 → 仍崩溃
    - → 排除 SUBSPICS1 是根因
 
-### 真正的根因：IO8 被 SPI Flash 保留
+### ~~真正的根因：IO8 被 SPI Flash 保留~~ ← 3月17日再次更正，见下方
 
-- ESP32-S3 的 SPI Flash 在 QIO 模式下占用 **GPIO 6, 7, 8, 9, 10, 11**
-- 在 DIO 模式下也占用 **GPIO 6, 7, 8, 11**
-- **GPIO8 在所有 Flash 模式下都被 SPI Flash 接口占用，无法释放**
-- `i2s_channel_init_std_mode()` 检测到 IO8 是 Flash 保留引脚，触发 crash
-- 这是硬件级限制，软件无法绕过（`gpio_reset_pin`、重定向信号均无效）
-- 与 PSRAM 模式（Octal/Quad/Disabled）完全无关
+- ~~ESP32-S3 的 SPI Flash 在 QIO 模式下占用 GPIO 6, 7, 8, 9, 10, 11~~
+- ~~GPIO8 在所有 Flash 模式下都被 SPI Flash 接口占用，无法释放~~
+- ~~这是硬件级限制，软件无法绕过~~
 
-### 结论与后续
+### 最终结论（3月17日更正）：IO8 可用，根因是电源问题
 
-- **IO8 在 ESP32-S3 上永远不可用于 I2S（或其他外设）**，这是原理图设计时的引脚分配错误
-- **解决方案：飞线 IO8 → IO21**（已通过 test11_io8_diag TEST_MODE 3 验证 IO21 可正常跑 I2S）
-- 下一版 PCB 需将 MAX98357A DIN 从 IO8 改为 IO21
+- **IO8 崩溃的真正原因是 AMS1117 电源输出不足（仅2.9V），不是 IO8 引脚限制**
+- AMS1117 压差 1.1V，锂电池 4.2V 输入不够，导致 3.3V 输出仅 2.9V
+- ESP32-S3 在 I2S 初始化时电流尖峰使电压进一步跌落，触发 Brownout 重启
+- IO21 测试通过是因为恰好当时电源状态较好，并非 IO8 本身有问题
+- **IO8 原理图设计无误，无需飞线，无需改版**
+- 待更换 AP2114H-3.3 LDO 后重新验证 IO8 I2S 功能
 - 新增调试固件：`firmware/arduino/test10_i2s_debug/`、`firmware/arduino/test11_io8_diag/`
 
 ### 喇叭飞线IO21后TTS测试
@@ -599,9 +599,156 @@
 
 ---
 
+## 2026-03-18 - Phase 5 后端状态机 + 事件处理
+
+### 5.1 设备状态机（服务端侧）
+
+- 新建 `server/models/device_state.py`：
+  - `DeviceState` 枚举：IDLE / LISTENING / PROCESSING / SPEAKING / ERROR
+  - `VALID_TRANSITIONS` 状态转换表，防止非法跳转
+  - `STATE_DISPLAY_HINTS` 各状态对应屏幕提示文字
+- `DeviceChannel` 集成状态机：
+  - `_set_state()` 方法：校验转换合法性 → 通知设备 `state_change` → 自动发送屏幕提示
+  - 收到第一帧音频自动切换 `IDLE → LISTENING`
+  - `audio_end` 触发 `LISTENING → PROCESSING → SPEAKING → IDLE` 全流程
+  - 异常时 `→ ERROR → IDLE` 自动恢复
+
+### 5.2 LED 灯效控制 — 暂不实现
+
+- LED 灯效控制暂缓，等硬件（AP2114H 电源更换 + WS2812B 灯带焊接）完成后再做
+
+### 5.3 屏幕显示控制
+
+- `_send_display_update()` 方法：
+  - 支持长文本自动截断（DISPLAY_MAX_CHARS = 120 字符，约10字×12行适配 240×280 屏幕）
+  - AI 回复文字通过 `display_update` 发送给设备
+  - 状态切换时自动显示提示（如 "🎤 聆听中..."、"🤔 思考中..."）
+  - ASR 失败时显示 "语音识别失败，请重试" / "没听清，请再说一次"
+
+### 5.4 设备事件处理
+
+- **触摸事件** (`touch_event`):
+  - `single` — 单击切换录音开始/结束；播放中单击打断
+  - `double` — 双击取消当前操作，回到 IDLE
+  - `long_press` — 长按开始录音
+  - `long_release` — 长按松开结束录音
+- **摇一摇事件** (`shake_event`):
+  - 空闲时摇一摇 → 向 AI 发送 "讲一个有趣的笑话或者冷知识"
+  - 非空闲状态忽略
+- **设备状态上报** (`device_status`):
+  - 记录电量、WiFi 信号强度、充电状态到 `device_info` 字典
+  - 新增 `/api/device` 端点查询设备信息（连接状态 + 电量 + WiFi + 当前状态）
+
+### 测试客户端更新
+
+- `test_client.py` 新增命令：
+  - `touch <动作>` — 模拟触摸事件 (single/double/long_press/long_release)
+  - `shake` — 模拟摇一摇
+  - `status <电量> <WiFi>` — 上报设备状态（如 `status 85 -55`）
+  - `state` — 查看当前设备状态
+
+---
+
+## 2026-03-18 - Phase 6 稳定性 + 配置完善
+
+### 6.1 连接管理
+
+- WebSocket 心跳保活: aiohttp 内置 `heartbeat=30s` 自动 ping/pong
+- 独立心跳任务 `_heartbeat_loop()` 作为备用检测
+- 断线检测: `_handle_ws` finally 块清理状态 + 记录在线时长
+- 重连计数: `_reconnect_count` 追踪设备重连次数
+- 重连后自动恢复到 IDLE 状态（会话通过 SessionManager 保持）
+- 优雅关闭: 注册 SIGINT/SIGTERM 信号处理 → 按顺序关闭 WebSocket → outbound → agent → HTTP
+
+### 6.2 错误处理
+
+- ASR 识别失败 → 屏幕显示 "语音识别失败，请重试"（Phase 5 已实现）
+- LLM API 调用失败 → AgentLoop 内部处理: 不持久化错误响应防止死循环，返回友好提示
+- TTS 合成失败 → 降级为纯文字回复 `send_text_reply()`
+- WebSocket 消息格式错误 → `json.JSONDecodeError` 忽略并记录日志（Phase 3 已实现）
+- 音频 buffer 溢出保护: 超过 `MAX_AUDIO_BYTES`（30s = 960KB）自动截断并触发处理
+
+### 6.3 日志系统
+
+- `setup_logging()`: loguru 双输出
+  - 控制台: INFO 级别，`HH:mm:ss | LEVEL | module:func - message`
+  - 文件: DEBUG 级别，写入 `server/logs/server_YYYY-MM-DD.log`，按天轮转保留 7 天
+- 各环节耗时日志统一格式: `[ASR 0.8s]`, `[TTS 1.2s]`
+
+### 6.4 配置完善
+
+- `validate_config()`: 启动时检查 API Key、SOUL.md 存在性、端口范围
+- `/api/health` 增强: 返回版本号、模型、provider、ASR/TTS 配置、设备在线状态、运行时长
+- `/api/device` 增加 `reconnect_count` 字段
+- 启动日志打印完整配置摘要（模型、ASR、TTS、端口）
+
+### 6.5 SOUL.md + Skills
+
+- SOUL.md 已在 Phase 3 创建，ContextBuilder 自动加载（`BOOTSTRAP_FILES` 包含 "SOUL.md"）
+- 新建 `workspace/skills/computer-control/SKILL.md`:
+  - 定义电脑控制能力: 打开应用、文件操作、系统信息、进程管理
+  - 安全规则: 危险命令需确认、禁止 rm -rf / shutdown 等
+  - 标记 `always: true`，SkillsLoader 自动加载到上下文
+- 版本号: v0.6.0
+
+---
+
+## 2026-03-18（续）- WhatsApp Self-Chat 支持 + Bridge 移植 + Demo 文档
+
+### WhatsApp Self-Chat 功能
+
+之前 WhatsApp AI 助手存在安全问题：任何人给你发消息都能触发 AI 回复。现已实现 **self_only 模式**，AI 只在"给自己发消息"（Message yourself）中响应。
+
+**Bridge 端修改**（`server/bridge/src/whatsapp.ts`）：
+- 移除原先 `if (msg.key.fromMe) continue` 的无差别跳过逻辑
+- 新增 `getMyJid()` 方法获取自己的 JID，判断是否为 self-chat
+- 新增 `sentMessageIds` 集合追踪 bot 发出的消息 ID，防止 AI 回复→触发自己→无限循环
+- `sendMessage()` 记录已发消息 ID（保留最近 200 条）
+- 消息中新增 `isSelfChat` 字段传给 Python 端
+
+**Python 端修改**（`server/nanobot/channels/whatsapp.py`）：
+- 新增 `self_only` 模式检查：启用时只处理 `isSelfChat=true` 的消息，其他全部忽略
+
+**配置修改**（`server/nanobot/config/schema.py` + `server/config.yaml`）：
+- `WhatsAppConfig` 新增 `self_only: bool = False` 字段
+- `config.yaml` 设置 `self_only: true`
+
+### WhatsApp Bridge 移植到 server/
+
+- 将 WhatsApp Bridge（Node.js）从参考代码 `nanobot-src/bridge/` 移植到 `server/bridge/`
+- 包含全部源码：`index.ts`、`server.ts`、`whatsapp.ts`、`types.d.ts`
+- 完成 `npm install` + `npm run build`，构建验证通过
+- 从此所有运行代码统一在 `server/` 目录下，`nanobot-src/` 仅作参考可删除
+
+### Demo 启动指南
+
+- 新建 `DEMO/启动指南.md`，包含：
+  - 环境要求（Python 3.11+、Node.js 20+）
+  - 首次安装依赖步骤
+  - 两终端启动流程（Bridge → Python 后端）
+  - WhatsApp 扫码连接步骤
+  - Self-Chat 使用方法
+  - 常见问题排查
+  - 配置文件速查（切换模型、切换 WhatsApp 模式）
+  - 项目文件结构说明
+
+### 代码依赖确认
+
+- 确认 `server/` 下已包含 WhatsApp 测试所需全部文件
+- `channels/manager.py` 中其他 channel（Telegram、Discord 等）的导入在 `if enabled:` 条件内，config.yaml 中均为 `false`，不会触发
+- `nanobot-src/` 中的 templates/、skills/、其他 channel 文件在当前 WhatsApp 测试阶段不需要
+
+---
+
 ## 当前待办更新
 
 - [x] IO8 飞线至 IO21 — 已完成，I2S 通信正常
 - [x] AMS1117 电源问题定位 — 已确认压差不足，更换为 AP2114H-3.3
+- [x] 后端 Phase 1-6 全部完成
+- [x] WhatsApp self-chat 安全过滤（self_only 模式）
+- [x] WhatsApp Bridge 移植到 server/bridge/
+- [x] Demo 启动指南文档
 - [ ] AP2114H-3.3 焊接更换 + 重新测试大音量 TTS 播放
-- [ ] WS2812B 灯带焊接与测试（下周）
+- [ ] WS2812B 灯带焊接与测试
+- [ ] LED 灯效控制（后端 Phase 5.2，等硬件就绪）
+- [ ] ESP32 固件开发（连接后端 WebSocket + 音频采集/播放）

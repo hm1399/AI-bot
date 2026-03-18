@@ -123,6 +123,12 @@ class WhatsAppChannel(BaseChannel):
             sender_id = user_id.split("@")[0] if "@" in user_id else user_id
             logger.info("Sender {}", sender)
 
+            # self_only mode: only process self-chat messages
+            is_self_chat = data.get("isSelfChat", False)
+            if self.config.self_only and not is_self_chat:
+                logger.debug("self_only mode: ignoring message from {} (not self-chat)", sender_id)
+                return
+
             # Handle voice transcription if it's a voice message
             if content == "[Voice Message]":
                 logger.info("Voice message received from {}, but direct download from bridge is not yet supported.", sender_id)

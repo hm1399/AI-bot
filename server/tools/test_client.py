@@ -8,7 +8,10 @@ WebSocket 测试客户端 — 模拟 ESP32 设备
     - 连接 WebSocket 服务端
     - 交互式输入文字消息，打印 AI 回复
     - 发送音频文件测试语音链路: 输入 'audio <文件路径>' 发送 PCM/WAV 文件
-    - 模拟 ESP32 的消息格式: {"type": "text_input", "data": {"text": "..."}, "timestamp": ...}
+    - 模拟触摸事件: touch single / touch double / touch long_press / touch long_release
+    - 模拟摇一摇事件: shake
+    - 模拟设备状态上报: status <battery> <wifi_rssi>
+    - 查看设备当前状态: state
 
 音频测试:
     > audio test.pcm        # 发送 PCM 文件
@@ -86,8 +89,52 @@ async def send_audio(ws: aiohttp.ClientWebSocketResponse, path: str) -> None:
     print(f"音频发送完毕 ({frame_count} 帧), 等待 ASR + AI 回复...")
 
 
+async def send_touch(ws: aiohttp.ClientWebSocketResponse, action: str) -> None:
+    """发送触摸事件。"""
+    message = {
+        "type": "touch_event",
+        "data": {"action": action},
+        "timestamp": int(time.time()),
+    }
+    await ws.send_json(message)
+    print(f"已发送触摸事件: {action}")
+
+
+async def send_shake(ws: aiohttp.ClientWebSocketResponse) -> None:
+    """发送摇一摇事件。"""
+    message = {
+        "type": "shake_event",
+        "data": {},
+        "timestamp": int(time.time()),
+    }
+    await ws.send_json(message)
+    print("已发送摇一摇事件")
+
+
+async def send_device_status(
+    ws: aiohttp.ClientWebSocketResponse, battery: int, wifi_rssi: int
+) -> None:
+    """发送设备状态上报。"""
+    message = {
+        "type": "device_status",
+        "data": {
+            "battery": battery,
+            "wifi_rssi": wifi_rssi,
+            "charging": False,
+        },
+        "timestamp": int(time.time()),
+    }
+    await ws.send_json(message)
+    print(f"已发送设备状态: 电量={battery}%, WiFi={wifi_rssi}dBm")
+
+
+# 记录当前设备状态 (从服务端 state_change 消息更新)
+current_state = "UNKNOWN"
+
+
 async def receive_loop(ws: aiohttp.ClientWebSocketResponse) -> None:
     """后台接收并打印服务端消息。"""
+    global current_state
     audio_bytes_received = 0
 
     async for msg in ws:
@@ -100,8 +147,8 @@ async def receive_loop(ws: aiohttp.ClientWebSocketResponse) -> None:
                 if msg_type == "text_reply":
                     print(f"\n< [text_reply] {data.get('text', '')}")
                 elif msg_type == "state_change":
-                    state = data.get("state", "?")
-                    print(f"\n< [state_change] → {state}")
+                    current_state = data.get("state", "?")
+                    print(f"\n< [state_change] → {current_state}")
                 elif msg_type == "display_update":
                     print(f"\n< [display_update] {data.get('text', '')}")
                 elif msg_type == "audio_play":
@@ -129,9 +176,13 @@ async def receive_loop(ws: aiohttp.ClientWebSocketResponse) -> None:
 async def main(url: str) -> None:
     print(f"连接到 {url} ...")
     print("命令:")
-    print("  输入文字 → 发送文字消息给 AI")
-    print("  audio <文件路径> → 发送音频文件测试语音链路")
-    print("  quit → 退出\n")
+    print("  输入文字         → 发送文字消息给 AI")
+    print("  audio <路径>     → 发送音频文件测试语音链路")
+    print("  touch <动作>     → 模拟触摸 (single/double/long_press/long_release)")
+    print("  shake            → 模拟摇一摇")
+    print("  status <电量> <WiFi> → 上报设备状态 (如: status 85 -55)")
+    print("  state            → 查看当前设备状态")
+    print("  quit             → 退出\n")
 
     async with aiohttp.ClientSession() as session:
         try:
@@ -160,6 +211,40 @@ async def main(url: str) -> None:
                     if text.lower().startswith("audio "):
                         audio_path = text[6:].strip()
                         await send_audio(ws, audio_path)
+                        continue
+
+                    # 触摸事件
+                    if text.lower().startswith("touch"):
+                        parts = text.split(maxsplit=1)
+                        action = parts[1].strip() if len(parts) > 1 else "single"
+                        if action not in ("single", "double", "long_press", "long_release"):
+                            print("触摸动作: single, double, long_press, long_release")
+                            continue
+                        await send_touch(ws, action)
+                        continue
+
+                    # 摇一摇
+                    if text.lower() == "shake":
+                        await send_shake(ws)
+                        continue
+
+                    # 设备状态上报
+                    if text.lower().startswith("status"):
+                        parts = text.split()
+                        if len(parts) >= 3:
+                            try:
+                                bat = int(parts[1])
+                                rssi = int(parts[2])
+                                await send_device_status(ws, bat, rssi)
+                            except ValueError:
+                                print("用法: status <电量%> <WiFi dBm>  例: status 85 -55")
+                        else:
+                            print("用法: status <电量%> <WiFi dBm>  例: status 85 -55")
+                        continue
+
+                    # 查看状态
+                    if text.lower() == "state":
+                        print(f"当前设备状态: {current_state}")
                         continue
 
                     # 构造 ESP32 消息格式

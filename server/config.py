@@ -103,6 +103,37 @@ def generate_nanobot_config(cfg: dict) -> None:
         json.dump(config_json, f, indent=2, ensure_ascii=False)
 
 
+def validate_config(cfg: dict) -> list[str]:
+    """启动时验证配置，返回错误列表（空列表 = 通过）。"""
+    errors = []
+
+    # API Key 必填
+    api_key = cfg.get("nanobot", {}).get("api_key", "")
+    if not api_key:
+        provider = cfg.get("nanobot", {}).get("provider", "anthropic")
+        env_key_map = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+            "openai": "OPENAI_API_KEY",
+        }
+        env_key = env_key_map.get(provider, f"{provider.upper()}_API_KEY")
+        errors.append(
+            f"API Key 未设置！请在 config.yaml 的 nanobot.api_key 或环境变量 {env_key} 中配置"
+        )
+
+    # SOUL.md 存在性检查
+    soul_md = WORKSPACE_DIR / "SOUL.md"
+    if not soul_md.exists():
+        errors.append(f"SOUL.md 不存在: {soul_md}")
+
+    # 端口范围
+    port = cfg.get("server", {}).get("port", 8765)
+    if not isinstance(port, int) or port < 1 or port > 65535:
+        errors.append(f"端口无效: {port}（应为 1-65535）")
+
+    return errors
+
+
 def get_server_config(cfg: dict) -> dict:
     """提取服务端配置（host, port 等）。"""
     server = cfg.get("server", {})

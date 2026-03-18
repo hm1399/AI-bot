@@ -6,9 +6,11 @@
 
 ## MVP目标
 
-ESP32-S3 + INMP441麦克风 + MAX98357A功放 + 3W喇叭 + 1.69寸ST7789屏幕 + 电源管理(TP4056+AMS1117)
+ESP32-S3 + INMP441麦克风 + MAX98357A功放 + 3W喇叭 + 1.69寸ST7789屏幕 + 电源管理(TP4056+AP2114H-3.3)
 
 用户对设备说话 → 语音识别 → AI回复 → 语音播放，同时能通过语音控制电脑。
+
+**已验证的核心链路：** 触摸录音 → ASR(faster-whisper) → AI(Claude API via Nanobot) → TTS(Edge-TTS) → 屏幕显示 + WhatsApp转发
 
 ## 硬件元件清单（原理图 v2.0）
 
@@ -20,7 +22,7 @@ ESP32-S3 + INMP441麦克风 + MAX98357A功放 + 3W喇叭 + 1.69寸ST7789屏幕 +
 | U2 | 麦克风 | EV_INMP441 | 模组 | I2S | 24bit数字语音采集 |
 | U3 | 功放 | MAX98357AETE+T | QFN-16 | I2S | D类音频功放，驱动扬声器 |
 | U4 | 充电IC | TP4056 | SOP-8 | - | 锂电池充电管理（1A） |
-| U5 | 稳压 | AMS1117-3.3 | SOT-223 | - | 3.3V LDO（电池→3.3V供电所有芯片） |
+| U5 | 稳压 | AP2114H-3.3（原AMS1117-3.3，待更换） | SOT-223 | - | 3.3V低压差LDO（电池→3.3V供电所有芯片） |
 | U7 | 六轴传感器 | ZY-MPU-6050 | 邮票孔(2×4, 2.54mm) | I2C | 加速度计+陀螺仪，摇一摇检测 |
 
 ### 连接器
@@ -123,18 +125,21 @@ USB Type-C 5V → TP4056 → 3.7V锂电池
                           ↓
                     SW1拨动开关(SK12D07VG4)
                           ↓
-                    AMS1117-3.3 → 3.3V供电所有芯片
+                    AP2114H-3.3 → 3.3V供电所有芯片
 ```
+
+> **已知问题：** 原设计使用 AMS1117-3.3（dropout 1.1V），锂电池 4.2V 输入不足以稳定输出 3.3V（实测仅 2.9V），导致大功率场景（I2S 功放播放）触发 Brownout 重启。需更换为 AP2114H-3.3（dropout 0.25V，SOT-223 直接替换）。
 
 ## 软件技术栈
 
-- 固件: Arduino/MicroPython (ESP32-S3)
-- 服务端: Python + FastAPI
-- 语音识别: Whisper
-- 语音合成: Edge-TTS
-- AI对话: GPT-4 / Claude API
-- 电脑控制: OpenClaw (700+ Skills)
-- 手机App: Flutter (远期)
+- 固件: Arduino (ESP32-S3)，使用 TFT_eSPI、arduinoWebSockets、ArduinoJson、ESP_I2S 等库
+- 服务端: Python + aiohttp（基于 Nanobot 精简移植）
+- AI引擎: Nanobot AgentLoop（LiteLLM Provider → Claude API）
+- 语音识别(ASR): faster-whisper（本地部署，medium 模型）— 正在评估 SenseVoice 替代方案
+- 语音合成(TTS): Edge-TTS（zh-CN-XiaoxiaoNeural），MP3→PCM 转换使用 miniaudio
+- 电脑控制: Nanobot exec 工具（替代原 OpenClaw 方案）
+- 消息通道: WhatsApp（通过 Node.js Bridge，支持 self-chat 模式）
+- 手机App: Flutter（框架已搭建，Provider/Service 已实现）
 
 ## 目录结构
 
@@ -143,33 +148,78 @@ AI-bot/
 ├── README.md              # 项目简介与功能说明
 ├── CLAUDE.md              # 本文件 - Claude Code项目指南
 ├── CHANGELOG.md           # 工作日志（每次项目更新必须记录）
+├── DEMO/                  # Demo 启动指南与文档
+│   └── 启动指南.md
+├── server/                # Python 服务端（核心）
+│   ├── main.py            # 入口，启动 aiohttp + AgentLoop
+│   ├── config.py          # 配置加载 + nanobot config 生成
+│   ├── config.yaml        # 服务端配置文件
+│   ├── requirements.txt   # Python 依赖
+│   ├── nanobot/           # Nanobot 精简移植（AI 引擎核心）
+│   │   ├── agent/         # AgentLoop、ContextBuilder、Memory、Skills、工具系统
+│   │   ├── bus/           # 消息总线
+│   │   ├── channels/      # 消息通道（WhatsApp 等）
+│   │   ├── config/        # 配置加载
+│   │   ├── cron/          # 定时任务
+│   │   ├── providers/     # LiteLLM Provider
+│   │   ├── session/       # 会话管理
+│   │   └── utils/
+│   ├── channels/          # 自定义通道
+│   │   └── device_channel.py  # ESP32 WebSocket + 设备状态机
+│   ├── services/          # ASR + TTS 服务
+│   ├── models/            # 数据模型（protocol.py, device_state.py）
+│   ├── tools/             # 测试客户端
+│   ├── bridge/            # WhatsApp Bridge (Node.js)
+│   │   └── src/           # TypeScript 源码
+│   └── workspace/         # AI 工作空间
+│       ├── SOUL.md        # AI 人格设定
+│       └── skills/        # AI 技能定义
+├── firmware/              # ESP32-S3 固件
+│   └── arduino/           # Arduino 项目
+│       ├── demo/          # Demo 固件（WiFi+WebSocket+麦克风+触摸+屏幕）
+│       ├── test*/         # 各模块测试固件
+│       └── test4_tts/     # TTS 语音播放测试
+├── software/              # 手机 App
+│   └── flutter_application_1/  # Flutter 项目
 ├── Project_proposal/      # EE3070课程项目提案
 ├── 元件资料区/             # 元件PDF数据手册
-│   └── 元件.md            # 元件清单
 ├── 元件TXT/               # 元件数据手册文本版
-├── 功能讨论区/             # 功能设计文档
-│   ├── 功能实现讨论.md     # 各功能详细实现方案
+├── 功能讨论区/             # 功能设计与调研文档
+│   ├── 架构.md            # 三端系统架构设计
 │   ├── task.md            # MVP任务清单
-│   ├── openClaw.md        # OpenClaw调研
-│   ├── NeoAI.md           # NeoAI调研
-│   └── output.md          # 其他输出
-├── images/                # 原理图截图
-│   └── 原理图v2.0/       # 原理图v2.0各模块截图
+│   ├── nanobot功能架构.md  # Nanobot 核心架构分析
+│   ├── 后端搭建计划.md     # 后端 6 阶段计划
+│   ├── 工作流程.md        # Demo 搭建步骤
+│   ├── 待做.md            # 待优化项
+│   ├── SenseVoice调研.md  # SenseVoice ASR 调研报告
+│   └── ...
+├── images/                # 原理图/PCB/焊接截图
 ├── 硬件设计文件/           # 嘉立创EDA导出文件
-└── 原理图设计/             # 嘉立创EDA原理图设计教程
-    ├── 01_ESP32-S3最小系统.md
-    ├── 02_INMP441麦克风.md
-    ├── 03_MAX98357A功放.md
-    ├── 04_ST7789显示屏.md
-    ├── 05_电源管理.md
-    ├── 06_MPU6050陀螺仪.md
-    ├── 07_触摸与交互.md
-    └── 09_触摸子板PCB.md
+├── 原理图设计/             # 嘉立创EDA原理图设计教程（01~09）
+└── nanobot-src/           # Nanobot 原始源码（仅供参考）
 ```
 
 ## 当前阶段
 
-项目处于**硬件制造阶段**。原理图v2.0与PCB设计已完成并通过ERC/DRC检查，PCB已在嘉立创下单打样，全部元件已采购。当前正在进行3D打印外壳设计（Autodesk Fusion）。下一步：焊接、上电测试、固件开发。
+项目处于**软件开发与硬件完善阶段**。
+
+**已完成：**
+- 原理图v2.0 + PCB设计（ERC/DRC通过）+ 嘉立创打样 + 全部元件采购
+- PCB焊接 + 硬件逐模块测试（8/10通过：串口、麦克风、屏幕、触摸、MPU6050、WiFi、电源、充电）
+- 服务端 Phase 1~6 全部完成（Nanobot移植、ASR、TTS、WebSocket、语音全链路、状态机、连接管理、日志系统）
+- Demo联调完成：触摸录音 → ASR → AI回复 → 屏幕显示 + WhatsApp转发
+- WhatsApp self-chat 安全过滤 + Bridge 移植到 server/
+- SenseVoice ASR 调研（推荐替换 faster-whisper，速度快5倍，中文更准）
+
+**进行中：**
+- Flutter 手机 App 开发（框架已搭建）
+- Autodesk Fusion 3D外壳设计
+
+**待完成：**
+- AP2114H-3.3 LDO 焊接更换（解决 AMS1117 压差不足问题）→ 重新测试大音量播放
+- WS2812B 灯带焊接 + LED灯效控制
+- ESP32 固件完善（完整状态机、OTA更新等）
+- ASR 升级（faster-whisper → SenseVoice）
 
 ## 注意事项
 

@@ -22,4 +22,5 @@ whatsapp:
   enabled: true
   bridge_url: ws://localhost:3001
   bridge_token: ""
+  self_only: true
   allow_from: ["*"]

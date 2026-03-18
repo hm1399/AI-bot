@@ -22,6 +22,7 @@ class WhatsAppConfig(Base):
     enabled: bool = False
     bridge_url: str = "ws://localhost:3001"
     bridge_token: str = ""  # Shared token for bridge auth (optional, recommended)
+    self_only: bool = False  # If true, only respond to self-chat (messages you send to yourself)
     allow_from: list[str] = Field(default_factory=list)  # Allowed phone numbers
 
 

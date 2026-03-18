@@ -9,6 +9,12 @@ build/
 server/workspace/sessions/
 server/workspace/memory/
 server/workspace/config.json
+server/logs/
+
+# WhatsApp Bridge
+server/bridge/whatsapp-auth/
+server/bridge/node_modules/
+server/bridge/dist/
 
 # Environment
 .env
