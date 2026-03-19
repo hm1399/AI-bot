@@ -22,11 +22,11 @@
 #include "face_display.h"
 
 // ===== WiFi 配置 =====
-const char* WIFI_SSID = "EE3070_P1615_1"; //EE3070_P1615_1   /  AAAAA
-const char* WIFI_PASS = "EE3070P1615";  //EE3070P1615。     / 92935903
+const char* WIFI_SSID = "AAAAA"; //EE3070_P1615_1   /  AAAAA
+const char* WIFI_PASS = "92935903";  //EE3070P1615。     / 92935903
 
 // ===== WebSocket 服务端配置 =====
-const char* WS_HOST = "192.168.0.241";  // ← 改为你电脑的局域网 IP
+const char* WS_HOST = "172.20.10.2";  // ← 改为你电脑的局域网 IP
 const uint16_t WS_PORT = 8765;
 const char* WS_PATH = "/ws/device";
 
@@ -55,6 +55,8 @@ bool isRecording = false;
 bool introSent = false;
 String lastReply = "";
 unsigned long lastTouchCheck = 0;
+unsigned long lastNtpUpdate = 0;
+#define NTP_UPDATE_INTERVAL 30000  // NTP 时间更新间隔 (30秒)
 
 // ===== 屏幕显示（通过 face_display 模块） =====
 
@@ -132,6 +134,11 @@ bool connectWiFi() {
   }
 
   Serial.printf("WiFi connected! IP: %s\n", WiFi.localIP().toString().c_str());
+
+  // NTP 时间同步 (UTC+8 香港)
+  configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.println("NTP time sync configured (UTC+8)");
+
   updateStatusBar();
   faceSetText("WiFi 已连接");
   return true;
@@ -169,6 +176,9 @@ void sendAudioEnd() {
 }
 
 void handleServerMessage(uint8_t* payload, size_t length) {
+  // 打印原始 JSON
+  Serial.printf("[WS RX] %.*s\n", (int)length, (char*)payload);
+
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload, length);
   if (err) {
@@ -181,13 +191,13 @@ void handleServerMessage(uint8_t* payload, size_t length) {
 
   if (strcmp(type, "text_reply") == 0) {
     const char* text = data["text"] | "";
-    Serial.printf("AI reply: %s\n", text);
+    Serial.printf("[text_reply] %s\n", text);
     lastReply = String(text);
     faceSetText(text);
 
   } else if (strcmp(type, "state_change") == 0) {
     const char* state = data["state"] | "";
-    Serial.printf("State: %s\n", state);
+    Serial.printf("[state_change] %s\n", state);
     if (strcmp(state, "IDLE") == 0) {
       faceSetState(FACE_IDLE);
     } else if (strcmp(state, "LISTENING") == 0) {
@@ -201,11 +211,13 @@ void handleServerMessage(uint8_t* payload, size_t length) {
 
   } else if (strcmp(type, "display_update") == 0) {
     const char* text = data["text"] | "";
+    Serial.printf("[display_update] %s\n", text);
     lastReply = String(text);
     faceSetText(text);
 
   } else if (strcmp(type, "face_update") == 0) {
     const char* faceState = data["state"] | "";
+    Serial.printf("[face_update] %s\n", faceState);
     if (strcmp(faceState, "ACTIVE") == 0) {
       faceSetState(FACE_ACTIVE);
     } else if (strcmp(faceState, "IDLE") == 0) {
@@ -213,13 +225,22 @@ void handleServerMessage(uint8_t* payload, size_t length) {
     }
 
   } else if (strcmp(type, "status_bar_update") == 0) {
-    // 状态栏更新（时间、电池等）
     const char* timeStr = data["time"] | nullptr;
     int battery = data["battery"] | -1;
+    const char* weather = data["weather"] | nullptr;
+    Serial.printf("[status_bar_update] time=%s battery=%d weather=%s\n",
+                  timeStr ? timeStr : "null", battery,
+                  weather ? weather : "null");
     faceSetStatusBar(timeStr, WiFi.status() == WL_CONNECTED, wsConnected);
     if (battery >= 0) {
       faceSetBattery(battery);
     }
+    if (weather) {
+      faceSetWeather(weather);
+    }
+
+  } else {
+    Serial.printf("[unknown type] %s\n", type);
   }
 }
 
@@ -344,6 +365,17 @@ void loop() {
 
   // 表情动画更新（Phase 2 生效）
   faceUpdate();
+
+  // NTP 本地时间更新（每 30 秒）
+  if (millis() - lastNtpUpdate >= NTP_UPDATE_INTERVAL) {
+    lastNtpUpdate = millis();
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo, 100)) {
+      char timeBuf[8];
+      strftime(timeBuf, sizeof(timeBuf), "%H:%M", &timeinfo);
+      faceSetStatusBar(timeBuf, WiFi.status() == WL_CONNECTED, wsConnected);
+    }
+  }
 
   // 触摸录音检测（每 20ms 检查一次）
   if (millis() - lastTouchCheck >= 20) {

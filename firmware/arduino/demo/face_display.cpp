@@ -10,15 +10,18 @@
 
 // ===== 内部状态 =====
 static TFT_eSPI* _tft = nullptr;
+static U8g2_for_TFT_eSPI _u8f;    // U8g2 中文字体渲染器
 static FaceState _currentState = FACE_IDLE;
 static char _textBuf[256] = "";
-static int _textScrollOffset = 0;       // 文字滚动偏移（行数）
+static int _textScrollOffset = 0;       // 文字滚动偏移（像素 Y）
 static unsigned long _lastScrollTime = 0;
 static bool _textNeedsScroll = false;    // 文字是否超出显示区域需要滚动
 #define TEXT_SCROLL_INTERVAL 3000        // 滚动间隔 ms
-#define TEXT_LINE_HEIGHT 12              // 行高
-#define TEXT_MAX_LINES 3                 // 文字区最多显示行数
-#define TEXT_CHAR_WIDTH 6                // 字符宽度
+#define TEXT_FONT_HEIGHT 16              // 中文字体像素高度
+#define TEXT_LINE_SPACING 2              // 行间距
+#define TEXT_LINE_HEIGHT (TEXT_FONT_HEIGHT + TEXT_LINE_SPACING)  // 行高
+#define TEXT_MAX_LINES 2                 // 文字区最多显示行数（16px字体 × 2 + 间距 = 36px，适配48px区域）
+#define TEXT_MARGIN_X 4                  // 左右边距
 
 // ===== 动画状态变量 =====
 static unsigned long _lastAnimTime = 0;
@@ -154,14 +157,14 @@ static void clearEyeArea(int cx, int cy, int maxRadius) {
 // 局部擦除嘴巴区域
 static void clearMouthArea() {
     int mouthY = FACE_CY + MOUTH_Y_OFFSET;
-    _tft->fillRect(FACE_CX - MOUTH_WIDTH - 20, mouthY - 15,
-                   (MOUTH_WIDTH + 20) * 2, 30, COLOR_BG);
+    _tft->fillRect(FACE_CX - MOUTH_WIDTH - 25, mouthY - 20,
+                   (MOUTH_WIDTH + 25) * 2, 40, COLOR_BG);
 }
 
 // 局部擦除加载点区域
 static void clearDotArea() {
-    int dotY = FACE_CY + EYE_Y_OFFSET - 30;
-    _tft->fillRect(FACE_CX - 20, dotY - 5, 40, 10, COLOR_BG);
+    int dotY = FACE_CY + EYE_Y_OFFSET - 35;
+    _tft->fillRect(FACE_CX - 25, dotY - 6, 50, 12, COLOR_BG);
 }
 
 // 局部擦除音符区域
@@ -205,8 +208,8 @@ static void drawFaceListening() {
     int mouthY = FACE_CY + MOUTH_Y_OFFSET;
 
     // 歪头效果：左眼小（远），右眼大（近），整体略偏右
-    int tiltOffsetX = 5;   // 水平偏移模拟歪头
-    int tiltOffsetY = -3;  // 右眼略高
+    int tiltOffsetX = 7;   // 水平偏移模拟歪头
+    int tiltOffsetY = -5;  // 右眼略高
 
     // 左眼（小，远侧）
     drawEye(FACE_CX - EYE_SPACING + tiltOffsetX, eyeY + 3, EYE_RADIUS_SMALL);
@@ -215,7 +218,7 @@ static void drawFaceListening() {
     drawEye(FACE_CX + EYE_SPACING + tiltOffsetX, eyeY + tiltOffsetY, EYE_RADIUS_BIG);
 
     // 嘴巴偏向一侧的短横线
-    drawNeutralMouth(FACE_CX + tiltOffsetX + 5, mouthY, 12);
+    drawNeutralMouth(FACE_CX + tiltOffsetX + 7, mouthY, 16);
 }
 
 // 4. 思考中：横线眯眼 + 波浪嘴
@@ -231,10 +234,10 @@ static void drawFaceProcessing() {
     drawWavyMouth(FACE_CX, mouthY, MOUTH_WIDTH);
 
     // "..." 加载点（静态版，Phase 2 做动画）
-    int dotY = FACE_CY + EYE_Y_OFFSET - 30;
-    _tft->fillCircle(FACE_CX - 12, dotY, 3, COLOR_DOT);
-    _tft->fillCircle(FACE_CX, dotY, 3, COLOR_DOT);
-    _tft->fillCircle(FACE_CX + 12, dotY, 3, COLOR_DOT);
+    int dotY = FACE_CY + EYE_Y_OFFSET - 35;
+    _tft->fillCircle(FACE_CX - 15, dotY, 4, COLOR_DOT);
+    _tft->fillCircle(FACE_CX, dotY, 4, COLOR_DOT);
+    _tft->fillCircle(FACE_CX + 15, dotY, 4, COLOR_DOT);
 }
 
 // 5. 回复中：圆眼+眉毛 + 张嘴说话
@@ -251,27 +254,84 @@ static void drawFaceSpeaking() {
     drawEyebrow(FACE_CX + EYE_SPACING, eyeY, 8, true);
 
     // 张开的嘴
-    drawOpenMouth(FACE_CX, mouthY, 15, 10);
+    drawOpenMouth(FACE_CX, mouthY, 20, 14);
 }
 
-// ===== 绘制底部文字 =====
+// ===== 绘制底部文字（U8g2 中文渲染） =====
 
-// 计算文本总行数
+// 计算文本总行数（基于 U8g2 UTF-8 字宽自动换行）
 static int countTextLines() {
     if (_textBuf[0] == '\0') return 0;
+
     int lines = 1;
-    int x = 6;
-    int maxX = SCREEN_W - 6;
-    for (int i = 0; _textBuf[i] != '\0'; i++) {
-        char c = _textBuf[i];
-        if (c == '\n' || x > maxX - TEXT_CHAR_WIDTH) {
+    int x = TEXT_MARGIN_X;
+    int maxX = SCREEN_W - TEXT_MARGIN_X;
+    const char* p = _textBuf;
+
+    _u8f.setFont(u8g2_font_wqy16_t_gb2312);
+
+    while (*p != '\0') {
+        if (*p == '\n') {
             lines++;
-            x = 6;
-            if (c == '\n') continue;
+            x = TEXT_MARGIN_X;
+            p++;
+            continue;
         }
-        x += TEXT_CHAR_WIDTH;
+        // 获取当前 UTF-8 字符宽度
+        // 临时提取一个 UTF-8 字符
+        char tmp[5] = {0};
+        int charLen = 1;
+        uint8_t c = (uint8_t)*p;
+        if (c >= 0xF0) charLen = 4;
+        else if (c >= 0xE0) charLen = 3;
+        else if (c >= 0xC0) charLen = 2;
+        for (int i = 0; i < charLen && p[i] != '\0'; i++) {
+            tmp[i] = p[i];
+        }
+
+        int w = _u8f.getUTF8Width(tmp);
+        if (x + w > maxX) {
+            lines++;
+            x = TEXT_MARGIN_X;
+        }
+        x += w;
+        p += charLen;
     }
     return lines;
+}
+
+// 绘制一行文字，返回消耗的源字符串指针偏移
+// startY 是 U8g2 的 baseline Y 坐标
+static const char* drawOneLine(const char* p, int startY, int maxX) {
+    int x = TEXT_MARGIN_X;
+    _u8f.setCursor(x, startY);
+
+    while (*p != '\0' && *p != '\n') {
+        // 获取 UTF-8 字符长度
+        char tmp[5] = {0};
+        int charLen = 1;
+        uint8_t c = (uint8_t)*p;
+        if (c >= 0xF0) charLen = 4;
+        else if (c >= 0xE0) charLen = 3;
+        else if (c >= 0xC0) charLen = 2;
+        for (int i = 0; i < charLen && p[i] != '\0'; i++) {
+            tmp[i] = p[i];
+        }
+
+        int w = _u8f.getUTF8Width(tmp);
+        if (x + w > maxX) {
+            break;  // 换行
+        }
+
+        _u8f.setCursor(x, startY);
+        _u8f.print(tmp);
+        x += w;
+        p += charLen;
+    }
+
+    // 跳过换行符
+    if (*p == '\n') p++;
+    return p;
 }
 
 static void drawText() {
@@ -282,36 +342,41 @@ static void drawText() {
 
     if (_textBuf[0] == '\0') return;
 
-    _tft->setTextColor(COLOR_TEXT_FG, COLOR_TEXT_BG);
-    _tft->setTextSize(1);
+    _u8f.setFont(u8g2_font_wqy16_t_gb2312);
+    _u8f.setFontMode(1);  // 透明模式
+    _u8f.setForegroundColor(COLOR_TEXT_FG);
 
-    int x = 6;
-    int currentLine = 0;
-    int drawY = TEXT_AREA_Y + 6;
-    int maxX = SCREEN_W - 6;
+    int maxX = SCREEN_W - TEXT_MARGIN_X;
+    const char* p = _textBuf;
 
-    for (int i = 0; _textBuf[i] != '\0'; i++) {
-        char c = _textBuf[i];
-        if (c == '\n' || x > maxX - TEXT_CHAR_WIDTH) {
-            currentLine++;
-            x = 6;
-            if (c == '\n') continue;
+    // 跳过滚动偏移的行
+    int skipped = 0;
+    while (*p != '\0' && skipped < _textScrollOffset) {
+        // 模拟换行：遍历一行
+        int x = TEXT_MARGIN_X;
+        while (*p != '\0' && *p != '\n') {
+            char tmp[5] = {0};
+            int charLen = 1;
+            uint8_t c = (uint8_t)*p;
+            if (c >= 0xF0) charLen = 4;
+            else if (c >= 0xE0) charLen = 3;
+            else if (c >= 0xC0) charLen = 2;
+            for (int i = 0; i < charLen && p[i] != '\0'; i++) {
+                tmp[i] = p[i];
+            }
+            int w = _u8f.getUTF8Width(tmp);
+            if (x + w > maxX) break;
+            x += w;
+            p += charLen;
         }
+        if (*p == '\n') p++;
+        skipped++;
+    }
 
-        // 跳过滚动偏移之前的行
-        if (currentLine < _textScrollOffset) {
-            x += TEXT_CHAR_WIDTH;
-            continue;
-        }
-
-        // 超出显示区域则停止
-        int visibleLine = currentLine - _textScrollOffset;
-        drawY = TEXT_AREA_Y + 6 + visibleLine * TEXT_LINE_HEIGHT;
-        if (visibleLine >= TEXT_MAX_LINES) break;
-
-        _tft->setCursor(x, drawY);
-        _tft->print(c);
-        x += TEXT_CHAR_WIDTH;
+    // 绘制可见行
+    for (int line = 0; line < TEXT_MAX_LINES && *p != '\0'; line++) {
+        int baselineY = TEXT_AREA_Y + 6 + TEXT_FONT_HEIGHT + line * TEXT_LINE_HEIGHT;
+        p = drawOneLine(p, baselineY, maxX);
     }
 
     // 如果有更多行未显示，在右下角画一个小箭头提示
@@ -347,6 +412,7 @@ static void updateTextScroll() {
 // ===== 绘制状态栏 =====
 
 static char _timeBuf[16] = "--:--";
+static char _weatherBuf[16] = "";  // 天气温度（如 "23°C"）
 static bool _wifiOk = false;
 static bool _wsOk = false;
 static int _batteryPercent = -1;  // -1 = 未知
@@ -420,6 +486,12 @@ static void drawStatusBar() {
     uint16_t wsColor = _wsOk ? TFT_GREEN : TFT_RED;
     _tft->fillCircle(118, 11, 3, wsColor);
 
+    // 中右：天气温度
+    if (_weatherBuf[0] != '\0') {
+        _tft->setCursor(130, 8);
+        _tft->print(_weatherBuf);
+    }
+
     // 右侧：电池图标
     drawBatteryIcon(210, 7);
 
@@ -448,6 +520,12 @@ void faceInit(TFT_eSPI &tft) {
     _tft->init();
     _tft->setRotation(0);
     _tft->fillScreen(COLOR_BG);
+
+    // 初始化 U8g2 中文字体渲染器
+    _u8f.begin(tft);
+    _u8f.setFontMode(1);            // 透明模式
+    _u8f.setFontDirection(0);       // 从左到右
+    _u8f.setForegroundColor(COLOR_TEXT_FG);
 
     _currentState = FACE_IDLE;
     _stateEntryTime = millis();
@@ -549,14 +627,14 @@ void faceUpdate() {
     case FACE_LISTENING: {
         unsigned long elapsed = now - _stateEntryTime;
         float phase = (float)(elapsed % LISTEN_TILT_PERIOD) / LISTEN_TILT_PERIOD;
-        // 摇摆范围：tiltOffsetX 在 3~7 之间来回
-        int newTiltX = 5 + (int)(2.0f * sin(phase * 2 * 3.14159f));
-        int newTiltY = -3 + (int)(1.0f * sin(phase * 2 * 3.14159f));
+        // 摇摆范围：tiltOffsetX 在 5~9 之间来回
+        int newTiltX = 7 + (int)(2.0f * sin(phase * 2 * 3.14159f));
+        int newTiltY = -5 + (int)(2.0f * sin(phase * 2 * 3.14159f));
 
         // 检测是否需要重绘（每帧 tilt 变化或眨眼状态变化）
         bool needRedraw = false;
-        static int _prevTiltX = 5;
-        static int _prevTiltY = -3;
+        static int _prevTiltX = 7;
+        static int _prevTiltY = -5;
         if (newTiltX != _prevTiltX || newTiltY != _prevTiltY) {
             needRedraw = true;
         }
@@ -589,7 +667,7 @@ void faceUpdate() {
             }
 
             // 嘴巴
-            drawNeutralMouth(FACE_CX + newTiltX + 5, mouthY, 12);
+            drawNeutralMouth(FACE_CX + newTiltX + 7, mouthY, 16);
 
             _prevTiltX = newTiltX;
             _prevTiltY = newTiltY;
@@ -605,10 +683,10 @@ void faceUpdate() {
 
             // 擦除并重绘点
             clearDotArea();
-            int dotY = FACE_CY + EYE_Y_OFFSET - 30;
-            if (_dotPhase >= 1) _tft->fillCircle(FACE_CX - 12, dotY, 3, COLOR_DOT);
-            if (_dotPhase >= 2) _tft->fillCircle(FACE_CX, dotY, 3, COLOR_DOT);
-            if (_dotPhase >= 3) _tft->fillCircle(FACE_CX + 12, dotY, 3, COLOR_DOT);
+            int dotY = FACE_CY + EYE_Y_OFFSET - 35;
+            if (_dotPhase >= 1) _tft->fillCircle(FACE_CX - 15, dotY, 4, COLOR_DOT);
+            if (_dotPhase >= 2) _tft->fillCircle(FACE_CX, dotY, 4, COLOR_DOT);
+            if (_dotPhase >= 3) _tft->fillCircle(FACE_CX + 15, dotY, 4, COLOR_DOT);
         }
         break;
     }
@@ -623,9 +701,9 @@ void faceUpdate() {
             clearMouthArea();
             int mouthY = FACE_CY + MOUTH_Y_OFFSET;
             if (_mouthOpen) {
-                drawOpenMouth(FACE_CX, mouthY, 15, 10);
+                drawOpenMouth(FACE_CX, mouthY, 20, 14);
             } else {
-                drawNeutralMouth(FACE_CX, mouthY, 15);
+                drawNeutralMouth(FACE_CX, mouthY, 20);
             }
         }
 
@@ -699,5 +777,15 @@ void faceSetStatusBar(const char* time, bool wifiOk, bool wsOk) {
 void faceSetBattery(int percent) {
     if (percent == _batteryPercent) return;
     _batteryPercent = percent;
+    drawStatusBar();
+}
+
+void faceSetWeather(const char* weather) {
+    if (weather == nullptr) {
+        _weatherBuf[0] = '\0';
+    } else {
+        strncpy(_weatherBuf, weather, sizeof(_weatherBuf) - 1);
+        _weatherBuf[sizeof(_weatherBuf) - 1] = '\0';
+    }
     drawStatusBar();
 }

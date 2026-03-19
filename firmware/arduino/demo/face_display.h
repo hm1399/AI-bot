@@ -2,6 +2,7 @@
 #define FACE_DISPLAY_H
 
 #include <TFT_eSPI.h>
+#include <U8g2_for_TFT_eSPI.h>
 #include "face_config.h"
 
 // 表情状态
@@ -33,5 +34,8 @@ void faceSetStatusBar(const char* time, bool wifiOk, bool wsOk);
 
 // 设置电池电量 (0~100, -1=未知)
 void faceSetBattery(int percent);
+
+// 设置天气显示（如 "23°C"）
+void faceSetWeather(const char* weather);
 
 #endif // FACE_DISPLAY_H

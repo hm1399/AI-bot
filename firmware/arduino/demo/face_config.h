@@ -17,17 +17,17 @@
 #define FACE_CY         (FACE_AREA_Y + FACE_AREA_H / 2)  // 108
 
 // ===== 眼睛参数 =====
-#define EYE_SPACING     40      // 两眼间距（中心到中心）
-#define EYE_Y_OFFSET    -15     // 眼睛相对脸中心的 Y 偏移（负=上方）
-#define EYE_RADIUS_NORMAL   10  // 正常眼睛半径
-#define EYE_RADIUS_BIG      14  // 大眼半径（LISTENING 大眼侧）
-#define EYE_RADIUS_SMALL    8   // 小眼半径（LISTENING 小眼侧）
-#define EYE_RADIUS_ACTIVE   12  // ACTIVE 状态眼睛半径
+#define EYE_SPACING     50      // 两眼间距（中心到中心）
+#define EYE_Y_OFFSET    -20     // 眼睛相对脸中心的 Y 偏移（负=上方）
+#define EYE_RADIUS_NORMAL   16  // 正常眼睛半径
+#define EYE_RADIUS_BIG      22  // 大眼半径（LISTENING 大眼侧）
+#define EYE_RADIUS_SMALL    12  // 小眼半径（LISTENING 小眼侧）
+#define EYE_RADIUS_ACTIVE   19  // ACTIVE 状态眼睛半径
 
 // ===== 嘴巴参数 =====
-#define MOUTH_Y_OFFSET  25      // 嘴巴相对脸中心的 Y 偏移（正=下方）
-#define MOUTH_WIDTH     30      // 嘴巴宽度
-#define MOUTH_HEIGHT    8       // 嘴巴高度/弧度
+#define MOUTH_Y_OFFSET  35      // 嘴巴相对脸中心的 Y 偏移（正=下方）
+#define MOUTH_WIDTH     40      // 嘴巴宽度
+#define MOUTH_HEIGHT    12      // 嘴巴高度/弧度
 
 // ===== 颜色 =====
 #define COLOR_BG        TFT_BLACK
@@ -50,7 +50,7 @@
 #define BLINK_INTERVAL_MAX  5000  // 眨眼最大间隔 ms
 #define BLINK_DURATION      200   // 眨眼持续 ms
 
-#define ACTIVE_EYE_MOVE_RANGE  3  // ACTIVE 眼球移动像素
+#define ACTIVE_EYE_MOVE_RANGE  5  // ACTIVE 眼球移动像素
 #define ACTIVE_EYE_MOVE_PERIOD 2000 // 眼球移动周期 ms
 
 #define LISTEN_TILT_ANGLE   5     // 歪头角度（度）

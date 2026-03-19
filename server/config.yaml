@@ -21,6 +21,11 @@ asr:
 tts:
   voice: zh-CN-XiaoxiaoNeural
 
+weather:
+  api_key: ${OPENWEATHERMAP_API_KEY}
+  city: Hong Kong
+  units: metric
+
 whatsapp:
   enabled: true
   bridge_url: ws://localhost:3001

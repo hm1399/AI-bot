@@ -265,6 +265,7 @@ async def main() -> None:
 
     # 初始化 DeviceChannel
     device_channel = DeviceChannel(bus, asr=asr_service, tts=tts_service)
+    device_channel.set_weather_config(cfg.get("weather", {}))
     device_channel.register_routes(app)
 
     # 初始化 WhatsApp Channel

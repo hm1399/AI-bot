@@ -44,6 +44,14 @@ def load_yaml_config() -> dict:
     with open(CONFIG_YAML, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
+    # weather API key 环境变量覆盖
+    weather_cfg = cfg.get("weather", {})
+    weather_key = weather_cfg.get("api_key", "")
+    if weather_key.startswith("${") and weather_key.endswith("}"):
+        env_name = weather_key[2:-1]
+        weather_key = os.environ.get(env_name, "")
+    cfg.setdefault("weather", {})["api_key"] = weather_key
+
     # 环境变量覆盖
     provider = cfg.get("nanobot", {}).get("provider", "anthropic")
     # 根据 provider 选择对应的环境变量名

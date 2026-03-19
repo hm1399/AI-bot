@@ -56,6 +56,9 @@ HEARTBEAT_INTERVAL = 30
 # 状态栏时间推送间隔 (秒)
 TIME_PUSH_INTERVAL = 60
 
+# 天气推送间隔 (秒) — 每 30 分钟
+WEATHER_PUSH_INTERVAL = 1800
+
 # ACTIVE 状态判定：最近对话时间窗口 (秒)
 ACTIVE_WINDOW = 30
 
@@ -104,6 +107,15 @@ class DeviceChannel:
         # ── 表情系统 (Phase 3) ────────────────────────────
         self._last_chat_time: float = 0  # 最后对话时间戳
         self._time_push_task: asyncio.Task | None = None
+
+        # ── 天气推送 ────────────────────────────────────
+        self._weather_task: asyncio.Task | None = None
+        self._weather_config: dict[str, Any] = {}
+        self._last_weather: str = ""  # 缓存最新天气字符串
+
+    def set_weather_config(self, config: dict[str, Any]) -> None:
+        """设置天气 API 配置（从 config.yaml 加载）。"""
+        self._weather_config = config
 
     # ── 状态机方法 ─────────────────────────────────────────
 
@@ -174,6 +186,14 @@ class DeviceChannel:
             self._time_push_task.cancel()
             try:
                 await self._time_push_task
+            except asyncio.CancelledError:
+                pass
+
+        # 停止天气推送
+        if self._weather_task and not self._weather_task.done():
+            self._weather_task.cancel()
+            try:
+                await self._weather_task
             except asyncio.CancelledError:
                 pass
 
@@ -249,6 +269,11 @@ class DeviceChannel:
             self._time_push_task.cancel()
         self._time_push_task = asyncio.create_task(self._time_push_loop())
 
+        # 启动天气推送
+        if self._weather_task and not self._weather_task.done():
+            self._weather_task.cancel()
+        self._weather_task = asyncio.create_task(self._weather_push_loop())
+
         # 发送初始状态（重连后设备恢复到 IDLE）
         await self.send_json(make_server_message(
             ServerMessageType.STATE_CHANGE, {"state": DeviceState.IDLE.value}
@@ -279,6 +304,8 @@ class DeviceChannel:
                 self._heartbeat_task.cancel()
             if self._time_push_task and not self._time_push_task.done():
                 self._time_push_task.cancel()
+            if self._weather_task and not self._weather_task.done():
+                self._weather_task.cancel()
             uptime = time.monotonic() - self._connect_time
             logger.info("设备已断开 (在线 {:.0f}s)", uptime)
 
@@ -506,10 +533,56 @@ class DeviceChannel:
             except Exception:
                 logger.exception("时间推送异常")
 
+    async def _weather_push_loop(self) -> None:
+        """每 30 分钟从 OpenWeatherMap 获取天气并推送到设备。"""
+        while True:
+            try:
+                weather_str = await self._fetch_weather()
+                if weather_str:
+                    self._last_weather = weather_str
+                    await self._send_status_bar_update(weather=weather_str)
+                    logger.info("天气推送: {}", weather_str)
+                await asyncio.sleep(WEATHER_PUSH_INTERVAL)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("天气推送异常")
+                await asyncio.sleep(60)  # 出错后 1 分钟重试
+
+    async def _fetch_weather(self) -> str:
+        """从 OpenWeatherMap API 获取当前温度。"""
+        api_key = self._weather_config.get("api_key", "")
+        if not api_key:
+            logger.debug("天气 API Key 未配置，跳过")
+            return ""
+
+        city = self._weather_config.get("city", "Hong Kong")
+        units = self._weather_config.get("units", "metric")
+        url = (
+            f"https://api.openweathermap.org/data/2.5/weather"
+            f"?q={city}&units={units}&appid={api_key}"
+        )
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        logger.warning("天气 API 返回 {}: {}", resp.status, await resp.text())
+                        return ""
+                    data = await resp.json()
+                    temp = data.get("main", {}).get("temp")
+                    if temp is not None:
+                        return f"{int(round(temp))}°C"
+                    return ""
+        except Exception:
+            logger.exception("天气 API 请求失败")
+            return ""
+
     async def _send_status_bar_update(
         self,
         time: str | None = None,
         battery: int | None = None,
+        weather: str | None = None,
     ) -> None:
         """发送状态栏更新到设备。"""
         data: dict[str, Any] = {}
@@ -517,6 +590,8 @@ class DeviceChannel:
             data["time"] = time
         if battery is not None:
             data["battery"] = battery
+        if weather is not None:
+            data["weather"] = weather
         if data:
             await self.send_json(make_server_message(
                 ServerMessageType.STATUS_BAR_UPDATE, data

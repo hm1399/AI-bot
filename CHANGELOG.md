@@ -879,6 +879,43 @@
 
 ---
 
+## 2026-03-19 - 屏幕显示时间和天气
+
+### NTP 本地时间同步（固件）
+
+- `demo.ino` WiFi 连接后调用 `configTime()` 配置 NTP 服务器（`pool.ntp.org` + `time.nist.gov`，时区 UTC+8 香港）
+- `loop()` 中每 30 秒通过 `getLocalTime()` 获取本地时间，调用 `faceSetStatusBar()` 更新状态栏
+- 移除对服务端时间推送的强依赖：NTP 为主时间源，服务端 `status_bar_update` 中的 time 字段仍可接收但不再是唯一来源
+- 解决了之前状态栏显示 `--:--` 的问题（原因是时间完全依赖服务端推送，推送不稳定或未连接时无法显示）
+
+### 天气温度显示（固件端）
+
+- `face_display.cpp` 新增 `_weatherBuf[16]` 静态变量存储天气字符串
+- `drawStatusBar()` 中在 WS 状态点 (x=118) 和电池图标 (x=210) 之间显示天气文字 (x=130)
+- 新增 `faceSetWeather(const char* weather)` 公开接口
+- `face_display.h` 声明 `faceSetWeather()`
+- `demo.ino` 的 `handleServerMessage()` 中解析 `status_bar_update` 的 `weather` 字段并调用 `faceSetWeather()`
+
+### 天气推送（服务端）
+
+- `server/config.yaml` 新增 `weather` 配置段：`api_key`（环境变量 `OPENWEATHERMAP_API_KEY`）、`city`（Hong Kong）、`units`（metric）
+- `server/config.py` 新增 weather API Key 环境变量解析（支持 `${OPENWEATHERMAP_API_KEY}` 格式）
+- `server/channels/device_channel.py`：
+  - 新增 `_weather_push_loop()`：每 30 分钟从 OpenWeatherMap API 获取天气并推送到设备
+  - 新增 `_fetch_weather()`：调用 OpenWeatherMap Current Weather API，返回格式化温度字符串（如 `"23°C"`）
+  - `_send_status_bar_update()` 新增 `weather` 参数
+  - 设备连接时自动启动天气推送任务，断开/关闭时正确取消
+  - 新增 `set_weather_config()` 方法接收配置
+- `server/main.py`：DeviceChannel 初始化时传入 weather 配置
+
+### 验证方法
+
+1. 上传固件后，连 WiFi 即可看到状态栏显示正确时间（不依赖服务端）
+2. 设置 `OPENWEATHERMAP_API_KEY` 环境变量并启动服务端后，状态栏显示温度（如 `23°C`）
+3. Serial 监视器可检查 NTP 同步和天气接收日志
+
+---
+
 ## 当前待办更新
 
 - [x] IO8 飞线至 IO21 — 已完成，I2S 通信正常
@@ -889,6 +926,8 @@
 - [x] Demo 启动指南文档
 - [x] 屏幕表情显示系统 Phase 1~3（静态表情 + 动画 + 状态栏文字区）
 - [x] 屏幕表情显示系统 Phase 4 服务端集成（所有状态切换均发送 face_update）
+- [x] NTP 本地时间同步（ESP32 固件，解决状态栏 `--:--` 问题）
+- [x] 天气温度显示（固件端 + 服务端 OpenWeatherMap 推送）
 - [ ] 屏幕表情显示系统 联调测试（需设备连接）
 - [ ] AP2114H-3.3 焊接更换 + 重新测试大音量 TTS 播放
 - [ ] WS2812B 灯带焊接与测试
