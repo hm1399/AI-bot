@@ -1,0 +1,61 @@
+{
+  "name": "DeviceStatus",
+  "type": "object",
+  "properties": {
+    "device_id": {
+      "type": "string"
+    },
+    "device_name": {
+      "type": "string",
+      "default": "AI\u52a9\u624b\u8bbe\u5907"
+    },
+    "online": {
+      "type": "boolean",
+      "default": false
+    },
+    "battery": {
+      "type": "number"
+    },
+    "wifi_strength": {
+      "type": "number"
+    },
+    "current_state": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "recording",
+        "playing",
+        "processing"
+      ],
+      "default": "idle"
+    },
+    "volume": {
+      "type": "number",
+      "default": 70
+    },
+    "muted": {
+      "type": "boolean",
+      "default": false
+    },
+    "led_mode": {
+      "type": "string",
+      "enum": [
+        "off",
+        "breathe",
+        "solid",
+        "pulse"
+      ],
+      "default": "breathe"
+    },
+    "ip_address": {
+      "type": "string"
+    },
+    "port": {
+      "type": "number",
+      "default": 8080
+    }
+  },
+  "required": [
+    "device_id"
+  ]
+}
