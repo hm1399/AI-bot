@@ -1,0 +1,45 @@
+{
+  "name": "Message",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "user",
+        "assistant",
+        "system",
+        "device"
+      ],
+      "description": "\u6d88\u606f\u89d2\u8272"
+    },
+    "content": {
+      "type": "string",
+      "description": "\u6d88\u606f\u5185\u5bb9"
+    },
+    "message_type": {
+      "type": "string",
+      "enum": [
+        "text",
+        "tool_call",
+        "tool_result",
+        "device_event"
+      ],
+      "default": "text"
+    },
+    "tool_name": {
+      "type": "string",
+      "description": "\u5de5\u5177\u8c03\u7528\u540d\u79f0"
+    },
+    "tool_data": {
+      "type": "object",
+      "description": "\u5de5\u5177\u8c03\u7528\u6570\u636e"
+    },
+    "conversation_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "role",
+    "content"
+  ]
+}
