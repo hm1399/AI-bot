@@ -147,7 +147,6 @@ class SessionManagerPersistenceTests(unittest.TestCase):
             [message["message_id"] for message in session.messages],
             ["m1"],
         )
-
     def test_list_sessions_skips_invalid_jsonl_files(self) -> None:
         session = self.manager.get_or_create("app:main")
         session.add_message("user", "hello", message_id="m1")

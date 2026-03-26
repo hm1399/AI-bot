@@ -220,7 +220,6 @@ class SessionManager:
                     self._restore_session(session, rollback_session)
                     self._cache[session.key] = session
             raise
-
         self._cache[session.key] = session
 
     def invalidate(self, key: str) -> None:
