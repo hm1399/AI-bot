@@ -89,13 +89,25 @@ def load_yaml_config() -> dict:
     return cfg
 
 
+def _parse_provider_timeout_seconds(value: object) -> float:
+    """Parse and validate the provider timeout value."""
+    if isinstance(value, bool):
+        raise ValueError
+
+    timeout = float(value)
+    if timeout <= 0:
+        raise ValueError
+
+    return timeout
+
+
 def get_provider_timeout_seconds(cfg: dict) -> float:
     """Return the configured provider request timeout in seconds."""
     timeout = cfg.get("nanobot", {}).get(
         "provider_timeout_seconds",
         DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     )
-    return float(timeout)
+    return _parse_provider_timeout_seconds(timeout)
 
 
 def generate_nanobot_config(cfg: dict) -> None:
@@ -163,11 +175,9 @@ def validate_config(cfg: dict) -> list[str]:
         "provider_timeout_seconds",
         DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     )
-    if (
-        isinstance(provider_timeout_seconds, bool)
-        or not isinstance(provider_timeout_seconds, (int, float))
-        or provider_timeout_seconds <= 0
-    ):
+    try:
+        _parse_provider_timeout_seconds(provider_timeout_seconds)
+    except (TypeError, ValueError):
         errors.append(
             "nanobot.provider_timeout_seconds 必须是大于 0 的数字"
         )

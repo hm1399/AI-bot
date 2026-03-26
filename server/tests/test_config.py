@@ -12,7 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import DEFAULT_PROVIDER_TIMEOUT_SECONDS, generate_nanobot_config, validate_config
+from config import (
+    DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    generate_nanobot_config,
+    validate_config,
+)
 
 
 class ConfigValidationTests(unittest.TestCase):
@@ -79,3 +83,24 @@ class ConfigValidationTests(unittest.TestCase):
         })
 
         self.assertTrue(any("provider_timeout_seconds" in err for err in errors))
+
+    def test_accepts_numeric_string_provider_timeout(self) -> None:
+        cfg = {
+            "nanobot": {
+                "api_key": "test-key",
+                "provider_timeout_seconds": "45.5",
+            },
+            "server": {"port": 8765},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "SOUL.md").write_text("# soul\n", encoding="utf-8")
+
+            with patch("config.WORKSPACE_DIR", tmp_path), patch(
+                "config.importlib.util.find_spec",
+                return_value=object(),
+            ):
+                errors = validate_config(cfg)
+
+        self.assertFalse(any("provider_timeout_seconds" in err for err in errors))

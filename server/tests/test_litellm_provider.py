@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import litellm
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -48,3 +50,25 @@ class LiteLLMProviderErrorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.error.kind, "provider_error")
         self.assertFalse(response.is_timeout)
         self.assertIn("boom", response.error.message)
+
+    async def test_chat_classifies_litellm_timeout_as_timeout(self) -> None:
+        provider = LiteLLMProvider(
+            api_key="test-key",
+            default_model="openai/gpt-4o-mini",
+            request_timeout_seconds=1.0,
+        )
+
+        timeout_error = litellm.Timeout(
+            message="provider timed out",
+            model="openai/gpt-4o-mini",
+            llm_provider="openai",
+        )
+
+        with patch("nanobot.providers.litellm_provider.acompletion", side_effect=timeout_error):
+            response = await provider.chat(messages=[{"role": "user", "content": "hello"}])
+
+        self.assertEqual(response.finish_reason, "error")
+        self.assertIsNotNone(response.error)
+        self.assertEqual(response.error.kind, "timeout")
+        self.assertEqual(response.error.code, "Timeout")
+        self.assertTrue(response.is_timeout)
