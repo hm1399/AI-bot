@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import secrets
 import string
@@ -38,10 +39,11 @@ class LiteLLMProvider(LLMProvider):
         api_key: str | None = None,
         api_base: str | None = None,
         default_model: str = "anthropic/claude-opus-4-5",
+        request_timeout_seconds: float = 90.0,
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
     ):
-        super().__init__(api_key, api_base)
+        super().__init__(api_key, api_base, request_timeout_seconds=request_timeout_seconds)
         self.default_model = default_model
         self.extra_headers = extra_headers or {}
 
@@ -244,14 +246,30 @@ class LiteLLMProvider(LLMProvider):
             kwargs["tool_choice"] = "auto"
 
         try:
-            response = await acompletion(**kwargs)
-            return self._parse_response(response)
-        except Exception as e:
-            # Return error as content for graceful handling
-            return LLMResponse(
-                content=f"Error calling LLM: {str(e)}",
-                finish_reason="error",
+            response = await asyncio.wait_for(
+                acompletion(**kwargs),
+                timeout=self.request_timeout_seconds,
             )
+            return self._parse_response(response)
+        except Exception as exc:
+            return self._build_error_response(exc)
+
+    def _build_error_response(self, exc: Exception) -> LLMResponse:
+        """Convert provider exceptions into a structured response contract."""
+        error_code = exc.__class__.__name__
+        if isinstance(exc, (asyncio.TimeoutError, TimeoutError, litellm.Timeout)):
+            timeout_msg = f"Model request timed out after {self.request_timeout_seconds:g}s."
+            return LLMResponse.from_error(
+                timeout_msg,
+                kind="timeout",
+                code=error_code,
+            )
+
+        return LLMResponse.from_error(
+            f"Error calling LLM: {exc}",
+            kind="provider_error",
+            code=error_code,
+        )
 
     def _parse_response(self, response: Any) -> LLMResponse:
         """Parse LiteLLM response into our standard format."""

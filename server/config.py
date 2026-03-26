@@ -18,6 +18,7 @@ WORKSPACE_DIR = SERVER_DIR / "workspace"
 CONFIG_YAML = SERVER_DIR / "config.yaml"
 NANOBOT_CONFIG_JSON = WORKSPACE_DIR / "config.json"
 ENV_FILE = SERVER_DIR / ".env"
+DEFAULT_PROVIDER_TIMEOUT_SECONDS = 90.0
 
 
 def _load_dotenv() -> None:
@@ -83,14 +84,25 @@ def load_yaml_config() -> dict:
         env_name = api_key[2:-1]
         api_key = os.environ.get(env_name, "")
     cfg.setdefault("nanobot", {})["api_key"] = api_key
+    cfg["nanobot"].setdefault("provider_timeout_seconds", DEFAULT_PROVIDER_TIMEOUT_SECONDS)
 
     return cfg
+
+
+def get_provider_timeout_seconds(cfg: dict) -> float:
+    """Return the configured provider request timeout in seconds."""
+    timeout = cfg.get("nanobot", {}).get(
+        "provider_timeout_seconds",
+        DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    )
+    return float(timeout)
 
 
 def generate_nanobot_config(cfg: dict) -> None:
     """根据 config.yaml 生成 nanobot 需要的 config.json。"""
     nanobot_cfg = cfg.get("nanobot", {})
     provider_name = nanobot_cfg.get("provider", "anthropic")
+    provider_timeout_seconds = get_provider_timeout_seconds(cfg)
 
     config_json = {
         "agents": {
@@ -107,6 +119,7 @@ def generate_nanobot_config(cfg: dict) -> None:
         "providers": {
             provider_name: {
                 "apiKey": nanobot_cfg.get("api_key", ""),
+                "timeoutSeconds": provider_timeout_seconds,
             }
         },
         "channels": {
@@ -144,6 +157,19 @@ def validate_config(cfg: dict) -> list[str]:
         env_key = env_key_map.get(provider, f"{provider.upper()}_API_KEY")
         errors.append(
             f"API Key 未设置！请在 config.yaml 的 nanobot.api_key 或环境变量 {env_key} 中配置"
+        )
+
+    provider_timeout_seconds = cfg.get("nanobot", {}).get(
+        "provider_timeout_seconds",
+        DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    )
+    if (
+        isinstance(provider_timeout_seconds, bool)
+        or not isinstance(provider_timeout_seconds, (int, float))
+        or provider_timeout_seconds <= 0
+    ):
+        errors.append(
+            "nanobot.provider_timeout_seconds 必须是大于 0 的数字"
         )
 
     # SOUL.md 存在性检查

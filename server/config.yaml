@@ -8,6 +8,7 @@ nanobot:
   api_key: ${OPENROUTER_API_KEY}
   max_tokens: 8192
   temperature: 0.1
+  provider_timeout_seconds: 90
   max_tool_iterations: 20
   memory_window: 50
 

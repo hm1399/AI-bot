@@ -9,6 +9,7 @@ from aiohttp import web
 from loguru import logger
 
 from config import (
+    get_provider_timeout_seconds,
     SERVER_DIR,
     WORKSPACE_DIR,
     generate_nanobot_config,
@@ -96,6 +97,7 @@ def create_agent(cfg: dict[str, Any]) -> tuple[MessageBus, AgentLoop]:
         api_key=api_key,
         default_model=model,
         provider_name=provider_name,
+        request_timeout_seconds=get_provider_timeout_seconds(cfg),
     )
     session_manager = SessionManager(WORKSPACE_DIR)
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,10 +12,31 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import validate_config
+from config import DEFAULT_PROVIDER_TIMEOUT_SECONDS, generate_nanobot_config, validate_config
 
 
 class ConfigValidationTests(unittest.TestCase):
+    def test_generate_nanobot_config_uses_default_provider_timeout(self) -> None:
+        cfg = {
+            "nanobot": {
+                "api_key": "test-key",
+                "provider": "openrouter",
+                "model": "openai/gpt-4o-mini",
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            with patch("config.WORKSPACE_DIR", tmp_path), patch("config.NANOBOT_CONFIG_JSON", tmp_path / "config.json"):
+                generate_nanobot_config(cfg)
+
+            payload = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            payload["providers"]["openrouter"]["timeoutSeconds"],
+            DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+        )
+
     def test_rejects_short_device_token(self) -> None:
         errors = validate_config({
             "nanobot": {"api_key": "test-key"},
@@ -45,3 +68,14 @@ class ConfigValidationTests(unittest.TestCase):
             })
 
         self.assertTrue(any("websockets" in err for err in errors))
+
+    def test_rejects_non_positive_provider_timeout(self) -> None:
+        errors = validate_config({
+            "nanobot": {
+                "api_key": "test-key",
+                "provider_timeout_seconds": 0,
+            },
+            "server": {"port": 8765},
+        })
+
+        self.assertTrue(any("provider_timeout_seconds" in err for err in errors))
