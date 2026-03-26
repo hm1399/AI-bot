@@ -8,6 +8,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "Audio.h"
+#include <driver/gpio.h>
+#include <esp_rom_gpio.h>
 
 // ===== WiFi 配置 =====
 const char* WIFI_SSID     = "AAAAA";
@@ -17,33 +19,40 @@ const char* WIFI_PASSWORD = "92935903";
 // ===== I2S 引脚 (MAX98357A) =====
 #define I2S_BCLK  17
 #define I2S_LRC   18
-#define I2S_DOUT   21
+#define I2S_DOUT   8
 // =================================
+
+// ===== 电容触摸引脚 =====
+#define TOUCH_PIN        7
+#define TOUCH_THRESHOLD  40000
+// ========================
 
 // ===== 音量控制 =====
 // 范围 0~21
-uint8_t VOLUME = 17;
+uint8_t VOLUME = 15;
 // ====================
 
 Audio audio;
-
-// 待播放的 TTS 文本队列
-struct TTSItem {
-  const char* text;
-  const char* lang;
-};
-
-TTSItem ttsQueue[] = {
-  {"Hello, I am your AI assistant.",          "en"},
-  {"one, two, three, four, five.",            "en"},
-  {"The weather today is sunny and warm.",    "en"},
-  {"AI Bot is ready.",                        "en"},
-};
-
-int ttsIndex = 0;
-int ttsTotal = sizeof(ttsQueue) / sizeof(ttsQueue[0]);
 bool ttsPlaying = false;
-bool ttsDone = false;
+bool lastTouched = false;
+
+void prepareI2SDoutPin() {
+  if (I2S_DOUT != 8) {
+    return;
+  }
+
+  Serial.println("释放 IO8 的默认复用，准备给 I2S DOUT 使用...");
+
+  esp_err_t rst = gpio_reset_pin(GPIO_NUM_8);
+  Serial.printf("gpio_reset_pin(8): %s\n", esp_err_to_name(rst));
+
+  gpio_set_direction(GPIO_NUM_39, GPIO_MODE_OUTPUT);
+  esp_rom_gpio_connect_out_signal(39, FSPICS1_OUT_IDX, false, false);
+  Serial.println("SUBSPICS1 已重定向到 IO39");
+
+  gpio_iomux_out(8, 1, false);  // Function 1 = GPIO
+  Serial.println("IO8 已切换为普通 GPIO 功能");
+}
 
 // 音频事件回调
 void audio_info(const char* info) {
@@ -57,21 +66,16 @@ void audio_eof_speech(const char* info) {
   ttsPlaying = false;
 }
 
-void playNext() {
-  if (ttsIndex >= ttsTotal) {
-    ttsDone = true;
-    return;
-  }
-  Serial.printf("\n测试%d: %s\n", ttsIndex + 1, ttsQueue[ttsIndex].text);
-  audio.connecttospeech(ttsQueue[ttsIndex].text, ttsQueue[ttsIndex].lang);
+void playHello() {
+  Serial.println("\n触摸按下，播放: Hello");
+  audio.connecttospeech("Hello", "en");
   ttsPlaying = true;
-  ttsIndex++;
 }
 
 void setup() {
   Serial.begin(115200);
   delay(3000);
-  Serial.println("ESP32-audioI2S TTS 语音合成测试");
+  Serial.println("ESP32-audioI2S 电容触摸 TTS 测试");
   Serial.printf("空闲堆内存: %d bytes\n", ESP.getFreeHeap());
 
   // 连接 WiFi
@@ -89,28 +93,31 @@ void setup() {
   Serial.printf("\nWiFi 已连接! IP: %s\n", WiFi.localIP().toString().c_str());
 
   // 初始化 I2S 音频
+  prepareI2SDoutPin();
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-  audio.setVolume(VOLUME);
+  // audio.setVolume(VOLUME);
   Serial.printf("音量: %d/21\n", VOLUME);
-  Serial.println("I2S 初始化成功!\n");
-
-  // 播放第一条
-  playNext();
+  Serial.println("I2S 初始化成功!");
+  Serial.printf("触摸引脚: IO%d, 阈值: %d\n", TOUCH_PIN, TOUCH_THRESHOLD);
+  Serial.println("按一次电容按钮，说一次 Hello。\n");
 }
 
 void loop() {
   audio.loop();
 
-  // 当前语音播放完成后，播放下一条
-  if (!ttsPlaying && !ttsDone) {
-    delay(500);
-    playNext();
+  uint32_t touchValue = touchRead(TOUCH_PIN);
+  bool touched = touchValue > TOUCH_THRESHOLD;
+
+  // 只在按下瞬间触发一次，松手前不重复播放
+  if (touched && !lastTouched && !ttsPlaying) {
+    Serial.printf("检测到触摸，原始值: %u\n", touchValue);
+    playHello();
   }
 
-  if (ttsDone) {
-    Serial.println("\nTTS 测试全部完成!");
-    Serial.println("如果声音太大或太小，修改代码顶部的 VOLUME 值 (0~21)");
-    ttsDone = false;  // 只打印一次
-    ttsIndex = -1;    // 标记已结束
+  if (!touched && lastTouched) {
+    Serial.printf("触摸松开，原始值: %u\n", touchValue);
   }
+
+  lastTouched = touched;
+  delay(20);
 }

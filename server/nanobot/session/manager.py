@@ -133,6 +133,7 @@ class SessionManager:
             messages = []
             metadata = {}
             created_at = None
+            updated_at = None
             last_consolidated = 0
 
             with open(path, encoding="utf-8") as f:
@@ -146,6 +147,7 @@ class SessionManager:
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
+                        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None
                         last_consolidated = data.get("last_consolidated", 0)
                     else:
                         messages.append(data)
@@ -154,12 +156,29 @@ class SessionManager:
                 key=key,
                 messages=messages,
                 created_at=created_at or datetime.now(),
+                updated_at=updated_at or created_at or datetime.now(),
                 metadata=metadata,
                 last_consolidated=last_consolidated
             )
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
             return None
+
+    def get(self, key: str) -> Session | None:
+        """Get an existing session without implicitly creating it."""
+        if key in self._cache:
+            return self._cache[key]
+
+        session = self._load(key)
+        if session is not None:
+            self._cache[key] = session
+        return session
+
+    def exists(self, key: str) -> bool:
+        """Return whether a session exists on disk or in cache."""
+        if key in self._cache:
+            return True
+        return self._get_session_path(key).exists() or self._get_legacy_session_path(key).exists()
 
     def save(self, session: Session) -> None:
         """Save a session to disk."""

@@ -21,6 +21,13 @@ asr:
 tts:
   voice: zh-CN-XiaoxiaoNeural
 
+device:
+  auth_token: ${DEVICE_AUTH_TOKEN}
+
+app:
+  auth_token: ${APP_AUTH_TOKEN}
+  default_session_id: app:main
+
 weather:
   api_key: ${OPENWEATHERMAP_API_KEY}
   city: Hong Kong

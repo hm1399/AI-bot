@@ -101,6 +101,7 @@ class AgentLoop:
         )
 
         self._running = False
+        self.task_observer: Any | None = None
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
@@ -108,8 +109,8 @@ class AgentLoop:
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
         self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
         self._consolidation_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
-        self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
-        self._processing_lock = asyncio.Lock()
+        self._active_tasks: dict[str, set[asyncio.Task]] = {}  # session_key -> tasks
+        self._session_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -152,12 +153,68 @@ class AgentLoop:
         finally:
             self._mcp_connecting = False
 
-    def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def _set_tool_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        task_id: str | None = None,
+    ) -> None:
         """Update context for all tools that need routing info."""
         for name in ("message", "spawn", "cron"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
-                    tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
+                    if name == "message":
+                        tool.set_context(channel, chat_id, message_id, task_id)
+                    else:
+                        tool.set_context(channel, chat_id)
+
+    async def _notify_task_observer(self, method_name: str, **kwargs: Any) -> None:
+        """Safely notify the optional task observer."""
+        if not self.task_observer:
+            return
+        callback = getattr(self.task_observer, method_name, None)
+        if callback is None:
+            return
+        try:
+            await callback(**kwargs)
+        except Exception:
+            logger.exception("Task observer callback failed: {}", method_name)
+
+    def _resolve_session_key(self, msg: InboundMessage, session_key: str | None = None) -> str:
+        """Return the canonical session key used for locking and task tracking."""
+        if session_key:
+            return session_key
+        if msg.channel == "system":
+            channel, chat_id = (
+                msg.chat_id.split(":", 1)
+                if ":" in msg.chat_id
+                else ("cli", msg.chat_id)
+            )
+            return f"{channel}:{chat_id}"
+        return msg.session_key
+
+    def _get_session_lock(self, session_key: str) -> asyncio.Lock:
+        """Get or create the processing lock for a session."""
+        lock = self._session_locks.get(session_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_key] = lock
+        return lock
+
+    def _track_active_task(self, session_key: str, task: asyncio.Task) -> None:
+        """Track a task so /stop can cancel it by session."""
+        self._active_tasks.setdefault(session_key, set()).add(task)
+
+        def _cleanup(done_task: asyncio.Task, key: str = session_key) -> None:
+            tasks = self._active_tasks.get(key)
+            if not tasks:
+                return
+            tasks.discard(done_task)
+            if not tasks:
+                self._active_tasks.pop(key, None)
+
+        task.add_done_callback(_cleanup)
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -268,34 +325,42 @@ class AgentLoop:
             except asyncio.TimeoutError:
                 continue
 
+            session_key = self._resolve_session_key(msg)
             if msg.content.strip().lower() == "/stop":
-                await self._handle_stop(msg)
+                await self._handle_stop(msg, session_key=session_key)
             else:
-                task = asyncio.create_task(self._dispatch(msg))
-                self._active_tasks.setdefault(msg.session_key, []).append(task)
-                task.add_done_callback(lambda t, k=msg.session_key: self._active_tasks.get(k, []) and self._active_tasks[k].remove(t) if t in self._active_tasks.get(k, []) else None)
+                task = asyncio.create_task(self._dispatch(msg, session_key=session_key))
+                self._track_active_task(session_key, task)
 
-    async def _handle_stop(self, msg: InboundMessage) -> None:
+    async def _handle_stop(self, msg: InboundMessage, session_key: str | None = None) -> None:
         """Cancel all active tasks and subagents for the session."""
-        tasks = self._active_tasks.pop(msg.session_key, [])
+        target_session_key = self._resolve_session_key(msg, session_key=session_key)
+        tasks = list(self._active_tasks.pop(target_session_key, set()))
         cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
         for t in tasks:
             try:
                 await t
             except (asyncio.CancelledError, Exception):
                 pass
-        sub_cancelled = await self.subagents.cancel_by_session(msg.session_key)
+        sub_cancelled = await self.subagents.cancel_by_session(target_session_key)
         total = cancelled + sub_cancelled
         content = f"⏹ Stopped {total} task(s)." if total else "No active task to stop."
         await self.bus.publish_outbound(OutboundMessage(
             channel=msg.channel, chat_id=msg.chat_id, content=content,
         ))
 
-    async def _dispatch(self, msg: InboundMessage) -> None:
-        """Process a message under the global lock."""
-        async with self._processing_lock:
+    async def _dispatch(self, msg: InboundMessage, session_key: str | None = None) -> None:
+        """Process a message under a session-scoped lock."""
+        target_session_key = self._resolve_session_key(msg, session_key=session_key)
+        lock = self._get_session_lock(target_session_key)
+        async with lock:
             try:
-                response = await self._process_message(msg)
+                await self._notify_task_observer(
+                    "on_task_started",
+                    msg=msg,
+                    session_key=target_session_key,
+                )
+                response = await self._process_message(msg, session_key=target_session_key)
                 if response is not None:
                     await self.bus.publish_outbound(response)
                 elif msg.channel == "cli":
@@ -303,14 +368,32 @@ class AgentLoop:
                         channel=msg.channel, chat_id=msg.chat_id,
                         content="", metadata=msg.metadata or {},
                     ))
+                await self._notify_task_observer(
+                    "on_task_finished",
+                    msg=msg,
+                    session_key=target_session_key,
+                    response=response,
+                )
             except asyncio.CancelledError:
+                await self._notify_task_observer(
+                    "on_task_cancelled",
+                    msg=msg,
+                    session_key=target_session_key,
+                )
                 logger.info("Task cancelled for session {}", msg.session_key)
                 raise
             except Exception:
+                await self._notify_task_observer(
+                    "on_task_failed",
+                    msg=msg,
+                    session_key=target_session_key,
+                    error="processing_error",
+                )
                 logger.exception("Error processing message for session {}", msg.session_key)
                 await self.bus.publish_outbound(OutboundMessage(
                     channel=msg.channel, chat_id=msg.chat_id,
                     content="Sorry, I encountered an error.",
+                    metadata=msg.metadata or {},
                 ))
 
     async def close_mcp(self) -> None:
@@ -334,21 +417,26 @@ class AgentLoop:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
+        resolved_session_key = self._resolve_session_key(msg, session_key=session_key)
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
                                 else ("cli", msg.chat_id))
             logger.info("Processing system message from {}", msg.sender_id)
-            key = f"{channel}:{chat_id}"
-            session = self.sessions.get_or_create(key)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+            session = self.sessions.get_or_create(resolved_session_key)
+            self._set_tool_context(
+                channel,
+                chat_id,
+                msg.metadata.get("message_id"),
+                msg.metadata.get("task_id"),
+            )
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
             final_content, _, all_msgs = await self._run_agent_loop(messages)
-            self._save_turn(session, all_msgs, 1 + len(history))
+            self._save_turn(session, all_msgs, 1 + len(history), msg_metadata=msg.metadata)
             self.sessions.save(session)
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
@@ -356,8 +444,7 @@ class AgentLoop:
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
 
-        key = session_key or msg.session_key
-        session = self.sessions.get_or_create(key)
+        session = self.sessions.get_or_create(resolved_session_key)
 
         # Slash commands
         cmd = msg.content.strip().lower()
@@ -411,7 +498,12 @@ class AgentLoop:
             _task = asyncio.create_task(_consolidate_and_unlock())
             self._consolidation_tasks.add(_task)
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        self._set_tool_context(
+            msg.channel,
+            msg.chat_id,
+            msg.metadata.get("message_id"),
+            msg.metadata.get("task_id"),
+        )
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
@@ -439,10 +531,10 @@ class AgentLoop:
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
 
-        self._save_turn(session, all_msgs, 1 + len(history))
+        self._save_turn(session, all_msgs, 1 + len(history), msg_metadata=msg.metadata)
         self.sessions.save(session)
 
-        if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
+        if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt.sent_in_turn:
             return None
 
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
@@ -452,9 +544,23 @@ class AgentLoop:
             metadata=msg.metadata or {},
         )
 
-    def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
+    def _save_turn(
+        self,
+        session: Session,
+        messages: list[dict],
+        skip: int,
+        *,
+        msg_metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
+        msg_metadata = msg_metadata or {}
+        user_message_id = msg_metadata.get("message_id")
+        assistant_message_id = msg_metadata.get("assistant_message_id")
+        task_id = msg_metadata.get("task_id")
+        client_message_id = msg_metadata.get("client_message_id")
+        user_id_assigned = False
+        assistant_id_assigned = False
         for m in messages[skip:]:
             entry = dict(m)
             role, content = entry.get("role"), entry.get("content")
@@ -483,6 +589,25 @@ class AgentLoop:
                     if not filtered:
                         continue
                     entry["content"] = filtered
+            if role == "user" and not user_id_assigned:
+                if user_message_id:
+                    entry.setdefault("message_id", user_message_id)
+                if client_message_id:
+                    entry.setdefault("client_message_id", client_message_id)
+                if task_id:
+                    entry.setdefault("task_id", task_id)
+                user_id_assigned = True
+            elif (
+                role == "assistant"
+                and not entry.get("tool_calls")
+                and content
+                and not assistant_id_assigned
+            ):
+                if assistant_message_id:
+                    entry.setdefault("message_id", assistant_message_id)
+                if task_id:
+                    entry.setdefault("task_id", task_id)
+                assistant_id_assigned = True
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
         session.updated_at = datetime.now()
@@ -505,5 +630,10 @@ class AgentLoop:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
-        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
+        resolved_session_key = self._resolve_session_key(msg, session_key=session_key)
+        lock = self._get_session_lock(resolved_session_key)
+        async with lock:
+            response = await self._process_message(
+                msg, session_key=resolved_session_key, on_progress=on_progress
+            )
         return response.content if response else ""
