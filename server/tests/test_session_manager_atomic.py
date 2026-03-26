@@ -119,6 +119,35 @@ class SessionManagerPersistenceTests(unittest.TestCase):
         self.assertEqual(path.read_text(encoding="utf-8"), original_content)
         self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
 
+    def test_save_rolls_back_cached_session_when_serialization_fails(self) -> None:
+        session = self.manager.get_or_create("app:main")
+        session.add_message("user", "first", message_id="m1")
+        self.manager.save(session)
+        self.assertIs(self.manager.get("app:main"), session)
+
+        session.add_message("assistant", "second", message_id="m2")
+
+        real_dumps = json.dumps
+        call_count = 0
+
+        def flaky_dumps(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError("boom")
+            return real_dumps(*args, **kwargs)
+
+        with patch("nanobot.session.manager.json.dumps", side_effect=flaky_dumps):
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                self.manager.save(session)
+
+        cached = self.manager.get("app:main")
+        self.assertIs(cached, session)
+        self.assertEqual(
+            [message["message_id"] for message in session.messages],
+            ["m1"],
+        )
+
     def test_list_sessions_skips_invalid_jsonl_files(self) -> None:
         session = self.manager.get_or_create("app:main")
         session.add_message("user", "hello", message_id="m1")
@@ -131,4 +160,3 @@ class SessionManagerPersistenceTests(unittest.TestCase):
 
         self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0]["key"], "app:main")
-

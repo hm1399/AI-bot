@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -181,9 +182,20 @@ class SessionManager:
             return True
         return self._get_session_path(key).exists() or self._get_legacy_session_path(key).exists()
 
+    @staticmethod
+    def _restore_session(target: Session, source: Session) -> None:
+        """Restore a session object from a persisted snapshot."""
+        target.messages = deepcopy(source.messages)
+        target.created_at = source.created_at
+        target.updated_at = source.updated_at
+        target.metadata = deepcopy(source.metadata)
+        target.last_consolidated = source.last_consolidated
+
     def save(self, session: Session) -> None:
         """Save a session to disk."""
         path = self._get_session_path(session.key)
+        cached_session = self._cache.get(session.key)
+        rollback_session = self._load(session.key) if cached_session is session else None
 
         def write_session(f) -> None:
             metadata_line = {
@@ -198,7 +210,17 @@ class SessionManager:
             for msg in session.messages:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
-        atomic_write_text(path, write_session, encoding="utf-8")
+        try:
+            atomic_write_text(path, write_session, encoding="utf-8")
+        except Exception:
+            if cached_session is session:
+                if rollback_session is None:
+                    self._cache.pop(session.key, None)
+                else:
+                    self._restore_session(session, rollback_session)
+                    self._cache[session.key] = session
+            raise
+
         self._cache[session.key] = session
 
     def invalidate(self, key: str) -> None:
