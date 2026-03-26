@@ -11,6 +11,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.utils.atomic_write import atomic_write_text
 from nanobot.utils.helpers import ensure_dir, safe_filename
 
 
@@ -184,7 +185,7 @@ class SessionManager:
         """Save a session to disk."""
         path = self._get_session_path(session.key)
 
-        with open(path, "w", encoding="utf-8") as f:
+        def write_session(f) -> None:
             metadata_line = {
                 "_type": "metadata",
                 "key": session.key,
@@ -197,6 +198,7 @@ class SessionManager:
             for msg in session.messages:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
+        atomic_write_text(path, write_session, encoding="utf-8")
         self._cache[session.key] = session
 
     def invalidate(self, key: str) -> None:
@@ -227,7 +229,8 @@ class SessionManager:
                                 "updated_at": data.get("updated_at"),
                                 "path": str(path)
                             })
-            except Exception:
+            except Exception as exc:
+                logger.warning("Skipping invalid session file {}: {}", path, exc)
                 continue
 
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)
