@@ -1002,6 +1002,17 @@
 - 按问题拆分新增 5 份后端优化计划，分别覆盖：模型调用超时与卡死保护、App 消息幂等与重试安全、消息总线队列上限与背压、运行时任务清理与保留策略、会话与摘要原子写
 - 将 5 份计划文件重命名为带顺序编号的版本，便于后续按依赖顺序实施
 
+### 稳定性计划 Wave 1 执行
+
+- 完成 `会话与摘要原子写` 计划的第一波实现：新增共享原子写工具，并将 `server/nanobot/session/manager.py` 的会话持久化切到原子写路径
+- `SessionManager.save()` 在写入失败时不再污染正式会话文件；若失败发生在缓存对象上，会同步回滚内存中的会话状态，避免“磁盘未写成但缓存已前进”的分裂状态
+- 新增 `server/tests/test_session_manager_atomic.py`，覆盖原子写成功、写入失败保留旧文件、缓存回滚、损坏 JSONL 跳过等场景
+- 完成 `模型调用超时与卡死保护` 计划的第一波实现收口：Provider timeout contract 与 `LiteLLMProvider` 相关测试补齐
+- `server/tests/test_bootstrap_provider_timeout.py` 改为 hermetic bootstrap 测试，避免因导入 `numpy/funasr` 等运行时依赖导致测试环境偶发失败
+- `server/tests/test_litellm_provider.py` 补充 `litellm.Timeout` 显式覆盖，确认超时被归类为 `timeout` 而不是普通 provider error
+- `server/config.py` 统一 `provider_timeout_seconds` 的解析与校验逻辑，支持数值字符串配置并继续拒绝非正数
+- 更新 `功能讨论区/TODO/2026-03-26-06-五个稳定性计划subagents执行编排.md`，记录 `W1-A`、`W1-B` 已执行完成，下一步进入消息总线队列上限与背压的 contract 冻结阶段
+
 ---
 
 ## 当前待办更新
