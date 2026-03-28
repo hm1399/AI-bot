@@ -3,7 +3,7 @@
 // 行为:
 // 1. 上电后自动连接 WiFi
 // 2. 初始化 I2S 和音频库
-// 3. 自动播放一段测试语音
+// 3. 触摸 IO7 电容触摸板时播放一段测试语音
 // 4. 串口输入 r 可再次播放
 //
 // 需要:
@@ -26,10 +26,14 @@ const char* WIFI_PASSWORD = "92935903";
 #define SD_MODE_PIN 2
 // =================================
 
+// ===== 电容触摸 =====
+#define TOUCH_PIN 7
+#define TOUCH_THRESHOLD 40000
+// ====================
+
 // ===== TTS 配置 =====
 const char* TEST_TEXT = "Hello, this is the I O twenty one speaker test.";
 const char* TEST_LANG = "en";
-const uint32_t AUTO_PLAY_DELAY_MS = 1500;
 const uint32_t WIFI_TIMEOUT_MS = 20000;
 // ====================
 
@@ -45,8 +49,7 @@ enum SpeakerSdMode {
 
 Audio audio;
 bool ttsPlaying = false;
-bool autoPlayPending = true;
-uint32_t autoPlayAt = 0;
+bool lastTouched = false;
 SpeakerSdMode currentSdMode = SPEAKER_SD_LEFT;
 
 const char* speakerSdModeName(SpeakerSdMode mode) {
@@ -148,18 +151,30 @@ void handleSerialCommand() {
   }
 }
 
+void handleTouchTrigger() {
+  uint32_t touchValue = touchRead(TOUCH_PIN);
+  bool touched = touchValue > TOUCH_THRESHOLD;
+
+  if (touched && !lastTouched) {
+    Serial.printf("检测到触摸，原始值: %u\n", touchValue);
+    startTTS(TEST_TEXT);
+  }
+
+  lastTouched = touched;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(3000);
 
-  Serial.println("ESP32-audioI2S 无触摸 TTS 测试");
+  Serial.println("ESP32-audioI2S 电容触摸 TTS 测试");
   Serial.printf("空闲堆内存: %u bytes\n", ESP.getFreeHeap());
   Serial.printf("I2S 引脚: BCLK=IO%d, LRC=IO%d, DOUT=IO%d, SD_MODE=IO%d\n",
                 I2S_BCLK, I2S_LRC, I2S_DOUT, SD_MODE_PIN);
+  Serial.printf("触摸引脚: IO%d, 阈值: %d\n", TOUCH_PIN, TOUCH_THRESHOLD);
 
   if (!connectWiFi()) {
     Serial.println("启动阶段 WiFi 失败，后续可按复位键重试。");
-    autoPlayPending = false;
     return;
   }
 
@@ -170,21 +185,15 @@ void setup() {
 
   Serial.printf("音量: %u/21\n", VOLUME);
   Serial.println("I2S 初始化成功!");
-  Serial.println("启动后会自动播报一次测试语音。");
+  Serial.println("摸一下电容触摸板，就会播一句测试语音。");
   Serial.println("串口命令: r = 重播, l = 左声道开启, x = 关机静音。");
   Serial.println("说明: 目前 SD_MODE 直连 IO2，只支持 HIGH=左声道、LOW=关机。\n");
-
-  autoPlayAt = millis() + AUTO_PLAY_DELAY_MS;
 }
 
 void loop() {
   audio.loop();
   handleSerialCommand();
-
-  if (autoPlayPending && millis() >= autoPlayAt) {
-    autoPlayPending = false;
-    startTTS(TEST_TEXT);
-  }
+  handleTouchTrigger();
 
   delay(5);
 }
