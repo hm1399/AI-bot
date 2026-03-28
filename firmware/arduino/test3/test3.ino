@@ -2,6 +2,7 @@
 // 引脚: SCK=IO14, WS=IO15, SD=IO16
 // L/R: R12 100kΩ下拉 = 左声道
 
+#include <Arduino.h>
 #include <driver/i2s.h>
 
 #define I2S_SCK  14
@@ -9,16 +10,18 @@
 #define I2S_SD   16
 
 #define SAMPLE_RATE   16000
-#define SAMPLE_BITS   I2S_BITS_PER_SAMPLE_16BIT
+#define SAMPLE_BITS   I2S_BITS_PER_SAMPLE_32BIT
 #define I2S_PORT      I2S_NUM_0
-#define BUFFER_SIZE   512
+#define BUFFER_SIZE   256
 
-int16_t samples[BUFFER_SIZE];
+int32_t samples[BUFFER_SIZE];
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
   Serial.println("INMP441 麦克风测试开始...");
+  Serial.println("使用 32-bit I2S 槽位读取 24-bit 麦克风数据");
+  Serial.printf("引脚: SCK=IO%d, WS=IO%d, SD=IO%d\n", I2S_SCK, I2S_WS, I2S_SD);
 
   // I2S 配置
   i2s_config_t i2s_config = {
@@ -56,7 +59,8 @@ void setup() {
   }
 
   Serial.println("I2S 初始化成功!");
-  Serial.println("对着麦克风说话，观察数值变化...");
+  Serial.println("对着麦克风说话，观察平均值和峰值变化...");
+  Serial.println("如果始终接近 0，优先检查 L/R、CHIPEN、3V3 和焊接。");
   Serial.println();
 }
 
@@ -68,27 +72,29 @@ void loop() {
     return;
   }
 
-  int num_samples = bytes_read / sizeof(int16_t);
+  int num_samples = bytes_read / sizeof(int32_t);
 
-  // 计算本次采样的最大值、最小值、平均值
-  int16_t max_val = -32768;
-  int16_t min_val = 32767;
-  long sum = 0;
+  // INMP441 输出 24-bit、MSB-first；右移 8 位后得到对齐的有符号样本。
+  int32_t max_val = INT32_MIN;
+  int32_t min_val = INT32_MAX;
+  int64_t sum = 0;
 
   for (int i = 0; i < num_samples; i++) {
-    if (samples[i] > max_val) max_val = samples[i];
-    if (samples[i] < min_val) min_val = samples[i];
-    sum += abs(samples[i]);
+    int32_t sample = samples[i] >> 8;
+    if (sample > max_val) max_val = sample;
+    if (sample < min_val) min_val = sample;
+    sum += llabs((long long)sample);
   }
 
-  int avg = sum / num_samples;
-  int peak = max_val - min_val;
+  long avg = (long)(sum / num_samples);
+  long peak = max_val - min_val;
 
   // 简易音量条 (0-50格)
-  int bar_len = map(avg, 0, 5000, 0, 50);
+  int bar_len = map(avg, 0, 4000, 0, 50);
   bar_len = constrain(bar_len, 0, 50);
 
-  Serial.printf("平均:%5d  峰值:%5d  |", avg, peak);
+  Serial.printf("平均:%6ld  峰值:%6ld  最小:%6ld  最大:%6ld  |",
+                avg, peak, (long)min_val, (long)max_val);
   for (int i = 0; i < bar_len; i++) Serial.print("█");
   for (int i = bar_len; i < 50; i++) Serial.print(" ");
   Serial.println("|");
