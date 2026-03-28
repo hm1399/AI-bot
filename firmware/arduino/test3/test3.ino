@@ -12,9 +12,9 @@
 #define SAMPLE_RATE   16000
 #define SAMPLE_BITS   I2S_BITS_PER_SAMPLE_32BIT
 #define I2S_PORT      I2S_NUM_0
-#define BUFFER_SIZE   256
+#define FRAME_COUNT   128
 
-int32_t samples[BUFFER_SIZE];
+int32_t samples[FRAME_COUNT * 2];
 
 void setup() {
   Serial.begin(115200);
@@ -28,11 +28,11 @@ void setup() {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
     .bits_per_sample = SAMPLE_BITS,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 4,
-    .dma_buf_len = BUFFER_SIZE,
+    .dma_buf_len = FRAME_COUNT,
     .use_apll = false,
     .tx_desc_auto_clear = false,
     .fixed_mclk = 0
@@ -59,8 +59,9 @@ void setup() {
   }
 
   Serial.println("I2S 初始化成功!");
-  Serial.println("对着麦克风说话，观察平均值和峰值变化...");
-  Serial.println("如果始终接近 0，优先检查 L/R、CHIPEN、3V3 和焊接。");
+  Serial.println("对着麦克风说话，观察 slot0 / slot1 哪一边会明显变化。");
+  Serial.println("如果只有其中一边会跟着说话变，说明麦克风实际工作声道和代码预期不一致。");
+  Serial.println("如果两边都不变，优先检查 L/R、CHIPEN、3V3、麦克风朝向和焊接。");
   Serial.println();
 }
 
@@ -72,29 +73,44 @@ void loop() {
     return;
   }
 
-  int num_samples = bytes_read / sizeof(int32_t);
+  int total_slots = bytes_read / sizeof(int32_t);
+  int num_frames = total_slots / 2;
 
   // INMP441 输出 24-bit、MSB-first；右移 8 位后得到对齐的有符号样本。
-  int32_t max_val = INT32_MIN;
-  int32_t min_val = INT32_MAX;
-  int64_t sum = 0;
+  int32_t slot0_max = INT32_MIN;
+  int32_t slot0_min = INT32_MAX;
+  int64_t slot0_sum = 0;
 
-  for (int i = 0; i < num_samples; i++) {
-    int32_t sample = samples[i] >> 8;
-    if (sample > max_val) max_val = sample;
-    if (sample < min_val) min_val = sample;
-    sum += llabs((long long)sample);
+  int32_t slot1_max = INT32_MIN;
+  int32_t slot1_min = INT32_MAX;
+  int64_t slot1_sum = 0;
+
+  for (int i = 0; i < num_frames; i++) {
+    int32_t slot0 = samples[i * 2] >> 8;
+    int32_t slot1 = samples[i * 2 + 1] >> 8;
+
+    if (slot0 > slot0_max) slot0_max = slot0;
+    if (slot0 < slot0_min) slot0_min = slot0;
+    slot0_sum += llabs((long long)slot0);
+
+    if (slot1 > slot1_max) slot1_max = slot1;
+    if (slot1 < slot1_min) slot1_min = slot1;
+    slot1_sum += llabs((long long)slot1);
   }
 
-  long avg = (long)(sum / num_samples);
-  long peak = max_val - min_val;
+  long slot0_avg = (long)(slot0_sum / num_frames);
+  long slot0_peak = slot0_max - slot0_min;
+  long slot1_avg = (long)(slot1_sum / num_frames);
+  long slot1_peak = slot1_max - slot1_min;
+
+  long active_avg = slot0_avg > slot1_avg ? slot0_avg : slot1_avg;
 
   // 简易音量条 (0-50格)
-  int bar_len = map(avg, 0, 4000, 0, 50);
+  int bar_len = map(active_avg, 0, 4000, 0, 50);
   bar_len = constrain(bar_len, 0, 50);
 
-  Serial.printf("平均:%6ld  峰值:%6ld  最小:%6ld  最大:%6ld  |",
-                avg, peak, (long)min_val, (long)max_val);
+  Serial.printf("slot0 平均:%6ld 峰值:%6ld | slot1 平均:%6ld 峰值:%6ld |",
+                slot0_avg, slot0_peak, slot1_avg, slot1_peak);
   for (int i = 0; i < bar_len; i++) Serial.print("█");
   for (int i = bar_len; i < 50; i++) Serial.print(" ");
   Serial.println("|");
