@@ -1,17 +1,47 @@
 // ESP32-S3 MAX98357A 功放与喇叭测试
-// 引脚: BCLK=IO17, LRC=IO18, DIN=IO8
+// 引脚: BCLK=IO17, LRC=IO18, DIN=IO21, SD_MODE=IO2
 // 使用 Arduino ESP_I2S 库（兼容 USB CDC）
 
 #include <ESP_I2S.h>
 #include <math.h>
+#include <Arduino.h>
 
 #define I2S_BCLK  17
 #define I2S_LRC   18
-#define I2S_DIN    8
+#define I2S_DIN    21
+#define SD_MODE_PIN 2
 #define SAMPLE_RATE  44100
 #define TWO_PI       6.283185307f
 
+enum SpeakerSdMode {
+  SPEAKER_SD_SHUTDOWN = 0,
+  SPEAKER_SD_LEFT = 1,
+};
+
 I2SClass i2s;
+SpeakerSdMode currentSdMode = SPEAKER_SD_LEFT;
+
+const char* speakerSdModeName(SpeakerSdMode mode) {
+  switch (mode) {
+    case SPEAKER_SD_SHUTDOWN:
+      return "shutdown";
+    case SPEAKER_SD_LEFT:
+      return "left channel";
+    default:
+      return "unknown";
+  }
+}
+
+void applySpeakerSdMode(SpeakerSdMode mode) {
+  pinMode(SD_MODE_PIN, OUTPUT);
+  digitalWrite(SD_MODE_PIN, mode == SPEAKER_SD_LEFT ? HIGH : LOW);
+  currentSdMode = mode;
+  delay(10);
+  Serial.printf("SD_MODE -> %s (IO%d = %s)\n",
+                speakerSdModeName(mode),
+                SD_MODE_PIN,
+                mode == SPEAKER_SD_LEFT ? "HIGH" : "LOW");
+}
 
 // 生成正弦波（标准立体声帧，带淡入淡出）
 void playTone(int freq, int duration_ms, int amplitude) {
@@ -44,17 +74,11 @@ void playTone(int freq, int duration_ms, int amplitude) {
   }
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(2000);
-  Serial.println("MAX98357A 功放测试开始...");
-
-  i2s.setPins(I2S_BCLK, I2S_LRC, I2S_DIN);
-  if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
-    Serial.println("I2S 初始化失败!");
-    return;
+void runSpeakerTests() {
+  if (currentSdMode != SPEAKER_SD_LEFT) {
+    // SD_MODE 直接接 GPIO 时，稳定可用的是 HIGH=左声道、LOW=关机。
+    applySpeakerSdMode(SPEAKER_SD_LEFT);
   }
-  Serial.println("I2S 初始化成功!");
 
   // 测试1: 440Hz 正弦波（极低幅值测试串口是否断开）
   Serial.println("\n测试1: 440Hz 正弦波 (A4) - 2秒 [低幅值]");
@@ -92,7 +116,44 @@ void setup() {
   }
 
   Serial.println("\n所有测试完成!");
+  Serial.println("串口命令: p = 再跑一次测试, l = 左声道开启, x = 关机静音");
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000);
+  Serial.println("MAX98357A 功放测试开始...");
+  Serial.printf("I2S 引脚: BCLK=IO%d, LRC=IO%d, DIN=IO%d, SD_MODE=IO%d\n",
+                I2S_BCLK, I2S_LRC, I2S_DIN, SD_MODE_PIN);
+
+  applySpeakerSdMode(SPEAKER_SD_LEFT);
+
+  i2s.setPins(I2S_BCLK, I2S_LRC, I2S_DIN);
+  if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
+    Serial.println("I2S 初始化失败!");
+    return;
+  }
+  Serial.println("I2S 初始化成功!");
+  runSpeakerTests();
 }
 
 void loop() {
+  while (Serial.available() > 0) {
+    char cmd = (char)Serial.read();
+
+    if (cmd == 'p' || cmd == 'P') {
+      runSpeakerTests();
+    } else if (cmd == 'l' || cmd == 'L') {
+      applySpeakerSdMode(SPEAKER_SD_LEFT);
+    } else if (cmd == 'x' || cmd == 'X') {
+      applySpeakerSdMode(SPEAKER_SD_SHUTDOWN);
+    } else if (cmd == '\n' || cmd == '\r') {
+      continue;
+    } else {
+      Serial.printf("未知命令: %c\n", cmd);
+      Serial.println("可用命令: p = 再跑一次测试, l = 左声道开启, x = 关机静音");
+    }
+  }
+
+  delay(5);
 }

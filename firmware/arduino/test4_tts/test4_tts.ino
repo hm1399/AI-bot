@@ -23,6 +23,7 @@ const char* WIFI_PASSWORD = "92935903";
 #define I2S_BCLK 17
 #define I2S_LRC  18
 #define I2S_DOUT 21
+#define SD_MODE_PIN 2
 // =================================
 
 // ===== TTS 配置 =====
@@ -37,10 +38,38 @@ const uint32_t WIFI_TIMEOUT_MS = 20000;
 uint8_t VOLUME = 10;
 // ====================
 
+enum SpeakerSdMode {
+  SPEAKER_SD_SHUTDOWN = 0,
+  SPEAKER_SD_LEFT = 1,
+};
+
 Audio audio;
 bool ttsPlaying = false;
 bool autoPlayPending = true;
 uint32_t autoPlayAt = 0;
+SpeakerSdMode currentSdMode = SPEAKER_SD_LEFT;
+
+const char* speakerSdModeName(SpeakerSdMode mode) {
+  switch (mode) {
+    case SPEAKER_SD_SHUTDOWN:
+      return "shutdown";
+    case SPEAKER_SD_LEFT:
+      return "left channel";
+    default:
+      return "unknown";
+  }
+}
+
+void applySpeakerSdMode(SpeakerSdMode mode) {
+  pinMode(SD_MODE_PIN, OUTPUT);
+  digitalWrite(SD_MODE_PIN, mode == SPEAKER_SD_LEFT ? HIGH : LOW);
+  currentSdMode = mode;
+  delay(10);
+  Serial.printf("SD_MODE -> %s (IO%d = %s)\n",
+                speakerSdModeName(mode),
+                SD_MODE_PIN,
+                mode == SPEAKER_SD_LEFT ? "HIGH" : "LOW");
+}
 
 void audio_info(const char* info) {
   Serial.print("Audio Info: ");
@@ -90,6 +119,10 @@ void startTTS(const char* text) {
     return;
   }
 
+  if (currentSdMode != SPEAKER_SD_LEFT) {
+    applySpeakerSdMode(SPEAKER_SD_LEFT);
+  }
+
   Serial.printf("\n开始播放 TTS: %s\n", text);
   audio.connecttospeech(text, TEST_LANG);
   ttsPlaying = true;
@@ -101,11 +134,16 @@ void handleSerialCommand() {
 
     if (cmd == 'r' || cmd == 'R') {
       startTTS(TEST_TEXT);
+    } else if (cmd == 'l' || cmd == 'L') {
+      // SD_MODE 直接接 GPIO 时，稳定可用的是 HIGH=左声道、LOW=关机。
+      applySpeakerSdMode(SPEAKER_SD_LEFT);
+    } else if (cmd == 'x' || cmd == 'X') {
+      applySpeakerSdMode(SPEAKER_SD_SHUTDOWN);
     } else if (cmd == '\n' || cmd == '\r') {
       continue;
     } else {
       Serial.printf("未知命令: %c\n", cmd);
-      Serial.println("可用命令: r = 再播放一次测试语音");
+      Serial.println("可用命令: r = 再播放一次测试语音, l = 左声道开启, x = 关机静音");
     }
   }
 }
@@ -116,7 +154,8 @@ void setup() {
 
   Serial.println("ESP32-audioI2S 无触摸 TTS 测试");
   Serial.printf("空闲堆内存: %u bytes\n", ESP.getFreeHeap());
-  Serial.printf("I2S 引脚: BCLK=IO%d, LRC=IO%d, DOUT=IO%d\n", I2S_BCLK, I2S_LRC, I2S_DOUT);
+  Serial.printf("I2S 引脚: BCLK=IO%d, LRC=IO%d, DOUT=IO%d, SD_MODE=IO%d\n",
+                I2S_BCLK, I2S_LRC, I2S_DOUT, SD_MODE_PIN);
 
   if (!connectWiFi()) {
     Serial.println("启动阶段 WiFi 失败，后续可按复位键重试。");
@@ -124,13 +163,16 @@ void setup() {
     return;
   }
 
+  applySpeakerSdMode(SPEAKER_SD_LEFT);
+
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
   audio.setVolume(VOLUME);
 
   Serial.printf("音量: %u/21\n", VOLUME);
   Serial.println("I2S 初始化成功!");
   Serial.println("启动后会自动播报一次测试语音。");
-  Serial.println("如果要重播，在串口发送字母 r。\n");
+  Serial.println("串口命令: r = 重播, l = 左声道开启, x = 关机静音。");
+  Serial.println("说明: 目前 SD_MODE 直连 IO2，只支持 HIGH=左声道、LOW=关机。\n");
 
   autoPlayAt = millis() + AUTO_PLAY_DELAY_MS;
 }
