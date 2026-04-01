@@ -1,6 +1,6 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../models/app_config.dart';
-import '../services/api_service.dart';
+import '../service/api_service.dart';
 
 class ConfigNotifier extends StateNotifier<AppConfig?> {
   ConfigNotifier() : super(null);
