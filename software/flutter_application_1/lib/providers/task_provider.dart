@@ -8,6 +8,8 @@ class TaskState {
   TaskState copyWith({List<Task>? tasks}) {
     return TaskState(tasks: tasks ?? this.tasks);
   }
+
+  void where(Function(Task) param0) {}
 }
 
 class TaskNotifier extends StateNotifier<TaskState> {
@@ -45,6 +47,8 @@ class TaskNotifier extends StateNotifier<TaskState> {
       addTask(Task.fromJson(message['data']));
     }
   }
+
+  void toggleTask(id) {}
 }
 
 final taskProvider = StateNotifierProvider<TaskNotifier, TaskState>((ref) {

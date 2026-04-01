@@ -17,7 +17,7 @@ class WsService with WidgetsBindingObserver {
   void init(String serverUrl) {
     _serverUrl = serverUrl;
     connect();
-    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addObserver(this);s
   }
 
   // 連接 WebSocket
@@ -27,7 +27,7 @@ class WsService with WidgetsBindingObserver {
       _channel = IOWebSocketChannel.connect(_serverUrl!);
       _channel!.stream.listen(
         (message) {
-          final data = jsonDecode(message);
+          sata = jsonDecode(message);
           _dispatchMessage(data);  // 分發訊息
           if (data['type'] == 'pong') {
             print('Received pong');

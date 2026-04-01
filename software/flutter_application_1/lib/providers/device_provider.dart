@@ -21,6 +21,8 @@ class DeviceNotifier extends StateNotifier<DeviceStatus> {
       updateStatus(status);
     }
   }
+
+  void refreshStatus() {}
 }
 
 final deviceProvider = StateNotifierProvider<DeviceNotifier, DeviceStatus>((ref) {
