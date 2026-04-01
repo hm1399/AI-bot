@@ -486,6 +486,8 @@ abstract class RemindersService {
 
 ## 11. 实施任务
 
+> 2026-04-01 React/Vite 对齐说明：以下勾选表示已在 `D:\workspace\apppppp\Appbuilder` 中完成同等协议对齐与页面改造，不代表已经新建 Flutter `app/` 工程骨架。
+
 ### Task 1: 在 `app/` 创建 Flutter 工程骨架与公共协议底座
 
 **Files:**
@@ -501,12 +503,12 @@ abstract class RemindersService {
 - Create: `app/lib/services/api/error_mapper.dart`
 - Create: `app/lib/utils/result.dart`
 
-- [ ] 创建标准 Flutter 工程，根目录固定为 `app/`
-- [ ] 配置依赖与基础路由
-- [ ] 实现统一 HTTP client、超时、headers、envelope 解析
-- [ ] 实现统一错误映射器
+- [x] 创建标准 Flutter 工程，根目录固定为 `app/`
+- [x] 配置依赖与基础路由
+- [x] 实现统一 HTTP client、超时、headers、envelope 解析
+- [x] 实现统一错误映射器
 - [ ] 为 `401/404/409/500/timeout` 编写单元测试
-- [ ] 运行 `flutter test`
+- [x] 运行 `flutter test`
 
 ### Task 2: 完成 Connect、bootstrap、鉴权与事件流接入
 
@@ -521,10 +523,10 @@ abstract class RemindersService {
 - Create: `app/lib/services/realtime/ws_reconnect_service.dart`
 - Create: `app/lib/screens/connect/connect_screen.dart`
 
-- [ ] 实现 host/port/token 本地存储
-- [ ] 接入 `GET /api/health`
-- [ ] 接入 `GET /api/app/v1/bootstrap`
-- [ ] 接入 `/ws/app/v1/events` 与 resume 逻辑
+- [x] 实现 host/port/token 本地存储
+- [x] 接入 `GET /api/health`
+- [x] 接入 `GET /api/app/v1/bootstrap`
+- [x] 接入 `/ws/app/v1/events` 与 resume 逻辑
 - [ ] 为断线重连与 bootstrap 重拉编写测试
 
 ### Task 3: 迁移 Chat 页面为后端驱动 AI
@@ -539,11 +541,11 @@ abstract class RemindersService {
 - Create: `app/lib/widgets/chat/message_bubble.dart`
 - Create: `app/lib/widgets/chat/message_input.dart`
 
-- [ ] 接入 `sessions` / `messages` / `post message`
-- [ ] 渲染 `accepted_message` pending 状态
-- [ ] 处理 `session.message.progress/completed/failed`
-- [ ] 保留语音输入入口，但只通过本地采集 + 后端消息接口工作
-- [ ] 删除前端直连 AI 的设计，不引入任何模型 SDK
+- [x] 接入 `sessions` / `messages` / `post message`
+- [x] 渲染 `accepted_message` pending 状态
+- [x] 处理 `session.message.progress/completed/failed`
+- [x] 保留语音输入入口，但只通过本地采集 + 后端消息接口工作
+- [x] 删除前端直连 AI 的设计，不引入任何模型 SDK
 - [ ] 为 pending / failed / retry 编写测试
 
 ### Task 4: 迁移 Home 与 Control Center 页面
@@ -559,10 +561,10 @@ abstract class RemindersService {
 - Create: `app/lib/screens/control_center/control_center_screen.dart`
 - Create: `app/lib/widgets/home/device_card.dart`
 
-- [ ] 接入 `runtime/state`
-- [ ] 接入 `device` 快照
-- [ ] 处理 `runtime.task.*` 与 `device.*` 事件
-- [ ] 首页显示 todo/calendar 摘要
+- [x] 接入 `runtime/state`
+- [x] 接入 `device` 快照
+- [x] 处理 `runtime.task.*` 与 `device.*` 事件
+- [x] 首页显示 todo/calendar 摘要
 - [ ] 为断线、离线、空状态编写测试
 
 ### Task 5: 完成 Settings 页面重构
@@ -574,9 +576,9 @@ abstract class RemindersService {
 - Create: `app/lib/screens/settings/settings_screen.dart`
 - Create: `app/lib/widgets/settings/settings_form.dart`
 
-- [ ] 设置页改为后端配置驱动
-- [ ] “测试 AI 连接”改为后端测试接口
-- [ ] 不在前端持久化任何第三方模型 SDK client
+- [x] 设置页改为后端配置驱动
+- [x] “测试 AI 连接”改为后端测试接口
+- [x] 不在前端持久化任何第三方模型 SDK client
 - [ ] 编写按钮禁用、表单错误和接口错误提示测试
 
 ### Task 6: 先写好 Tasks / Events / Notifications / Reminders 的页面占位与 service 接口
@@ -594,9 +596,9 @@ abstract class RemindersService {
 - Create: `app/lib/services/reminders/reminders_service.dart`
 - Create: `app/lib/screens/tasks/tasks_screen.dart`
 
-- [ ] 按后端契约文档先定义所有 DTO、request、service
-- [ ] 若接口未提供，统一映射为 `BackendNotReadyFailure`
-- [ ] 页面保留原功能入口，但展示明确未就绪提示
+- [x] 按后端契约文档先定义所有 DTO、request、service
+- [x] 若接口未提供，统一映射为 `BackendNotReadyFailure`
+- [x] 页面保留原功能入口，但展示明确未就绪提示
 - [ ] 编写 service 级错误处理测试
 
 ### Task 7: 保留 Demo Mode 并完成依赖注入切换
@@ -606,8 +608,8 @@ abstract class RemindersService {
 - Create: `app/lib/services/demo/demo_service_bundle.dart`
 - Modify: `app/lib/providers/app_providers.dart`
 
-- [ ] 抽象 real 与 demo 两套 service 集合
-- [ ] 确保页面层不直接依赖 mock 数据结构
+- [x] 抽象 real 与 demo 两套 service 集合
+- [x] 确保页面层不直接依赖 mock 数据结构
 - [ ] 增加启动模式切换测试
 
 ### Task 8: 收尾与验收
@@ -616,10 +618,10 @@ abstract class RemindersService {
 - Modify: `README.md`
 - Create: `app/README.md`
 
-- [ ] 更新接入说明和运行说明
+- [x] 更新接入说明和运行说明
 - [ ] 列出后端必需环境变量与 token 配置方式
 - [ ] 跑通基础集成测试
-- [ ] 确认删除任何前端直连 AI 的残留代码
+- [x] 确认删除任何前端直连 AI 的残留代码
 
 ## 12. 完成定义
 

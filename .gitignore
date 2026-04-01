@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+app/node_modules/
+app/dist/
 
 # Server runtime data
 server/workspace/sessions/
