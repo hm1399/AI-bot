@@ -47,3 +47,24 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
         channel = DeviceChannel(MessageBus(), auth_token="local-secret-123")
         request = SimpleNamespace(headers={}, query={}, remote="127.0.0.1")
         self.assertFalse(channel._is_authorized(request))
+
+    async def test_execute_app_command_sends_device_command_payload(self) -> None:
+        sent: list[dict] = []
+
+        async def capture(msg: dict) -> None:
+            sent.append(msg)
+
+        channel = DeviceChannel(MessageBus())
+        channel.connected = True
+        channel.send_json = capture
+
+        result = await channel.execute_app_command(
+            "set_volume",
+            {"level": 80},
+            client_command_id="cmd_local_001",
+        )
+
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["command"], "set_volume")
+        self.assertEqual(sent[-1]["type"], "device_command")
+        self.assertEqual(sent[-1]["data"]["params"]["level"], 80)

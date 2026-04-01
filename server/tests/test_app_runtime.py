@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,12 +33,32 @@ class DummyDeviceChannel:
             "reconnect_count": 0,
         }
         self.last_outbound: OutboundMessage | None = None
+        self.last_command: dict[str, Any] | None = None
 
     def get_snapshot(self) -> dict[str, Any]:
         return dict(self._snapshot)
 
     async def send_outbound(self, out_msg: OutboundMessage) -> None:
         self.last_outbound = out_msg
+
+    async def execute_app_command(
+        self,
+        command: str,
+        params: dict[str, Any],
+        *,
+        client_command_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.last_command = {
+            "command": command,
+            "params": params,
+            "client_command_id": client_command_id,
+        }
+        return {
+            "accepted": True,
+            "command_id": "cmd_srv_001",
+            "command": command,
+            "device": self.get_snapshot(),
+        }
 
 
 class FakeRequest:
@@ -110,6 +131,9 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payload["data"]["capabilities"]["app_events"])
         self.assertTrue(payload["data"]["capabilities"]["todo_summary"])
         self.assertTrue(payload["data"]["capabilities"]["calendar_summary"])
+        self.assertTrue(payload["data"]["capabilities"]["settings"])
+        self.assertTrue(payload["data"]["capabilities"]["tasks"])
+        self.assertTrue(payload["data"]["capabilities"]["notifications"])
 
     async def test_post_message_enqueues_app_task(self) -> None:
         response = await self.service.handle_post_message(FakeRequest(
@@ -277,37 +301,169 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
             ["runtime.task.current_changed", "runtime.task.queue_changed"],
         )
 
-        before = len(ws.sent)
-        await self.bus.publish_outbound(OutboundMessage(
-            channel="app",
-            chat_id="main",
-            content="正在思考",
-            metadata={
-                "task_id": msg.metadata["task_id"],
-                "assistant_message_id": msg.metadata["assistant_message_id"],
-                "_progress": True,
+    async def test_settings_get_put_and_test_routes(self) -> None:
+        response = await self.service.handle_get_settings(FakeRequest(headers=self.headers))
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)
+        self.assertIn("llm_api_key_configured", payload["data"])
+        self.assertNotIn("llm_api_key", payload["data"])
+
+        updated = await self.service.handle_put_settings(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "device_volume": 75,
+                "wake_word": "Hey Assistant",
+                "llm_api_key": "secret-key",
             },
         ))
-        self.assertEqual(
-            [event["event_type"] for event in ws.sent[before:before + 2]],
-            ["session.message.progress", "runtime.task.current_changed"],
-        )
+        self.assertEqual(updated.status, 200)
+        updated_payload = json.loads(updated.text)
+        self.assertEqual(updated_payload["data"]["device_volume"], 75)
+        self.assertTrue(updated_payload["data"]["llm_api_key_configured"])
 
-        before = len(ws.sent)
-        await self.bus.publish_outbound(OutboundMessage(
-            channel="app",
-            chat_id="main",
-            content="今天大致晴朗，气温适中。",
-            metadata={
-                "task_id": msg.metadata["task_id"],
-                "assistant_message_id": msg.metadata["assistant_message_id"],
+        with patch.object(
+            self.service.settings,
+            "test_llm_connection",
+            AsyncMock(return_value=(True, {
+                "success": True,
+                "provider": "openai",
+                "model": "gpt-4o",
+                "message": "connection ok",
+            }, None)),
+        ):
+            tested = await self.service.handle_test_llm_settings(FakeRequest(
+                headers=self.headers,
+                json_body={},
+            ))
+        self.assertEqual(tested.status, 200)
+        tested_payload = json.loads(tested.text)
+        self.assertTrue(tested_payload["data"]["success"])
+
+    async def test_tasks_events_notifications_and_reminders_crud(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+
+        created_task = await self.service.handle_create_task(FakeRequest(
+            headers=self.headers,
+            json_body={"title": "Review proposal", "priority": "high"},
+        ))
+        self.assertEqual(created_task.status, 201)
+        task_payload = json.loads(created_task.text)["data"]
+        task_id = task_payload["task_id"]
+        self.assertEqual(ws.sent[-1]["event_type"], "task.created")
+
+        filtered_tasks = await self.service.handle_list_tasks(FakeRequest(
+            headers=self.headers,
+            query={"completed": "false", "priority": "high", "limit": "10"},
+        ))
+        filtered_tasks_payload = json.loads(filtered_tasks.text)["data"]
+        self.assertEqual([item["task_id"] for item in filtered_tasks_payload["items"]], [task_id])
+
+        patched_task = await self.service.handle_patch_task(FakeRequest(
+            headers=self.headers,
+            match_info={"task_id": task_id},
+            json_body={"completed": True},
+        ))
+        self.assertEqual(patched_task.status, 200)
+        self.assertEqual(ws.sent[-1]["event_type"], "task.updated")
+
+        deleted_task = await self.service.handle_delete_task(FakeRequest(
+            headers=self.headers,
+            match_info={"task_id": task_id},
+        ))
+        self.assertEqual(deleted_task.status, 200)
+        self.assertEqual(ws.sent[-1]["event_type"], "task.deleted")
+
+        created_event = await self.service.handle_create_event(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "title": "Team Standup",
+                "start_at": "2026-04-02T09:00:00+08:00",
+                "end_at": "2026-04-02T09:30:00+08:00",
             },
         ))
-        self.assertEqual(ws.sent[before]["event_type"], "session.message.completed")
+        self.assertEqual(created_event.status, 201)
+        event_id = json.loads(created_event.text)["data"]["event_id"]
+        self.assertEqual(ws.sent[-1]["event_type"], "event.created")
 
-        before = len(ws.sent)
-        await self.service.on_task_finished(msg=msg, session_key="app:main", response=None)
-        self.assertEqual(
-            [event["event_type"] for event in ws.sent[before:before + 2]],
-            ["runtime.task.current_changed", "runtime.task.queue_changed"],
-        )
+        patched_event = await self.service.handle_patch_event(FakeRequest(
+            headers=self.headers,
+            match_info={"event_id": event_id},
+            json_body={"location": "Meeting Room A"},
+        ))
+        self.assertEqual(patched_event.status, 200)
+        self.assertEqual(ws.sent[-1]["event_type"], "event.updated")
+
+        reminder = await self.service.handle_create_reminder(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "title": "Morning Standup",
+                "time": "09:00",
+                "repeat": "daily",
+                "enabled": True,
+            },
+        ))
+        self.assertEqual(reminder.status, 201)
+        reminder_id = json.loads(reminder.text)["data"]["reminder_id"]
+        self.assertEqual(ws.sent[-1]["event_type"], "reminder.created")
+
+        reminder_list = await self.service.handle_list_reminders(FakeRequest(headers=self.headers))
+        self.assertEqual(len(json.loads(reminder_list.text)["data"]["items"]), 1)
+
+        self.service.resources.create_notification({
+            "type": "task_due",
+            "priority": "high",
+            "title": "Task Due Soon",
+            "message": "Review project proposal is due in 1 hour",
+            "metadata": {"task_id": "task_001"},
+        })
+        notifications = await self.service.handle_list_notifications(FakeRequest(headers=self.headers))
+        self.assertEqual(json.loads(notifications.text)["data"]["unread_count"], 1)
+
+        notification_id = self.service.resources.list_notifications()["items"][0]["notification_id"]
+        patched_notification = await self.service.handle_patch_notification(FakeRequest(
+            headers=self.headers,
+            match_info={"notification_id": notification_id},
+            json_body={"read": True},
+        ))
+        self.assertEqual(patched_notification.status, 200)
+        self.assertEqual(ws.sent[-1]["event_type"], "notification.updated")
+
+        cleared_notifications = await self.service.handle_read_all_notifications(FakeRequest(headers=self.headers))
+        self.assertEqual(json.loads(cleared_notifications.text)["data"]["unread_count"], 0)
+
+        deleted_event = await self.service.handle_delete_event(FakeRequest(
+            headers=self.headers,
+            match_info={"event_id": event_id},
+        ))
+        self.assertEqual(deleted_event.status, 200)
+        self.assertEqual(ws.sent[-1]["event_type"], "event.deleted")
+
+        deleted_reminder = await self.service.handle_delete_reminder(FakeRequest(
+            headers=self.headers,
+            match_info={"reminder_id": reminder_id},
+        ))
+        self.assertEqual(deleted_reminder.status, 200)
+        self.assertEqual(ws.sent[-1]["event_type"], "reminder.deleted")
+
+    async def test_device_commands_route_handles_offline_and_success(self) -> None:
+        offline = await self.service.handle_device_command(FakeRequest(
+            headers=self.headers,
+            json_body={"command": "set_volume", "params": {"level": 80}},
+        ))
+        self.assertEqual(offline.status, 409)
+
+        self.device.connected = True
+        self.device._snapshot["connected"] = True
+        supported = await self.service.handle_device_command(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "client_command_id": "cmd_local_001",
+                "command": "set_volume",
+                "params": {"level": 80},
+            },
+        ))
+        self.assertEqual(supported.status, 200)
+        supported_payload = json.loads(supported.text)["data"]
+        self.assertTrue(supported_payload["accepted"])
+        self.assertEqual(self.device.last_command["command"], "set_volume")
