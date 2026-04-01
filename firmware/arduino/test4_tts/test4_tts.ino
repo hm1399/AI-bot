@@ -1,116 +1,199 @@
-// ESP32-S3 MAX98357A + ESP32-audioI2S 库 TTS 语音合成测试
-// 引脚: BCLK=IO17, LRC=IO18, DIN=IO8
-// 使用 ESP32-audioI2S 库的 connecttospeech() (Google TTS)
-// 需要 WiFi 连接
-// 库安装: Arduino Library Manager 搜索 "ESP32-audioI2S" (作者 schreibfaul1)
-// 分区方案: 选择 "Huge APP (3MB No OTA/1MB SPIFFS)"
+// ESP32-S3 MAX98357A + ESP32-audioI2S TTS 测试
+// 引脚: BCLK=IO17, LRC=IO18, DIN=IO21
+// 行为:
+// 1. 上电后自动连接 WiFi
+// 2. 初始化 I2S 和音频库
+// 3. 触摸 IO7 电容触摸板时播放一段测试语音
+// 4. 串口输入 r 可再次播放
+//
+// 需要:
+// - Arduino Library Manager 安装 "ESP32-audioI2S" (作者 schreibfaul1)
+// - 分区方案选择 "Huge APP (3MB No OTA/1MB SPIFFS)"
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include "Audio.h"
 
 // ===== WiFi 配置 =====
-const char* WIFI_SSID     = "AAAAA";
+const char* WIFI_SSID = "AAAAA";
 const char* WIFI_PASSWORD = "92935903";
 // =====================
 
 // ===== I2S 引脚 (MAX98357A) =====
-#define I2S_BCLK  17
-#define I2S_LRC   18
-#define I2S_DOUT   21
+#define I2S_BCLK 17
+#define I2S_LRC  18
+#define I2S_DOUT 21
+#define SD_MODE_PIN 2
 // =================================
+
+// ===== 电容触摸 =====
+#define TOUCH_PIN 7
+#define TOUCH_THRESHOLD 40000
+// ====================
+
+// ===== TTS 配置 =====
+const char* TEST_TEXT = "Hello, this is the I O twenty one speaker test.";
+const char* TEST_LANG = "en";
+const uint32_t WIFI_TIMEOUT_MS = 20000;
+// ====================
 
 // ===== 音量控制 =====
 // 范围 0~21
-uint8_t VOLUME = 17;
+uint8_t VOLUME = 10;
 // ====================
 
+enum SpeakerSdMode {
+  SPEAKER_SD_SHUTDOWN = 0,
+  SPEAKER_SD_LEFT = 1,
+};
+
 Audio audio;
-
-// 待播放的 TTS 文本队列
-struct TTSItem {
-  const char* text;
-  const char* lang;
-};
-
-TTSItem ttsQueue[] = {
-  {"Hello, I am your AI assistant.",          "en"},
-  {"one, two, three, four, five.",            "en"},
-  {"The weather today is sunny and warm.",    "en"},
-  {"AI Bot is ready.",                        "en"},
-};
-
-int ttsIndex = 0;
-int ttsTotal = sizeof(ttsQueue) / sizeof(ttsQueue[0]);
 bool ttsPlaying = false;
-bool ttsDone = false;
+bool lastTouched = false;
+SpeakerSdMode currentSdMode = SPEAKER_SD_LEFT;
 
-// 音频事件回调
+const char* speakerSdModeName(SpeakerSdMode mode) {
+  switch (mode) {
+    case SPEAKER_SD_SHUTDOWN:
+      return "shutdown";
+    case SPEAKER_SD_LEFT:
+      return "left channel";
+    default:
+      return "unknown";
+  }
+}
+
+void applySpeakerSdMode(SpeakerSdMode mode) {
+  pinMode(SD_MODE_PIN, OUTPUT);
+  digitalWrite(SD_MODE_PIN, mode == SPEAKER_SD_LEFT ? HIGH : LOW);
+  currentSdMode = mode;
+  delay(10);
+  Serial.printf("SD_MODE -> %s (IO%d = %s)\n",
+                speakerSdModeName(mode),
+                SD_MODE_PIN,
+                mode == SPEAKER_SD_LEFT ? "HIGH" : "LOW");
+}
+
 void audio_info(const char* info) {
   Serial.print("Audio Info: ");
   Serial.println(info);
 }
 
 void audio_eof_speech(const char* info) {
-  Serial.printf("  语音播放完成: %s\n", info);
-  Serial.printf("  堆内存剩余: %d bytes\n", ESP.getFreeHeap());
+  Serial.printf("语音播放完成: %s\n", info);
+  Serial.printf("堆内存剩余: %u bytes\n", ESP.getFreeHeap());
   ttsPlaying = false;
 }
 
-void playNext() {
-  if (ttsIndex >= ttsTotal) {
-    ttsDone = true;
+bool connectWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  Serial.printf("连接 WiFi: %s ...\n", WIFI_SSID);
+
+  uint32_t startedAt = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+
+    if (millis() - startedAt >= WIFI_TIMEOUT_MS) {
+      Serial.println("\nWiFi 连接失败! 请检查 SSID 和密码。");
+      return false;
+    }
+  }
+
+  Serial.printf("\nWiFi 已连接! IP: %s\n", WiFi.localIP().toString().c_str());
+  return true;
+}
+
+void startTTS(const char* text) {
+  if (ttsPlaying) {
+    Serial.println("TTS 正在播放，跳过本次请求。");
     return;
   }
-  Serial.printf("\n测试%d: %s\n", ttsIndex + 1, ttsQueue[ttsIndex].text);
-  audio.connecttospeech(ttsQueue[ttsIndex].text, ttsQueue[ttsIndex].lang);
+
+  if (WiFi.status() != WL_CONNECTED && !connectWiFi()) {
+    Serial.println("WiFi 未连接，无法播放 TTS。");
+    return;
+  }
+
+  if (currentSdMode != SPEAKER_SD_LEFT) {
+    applySpeakerSdMode(SPEAKER_SD_LEFT);
+  }
+
+  Serial.printf("\n开始播放 TTS: %s\n", text);
+  audio.connecttospeech(text, TEST_LANG);
   ttsPlaying = true;
-  ttsIndex++;
+}
+
+void handleSerialCommand() {
+  while (Serial.available() > 0) {
+    char cmd = (char)Serial.read();
+
+    if (cmd == 'r' || cmd == 'R') {
+      startTTS(TEST_TEXT);
+    } else if (cmd == 'l' || cmd == 'L') {
+      // SD_MODE 直接接 GPIO 时，稳定可用的是 HIGH=左声道、LOW=关机。
+      applySpeakerSdMode(SPEAKER_SD_LEFT);
+    } else if (cmd == 'x' || cmd == 'X') {
+      applySpeakerSdMode(SPEAKER_SD_SHUTDOWN);
+    } else if (cmd == '\n' || cmd == '\r') {
+      continue;
+    } else {
+      Serial.printf("未知命令: %c\n", cmd);
+      Serial.println("可用命令: r = 再播放一次测试语音, l = 左声道开启, x = 关机静音");
+    }
+  }
+}
+
+void handleTouchTrigger() {
+  uint32_t touchValue = touchRead(TOUCH_PIN);
+  bool touched = touchValue > TOUCH_THRESHOLD;
+
+  if (touched && !lastTouched) {
+    Serial.printf("检测到触摸，原始值: %u\n", touchValue);
+    startTTS(TEST_TEXT);
+  }
+
+  lastTouched = touched;
 }
 
 void setup() {
   Serial.begin(115200);
   delay(3000);
-  Serial.println("ESP32-audioI2S TTS 语音合成测试");
-  Serial.printf("空闲堆内存: %d bytes\n", ESP.getFreeHeap());
 
-  // 连接 WiFi
-  Serial.printf("连接 WiFi: %s ...\n", WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    if (++retry > 40) {  // 20秒超时
-      Serial.println("\nWiFi 连接失败! 请检查 SSID 和密码。");
-      return;
-    }
+  Serial.println("ESP32-audioI2S 电容触摸 TTS 测试");
+  Serial.printf("空闲堆内存: %u bytes\n", ESP.getFreeHeap());
+  Serial.printf("I2S 引脚: BCLK=IO%d, LRC=IO%d, DOUT=IO%d, SD_MODE=IO%d\n",
+                I2S_BCLK, I2S_LRC, I2S_DOUT, SD_MODE_PIN);
+  Serial.printf("触摸引脚: IO%d, 阈值: %d\n", TOUCH_PIN, TOUCH_THRESHOLD);
+
+  if (!connectWiFi()) {
+    Serial.println("启动阶段 WiFi 失败，后续可按复位键重试。");
+    return;
   }
-  Serial.printf("\nWiFi 已连接! IP: %s\n", WiFi.localIP().toString().c_str());
 
-  // 初始化 I2S 音频
+  applySpeakerSdMode(SPEAKER_SD_LEFT);
+
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
   audio.setVolume(VOLUME);
-  Serial.printf("音量: %d/21\n", VOLUME);
-  Serial.println("I2S 初始化成功!\n");
 
-  // 播放第一条
-  playNext();
+  Serial.printf("音量: %u/21\n", VOLUME);
+  Serial.println("I2S 初始化成功!");
+  Serial.println("摸一下电容触摸板，就会播一句测试语音。");
+  Serial.println("串口命令: r = 重播, l = 左声道开启, x = 关机静音。");
+  Serial.println("说明: 目前 SD_MODE 直连 IO2，只支持 HIGH=左声道、LOW=关机。\n");
 }
 
 void loop() {
   audio.loop();
+  handleSerialCommand();
+  handleTouchTrigger();
 
-  // 当前语音播放完成后，播放下一条
-  if (!ttsPlaying && !ttsDone) {
-    delay(500);
-    playNext();
-  }
-
-  if (ttsDone) {
-    Serial.println("\nTTS 测试全部完成!");
-    Serial.println("如果声音太大或太小，修改代码顶部的 VOLUME 值 (0~21)");
-    ttsDone = false;  // 只打印一次
-    ttsIndex = -1;    // 标记已结束
-  }
+  delay(5);
 }

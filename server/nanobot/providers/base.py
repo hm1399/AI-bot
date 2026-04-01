@@ -7,6 +7,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+@dataclass(frozen=True)
+class LLMError:
+    """Structured provider error metadata."""
+
+    kind: str
+    message: str
+    code: str | None = None
+
+
 @dataclass
 class ToolCallRequest:
     """A tool call request from the LLM."""
@@ -24,11 +33,38 @@ class LLMResponse:
     usage: dict[str, int] = field(default_factory=dict)
     reasoning_content: str | None = None  # Kimi, DeepSeek-R1 etc.
     thinking_blocks: list[dict] | None = None  # Anthropic extended thinking
+    error: LLMError | None = None
     
     @property
     def has_tool_calls(self) -> bool:
         """Check if response contains tool calls."""
         return len(self.tool_calls) > 0
+
+    @property
+    def is_error(self) -> bool:
+        """Check if response represents a provider error."""
+        return self.finish_reason == "error" or self.error is not None
+
+    @property
+    def is_timeout(self) -> bool:
+        """Check if response failed because the provider timed out."""
+        return self.error is not None and self.error.kind == "timeout"
+
+    @classmethod
+    def from_error(
+        cls,
+        message: str,
+        *,
+        kind: str,
+        code: str | None = None,
+        content: str | None = None,
+    ) -> "LLMResponse":
+        """Build an error response without flattening error metadata into content only."""
+        return cls(
+            content=content if content is not None else message,
+            finish_reason="error",
+            error=LLMError(kind=kind, message=message, code=code),
+        )
 
 
 class LLMProvider(ABC):
@@ -39,9 +75,15 @@ class LLMProvider(ABC):
     while maintaining a consistent interface.
     """
 
-    def __init__(self, api_key: str | None = None, api_base: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        request_timeout_seconds: float = 90.0,
+    ):
         self.api_key = api_key
         self.api_base = api_base
+        self.request_timeout_seconds = request_timeout_seconds
 
     @staticmethod
     def _sanitize_empty_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

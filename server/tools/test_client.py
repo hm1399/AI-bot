@@ -2,7 +2,7 @@
 WebSocket 测试客户端 — 模拟 ESP32 设备
 
 用法:
-    python tools/test_client.py [--url ws://localhost:8765/ws/device]
+    python tools/test_client.py [--url ws://localhost:8765/ws/device] [--token your-device-token]
 
 功能:
     - 连接 WebSocket 服务端
@@ -173,7 +173,7 @@ async def receive_loop(ws: aiohttp.ClientWebSocketResponse) -> None:
             break
 
 
-async def main(url: str) -> None:
+async def main(url: str, token: str = "") -> None:
     print(f"连接到 {url} ...")
     print("命令:")
     print("  输入文字         → 发送文字消息给 AI")
@@ -186,7 +186,10 @@ async def main(url: str) -> None:
 
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.ws_connect(url) as ws:
+            headers = {}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            async with session.ws_connect(url, headers=headers) as ws:
                 print("已连接!\n")
 
                 # 启动接收任务
@@ -272,5 +275,6 @@ async def main(url: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="WebSocket 测试客户端")
     parser.add_argument("--url", default=DEFAULT_URL, help=f"WebSocket URL (默认: {DEFAULT_URL})")
+    parser.add_argument("--token", default="", help="设备认证 token（若服务端启用认证）")
     args = parser.parse_args()
-    asyncio.run(main(args.url))
+    asyncio.run(main(args.url, args.token))

@@ -916,6 +916,118 @@
 
 ---
 
+## 2026-03-22 - 电源模块更换与主板重构
+
+### 电源模块调整与问题复测
+
+- 更换电源模块后，系统供电电压由原先约 `2.8V` 提升至约 `3.1V`
+- 重新验证后确认：初始化喇叭时出现的设备断连问题仍未解决，说明问题不只在原电源模块
+
+### 问题定位
+
+- 进一步详细查阅数据手册后发现，音频传输和屏幕 `SPI` 传输都使用了 `FSPI/SUBSPI` 相关线路
+- 判断该复用关系可能导致总线占用冲突，进而引发喇叭异常启动和连接不稳定问题
+
+### 原理图与PCB重做
+
+- 于 `2026-03-22` 重新绘制主板原理图
+- 除更换为当前电源模块方案外，同时将喇叭相关接线调整至 `IO21`
+- 重新完成 PCB 布线
+- 板层由原 `4` 层板调整为 `2` 层板，以简化设计并降低打样成本
+- 当前已完成布线，预计次日下单打板
+
+---
+
+## 2026-03-25 - 后端架构回写 + 本地方向确认
+
+### 后端架构文档更新
+
+- 阅读 `server/` 与 `server/bridge/` 当前本地代码实现，重写 `功能讨论区/架构.md`
+- 将文档从早期设计稿更新为“按实际代码整理”的当前后端架构说明
+- 明确当前后端定位：本地单机、可运行 Demo 级后端，核心链路为 ESP32 设备 WebSocket + Python 服务端 + Node.js WhatsApp Bridge
+
+### 产品方向确认
+
+- 确认当前阶段优先目标是“稳定的本地 AI 设备 / 电脑中枢”，而不是云端平台
+- 确认网络范围先只做局域网，不做“App 远程控制家里电脑”的公网方案
+- 确认后端运行在用户电脑，定位为单人单设备、单人多端
+- 确认 WhatsApp 当前只保留为测试通道，后续正式客户端以 Flutter App 为主
+- 确认会话策略：设备、Flutter App、WhatsApp 各自独立会话，但共享当前任务、任务队列以及后续 Todo / 日历等全局运行态
+
+### 规划文档新增
+
+- 新增 `功能讨论区/TODO/2026-03-25-后端优化强化计划.md`
+- 新增 `功能讨论区/TODO/2026-03-25-Flutter本地局域网API与实时事件模型草案.md`
+
+---
+
+## 2026-03-26 - Flutter 本地局域网 App Runtime API + 实时事件流落地
+
+### 后端装配与运行时整理
+
+- 新增 `server/bootstrap.py`，统一运行时构建、配置校验、日志装配与 HTTP App 挂载
+- 重构 `server/main.py`，将其收口为启动、关闭与后台任务管理入口
+- 新增 `server/services/outbound_router.py`，统一处理 device / whatsapp / app 的 outbound 路由
+
+### Flutter App Runtime API 第一版
+
+- 新增 `server/services/app_runtime.py`，提供面向 Flutter 本地局域网版的最小 REST API 与 WebSocket 事件流
+- 已落地能力包括：`bootstrap`、会话列表/创建、会话消息分页、发消息、全局运行态、停止任务、Todo 摘要、日历摘要、设备快照、设备播报、capabilities、`/ws/app/v1/events`
+- 会话消息查询支持 `limit / before / after` 分页语义
+- 发消息后立即返回 `accepted_message + task_id`，为 Flutter 端先落本地消息提供基础
+
+### 实时事件模型与断线恢复
+
+- WebSocket 事件流新增 `system.hello` 握手事件
+- 支持 `last_event_id` 断线续传与事件回放
+- 已落地事件包括：用户消息创建、AI 处理中进度、AI 最终完成、任务失败、当前任务变化、任务队列变化、设备连接变化、设备状态变化、设备状态详情更新、Todo 摘要变化、日历摘要变化
+- 为 Flutter 端建立了“REST 拿快照 + WebSocket 拿实时”的标准接入模型
+
+### Agent / Session / 配置补强
+
+- `server/nanobot/agent/loop.py` 改为“同一 session 串行、不同 session 可并行”的处理方式
+- 完善 `/stop` 取消链路，打通 App 停止任务与设备中断的基础能力
+- 会话消息补齐 `message_id`、`task_id`、`client_message_id` 等持久化字段，便于 Flutter 去重和任务跟踪
+- `server/config.py` 与 `server/config.yaml` 补充 App token、运行依赖检查与启动前配置校验
+- `server/channels/device_channel.py` 接入 App Runtime 事件观察器，设备状态变化可同步到 App 事件流
+
+### 测试与接入文档
+
+- 新增 `server/tests/test_app_runtime.py`、`server/tests/test_agent_loop.py`、`server/tests/test_device_channel.py`、`server/tests/test_config.py`
+- 当前服务端测试结果：`server/tests` 共 `16` 项 unittest 通过
+- 新增 `功能讨论区/TODO/2026-03-26-Flutter本地局域网接入说明.md`，面向 Flutter 端说明接口、事件流、断线恢复与错误处理方式
+
+### 后续稳定性计划拆分
+
+- 按问题拆分新增 5 份后端优化计划，分别覆盖：模型调用超时与卡死保护、App 消息幂等与重试安全、消息总线队列上限与背压、运行时任务清理与保留策略、会话与摘要原子写
+- 将 5 份计划文件重命名为带顺序编号的版本，便于后续按依赖顺序实施
+
+### 稳定性计划 Wave 1 执行
+
+- 完成 `会话与摘要原子写` 计划的第一波实现：新增共享原子写工具，并将 `server/nanobot/session/manager.py` 的会话持久化切到原子写路径
+- `SessionManager.save()` 在写入失败时不再污染正式会话文件；若失败发生在缓存对象上，会同步回滚内存中的会话状态，避免“磁盘未写成但缓存已前进”的分裂状态
+- 新增 `server/tests/test_session_manager_atomic.py`，覆盖原子写成功、写入失败保留旧文件、缓存回滚、损坏 JSONL 跳过等场景
+- 完成 `模型调用超时与卡死保护` 计划的第一波实现收口：Provider timeout contract 与 `LiteLLMProvider` 相关测试补齐
+- `server/tests/test_bootstrap_provider_timeout.py` 改为 hermetic bootstrap 测试，避免因导入 `numpy/funasr` 等运行时依赖导致测试环境偶发失败
+- `server/tests/test_litellm_provider.py` 补充 `litellm.Timeout` 显式覆盖，确认超时被归类为 `timeout` 而不是普通 provider error
+- `server/config.py` 统一 `provider_timeout_seconds` 的解析与校验逻辑，支持数值字符串配置并继续拒绝非正数
+- 更新 `功能讨论区/TODO/2026-03-26-06-五个稳定性计划subagents执行编排.md`，记录 `W1-A`、`W1-B` 已执行完成，下一步进入消息总线队列上限与背压的 contract 冻结阶段
+
+---
+
+## 2026-03-28 - 主板重焊与音频链路复测通过
+
+### 主板重焊与硬件复测
+
+- 重新焊接主板后，对音频输入输出链路重新做了一轮完整复测
+- 确认功放链路恢复正常：MAX98357A 通过 `IO21` 输出音频，喇叭可正常发声
+- 确认 `SD_MODE` 控制链路正常：`IO2` 拉高可正常进入左声道输出，拉低可静音关机
+- 确认电容触摸触发 TTS 测试通过：触摸 `IO7` 后可稳定播报测试语音
+- 确认 INMP441 麦克风链路恢复正常：重新焊板后麦克风测试通过，可正常检测到说话输入
+- 当前板级测试结论：本轮重焊后，相关音频测试已全部通过
+
+---
+
 ## 当前待办更新
 
 - [x] IO8 飞线至 IO21 — 已完成，I2S 通信正常
@@ -928,8 +1040,18 @@
 - [x] 屏幕表情显示系统 Phase 4 服务端集成（所有状态切换均发送 face_update）
 - [x] NTP 本地时间同步（ESP32 固件，解决状态栏 `--:--` 问题）
 - [x] 天气温度显示（固件端 + 服务端 OpenWeatherMap 推送）
+- [x] Flutter 本地局域网 App Runtime API 与 WebSocket 事件流第一版
+- [x] Flutter App 会话列表 / 消息分页 / 发消息 / 共享运行态 / 设备控制接口
+- [x] `last_event_id` 断线续传与事件回放
+- [x] Flutter 本地局域网接入说明文档
 - [ ] 屏幕表情显示系统 联调测试（需设备连接）
-- [ ] AP2114H-3.3 焊接更换 + 重新测试大音量 TTS 播放
+- [x] AP2114H-3.3 焊接更换 + 重新测试大音量 TTS 播放
 - [ ] WS2812B 灯带焊接与测试
 - [ ] LED 灯效控制（后端 Phase 5.2，等硬件就绪）
+- [ ] 2026-03-23 下单新版两层主板 PCB 打样
 - [ ] ESP32 固件开发（连接后端 WebSocket + 音频采集/播放）
+- [ ] 模型调用超时与卡死保护
+- [ ] App 消息幂等与重试安全
+- [ ] 消息总线队列上限与背压
+- [ ] 运行时任务清理与保留策略
+- [ ] 会话与摘要原子写

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """WhatsApp channel implementation using Node.js bridge."""
 
 import asyncio
@@ -28,6 +30,7 @@ class WhatsAppChannel(BaseChannel):
         self._ws = None
         self._connected = False
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        self._last_inbound_chat_id: str | None = None
 
     async def start(self) -> None:
         """Start the WhatsApp channel by connecting to the bridge."""
@@ -92,6 +95,11 @@ class WhatsAppChannel(BaseChannel):
         except Exception as e:
             logger.error("Error sending WhatsApp message: {}", e)
 
+    @property
+    def last_inbound_chat_id(self) -> str | None:
+        """Return the latest inbound WhatsApp chat id that passed channel checks."""
+        return self._last_inbound_chat_id
+
     async def _handle_bridge_message(self, raw: str) -> None:
         """Handle a message from the bridge."""
         try:
@@ -128,6 +136,8 @@ class WhatsAppChannel(BaseChannel):
             if self.config.self_only and not is_self_chat:
                 logger.debug("self_only mode: ignoring message from {} (not self-chat)", sender_id)
                 return
+
+            self._last_inbound_chat_id = sender
 
             # Handle voice transcription if it's a voice message
             if content == "[Voice Message]":

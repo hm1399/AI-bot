@@ -8,7 +8,11 @@ eval-type-backport>=0.2
 
 # ASR
 funasr>=1.0
+numpy>=1.24
 
 # TTS
 edge-tts>=6.1
 miniaudio>=1.59
+
+# Channels
+websockets>=12.0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.utils.atomic_write import atomic_write_text
 from nanobot.utils.helpers import ensure_dir, safe_filename
 
 
@@ -133,6 +135,7 @@ class SessionManager:
             messages = []
             metadata = {}
             created_at = None
+            updated_at = None
             last_consolidated = 0
 
             with open(path, encoding="utf-8") as f:
@@ -146,6 +149,7 @@ class SessionManager:
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
+                        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None
                         last_consolidated = data.get("last_consolidated", 0)
                     else:
                         messages.append(data)
@@ -154,6 +158,7 @@ class SessionManager:
                 key=key,
                 messages=messages,
                 created_at=created_at or datetime.now(),
+                updated_at=updated_at or created_at or datetime.now(),
                 metadata=metadata,
                 last_consolidated=last_consolidated
             )
@@ -161,11 +166,38 @@ class SessionManager:
             logger.warning("Failed to load session {}: {}", key, e)
             return None
 
+    def get(self, key: str) -> Session | None:
+        """Get an existing session without implicitly creating it."""
+        if key in self._cache:
+            return self._cache[key]
+
+        session = self._load(key)
+        if session is not None:
+            self._cache[key] = session
+        return session
+
+    def exists(self, key: str) -> bool:
+        """Return whether a session exists on disk or in cache."""
+        if key in self._cache:
+            return True
+        return self._get_session_path(key).exists() or self._get_legacy_session_path(key).exists()
+
+    @staticmethod
+    def _restore_session(target: Session, source: Session) -> None:
+        """Restore a session object from a persisted snapshot."""
+        target.messages = deepcopy(source.messages)
+        target.created_at = source.created_at
+        target.updated_at = source.updated_at
+        target.metadata = deepcopy(source.metadata)
+        target.last_consolidated = source.last_consolidated
+
     def save(self, session: Session) -> None:
         """Save a session to disk."""
         path = self._get_session_path(session.key)
+        cached_session = self._cache.get(session.key)
+        rollback_session = self._load(session.key) if cached_session is session else None
 
-        with open(path, "w", encoding="utf-8") as f:
+        def write_session(f) -> None:
             metadata_line = {
                 "_type": "metadata",
                 "key": session.key,
@@ -178,6 +210,16 @@ class SessionManager:
             for msg in session.messages:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
+        try:
+            atomic_write_text(path, write_session, encoding="utf-8")
+        except Exception:
+            if cached_session is session:
+                if rollback_session is None:
+                    self._cache.pop(session.key, None)
+                else:
+                    self._restore_session(session, rollback_session)
+                    self._cache[session.key] = session
+            raise
         self._cache[session.key] = session
 
     def invalidate(self, key: str) -> None:
@@ -208,7 +250,8 @@ class SessionManager:
                                 "updated_at": data.get("updated_at"),
                                 "path": str(path)
                             })
-            except Exception:
+            except Exception as exc:
+                logger.warning("Skipping invalid session file {}: {}", path, exc)
                 continue
 
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)

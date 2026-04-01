@@ -18,6 +18,7 @@ DeviceChannel — ESP32 WebSocket 通信通道
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import time
 from typing import Any, Optional
@@ -53,6 +54,12 @@ DISPLAY_MAX_CHARS = 120  # 中文约每行10字 × 12行
 # WebSocket 心跳间隔 (秒)
 HEARTBEAT_INTERVAL = 30
 
+# 进入 LISTENING 后迟迟没有音频的超时 (秒)
+LISTENING_START_TIMEOUT = 10
+
+# 收到音频后，等待 audio_end 的空闲超时 (秒)
+RECORDING_IDLE_TIMEOUT = 3
+
 # 状态栏时间推送间隔 (秒)
 TIME_PUSH_INTERVAL = 60
 
@@ -80,15 +87,22 @@ class DeviceChannel:
         bus: MessageBus,
         asr: Optional[ASRService] = None,
         tts: Optional[TTSService] = None,
+        auth_token: str = "",
     ):
         self.bus = bus
         self.asr = asr
         self.tts = tts
+        self.auth_token = auth_token.strip()
         self.ws: web.WebSocketResponse | None = None
         self.connected = False
         self.audio_buffer = bytearray()
         self._outbound_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
+        self._recording_timeout_task: asyncio.Task | None = None
+        self._asr_task: asyncio.Task | None = None
+        self._tts_task: asyncio.Task | None = None
+        self._audio_finalize_lock = asyncio.Lock()
+        self._connection_seq: int = 0
 
         # ── 状态机 (Phase 5) ────────────────────────────
         self.state = DeviceState.IDLE
@@ -112,10 +126,38 @@ class DeviceChannel:
         self._weather_task: asyncio.Task | None = None
         self._weather_config: dict[str, Any] = {}
         self._last_weather: str = ""  # 缓存最新天气字符串
+        self._event_observer: Any | None = None
 
     def set_weather_config(self, config: dict[str, Any]) -> None:
         """设置天气 API 配置（从 config.yaml 加载）。"""
         self._weather_config = config
+
+    def set_event_observer(self, observer: Any) -> None:
+        """注册设备事件观察器。"""
+        self._event_observer = observer
+
+    async def _notify_event_observer(self, method_name: str, **kwargs: Any) -> None:
+        """安全通知设备事件观察器。"""
+        if not self._event_observer:
+            return
+        callback = getattr(self._event_observer, method_name, None)
+        if callback is None:
+            return
+        try:
+            await callback(**kwargs)
+        except Exception:
+            logger.exception("Device event observer callback failed: {}", method_name)
+
+    def get_snapshot(self) -> dict[str, Any]:
+        """返回当前设备快照。"""
+        return {
+            "connected": self.connected,
+            "state": self.state.value,
+            "battery": self.device_info["battery"],
+            "wifi_rssi": self.device_info["wifi_rssi"],
+            "charging": self.device_info["charging"],
+            "reconnect_count": self._reconnect_count,
+        }
 
     # ── 状态机方法 ─────────────────────────────────────────
 
@@ -135,6 +177,12 @@ class DeviceChannel:
         old = self.state
         self.state = new_state
         logger.debug("状态转换: {} → {}", old.value, new_state.value)
+        await self._notify_event_observer(
+            "on_device_state_changed",
+            old_state=old.value,
+            new_state=new_state.value,
+            snapshot=self.get_snapshot(),
+        )
 
         # 通知设备状态变化
         await self.send_json(make_server_message(
@@ -173,29 +221,7 @@ class DeviceChannel:
 
     async def stop(self) -> None:
         """优雅关闭: 停止心跳 + outbound 消费 + WebSocket 连接。"""
-        # 停止心跳
-        if self._heartbeat_task and not self._heartbeat_task.done():
-            self._heartbeat_task.cancel()
-            try:
-                await self._heartbeat_task
-            except asyncio.CancelledError:
-                pass
-
-        # 停止时间推送
-        if self._time_push_task and not self._time_push_task.done():
-            self._time_push_task.cancel()
-            try:
-                await self._time_push_task
-            except asyncio.CancelledError:
-                pass
-
-        # 停止天气推送
-        if self._weather_task and not self._weather_task.done():
-            self._weather_task.cancel()
-            try:
-                await self._weather_task
-            except asyncio.CancelledError:
-                pass
+        await self._cancel_runtime_tasks()
 
         # 停止 outbound 消费
         if self._outbound_task and not self._outbound_task.done():
@@ -210,6 +236,74 @@ class DeviceChannel:
             await self.ws.close()
 
         logger.info("DeviceChannel 已停止")
+
+    async def _cancel_task(self, task: asyncio.Task | None) -> None:
+        """取消后台任务并等待结束。"""
+        if not task or task.done():
+            return
+        if task is asyncio.current_task():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def _cancel_runtime_tasks(self) -> None:
+        """取消与当前设备连接相关的后台任务。"""
+        await self._cancel_task(self._recording_timeout_task)
+        await self._cancel_task(self._asr_task)
+        await self._cancel_task(self._tts_task)
+        await self._cancel_task(self._heartbeat_task)
+        await self._cancel_task(self._time_push_task)
+        await self._cancel_task(self._weather_task)
+
+    def _arm_recording_timeout(self, timeout_s: float) -> None:
+        """启动或重置录音 watchdog。"""
+        if self._recording_timeout_task and not self._recording_timeout_task.done():
+            self._recording_timeout_task.cancel()
+        self._recording_timeout_task = asyncio.create_task(
+            self._recording_timeout_loop(timeout_s)
+        )
+
+    async def _recording_timeout_loop(self, timeout_s: float) -> None:
+        """录音超时保护：无音频或无 audio_end 时自动恢复。"""
+        try:
+            await asyncio.sleep(timeout_s)
+            if self.state != DeviceState.LISTENING:
+                return
+
+            if self.audio_buffer:
+                logger.warning("录音空闲超时，自动结束并处理当前音频")
+                await self._send_display_update("录音结束，正在处理")
+                await self._on_audio_end(trigger="timeout")
+                return
+
+            logger.warning("进入 LISTENING 后长时间未收到音频，自动恢复 IDLE")
+            await self._send_display_update("录音超时，已取消")
+            await self._set_state(DeviceState.IDLE)
+        except asyncio.CancelledError:
+            pass
+
+    async def interrupt_current_activity(self, notice: str = "已取消") -> None:
+        """打断当前录音 / 识别 / 播放，并恢复到 IDLE。"""
+        should_stop_agent = self.state == DeviceState.PROCESSING
+        self.audio_buffer.clear()
+        await self._cancel_task(self._recording_timeout_task)
+        await self._cancel_task(self._asr_task)
+        await self._cancel_task(self._tts_task)
+        if should_stop_agent:
+            await self.bus.publish_inbound(InboundMessage(
+                channel=DEVICE_CHANNEL,
+                sender_id="esp32",
+                chat_id=DEVICE_CHAT_ID,
+                content="/stop",
+                metadata={"source": "device_interrupt"},
+            ))
+        if self.state != DeviceState.IDLE:
+            await self._set_state(DeviceState.IDLE)
+        if notice:
+            await self._send_display_update(notice)
 
     # ── WebSocket 心跳保活 (Phase 6.1) ────────────────────
 
@@ -231,10 +325,15 @@ class DeviceChannel:
 
     # ── WebSocket 连接处理 ───────────────────────────────────
 
-    async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
+    async def _handle_ws(self, request: web.Request) -> web.StreamResponse:
         """处理 WebSocket 连接（含心跳保活和重连计数）。"""
+        if not self._is_authorized(request):
+            logger.warning("拒绝未授权设备连接 ({})", request.remote)
+            return web.json_response({"error": "unauthorized"}, status=401)
+
         ws = web.WebSocketResponse(heartbeat=HEARTBEAT_INTERVAL)
         await ws.prepare(request)
+        connection_id = self._connection_seq + 1
 
         # 如果已有连接，关闭旧的（单设备模式）
         if self.ws and not self.ws.closed:
@@ -255,11 +354,17 @@ class DeviceChannel:
         else:
             logger.info("设备首次连接 ({})", request.remote)
 
+        self._connection_seq = connection_id
         self.ws = ws
         self.connected = True
         self.audio_buffer.clear()
         self.state = DeviceState.IDLE
         self._connect_time = time.monotonic()
+        await self._notify_event_observer(
+            "on_device_connection_changed",
+            connected=True,
+            snapshot=self.get_snapshot(),
+        )
 
         # 启动心跳
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -295,21 +400,56 @@ class DeviceChannel:
         except Exception:
             logger.exception("WebSocket 处理异常")
         finally:
+            if connection_id != self._connection_seq:
+                logger.info("旧设备连接已关闭，跳过当前实例清理")
+                return ws
+
             # 断线清理
             self.connected = False
             self.ws = None
             self.audio_buffer.clear()
+            await self._cancel_runtime_tasks()
+            old_state = self.state
             self.state = DeviceState.IDLE
-            if self._heartbeat_task and not self._heartbeat_task.done():
-                self._heartbeat_task.cancel()
-            if self._time_push_task and not self._time_push_task.done():
-                self._time_push_task.cancel()
-            if self._weather_task and not self._weather_task.done():
-                self._weather_task.cancel()
+            if old_state != DeviceState.IDLE:
+                await self._notify_event_observer(
+                    "on_device_state_changed",
+                    old_state=old_state.value,
+                    new_state=DeviceState.IDLE.value,
+                    snapshot=self.get_snapshot(),
+                )
+            await self._notify_event_observer(
+                "on_device_connection_changed",
+                connected=False,
+                snapshot=self.get_snapshot(),
+            )
             uptime = time.monotonic() - self._connect_time
             logger.info("设备已断开 (在线 {:.0f}s)", uptime)
 
         return ws
+
+    def _is_authorized(self, request: web.Request) -> bool:
+        """校验设备接入 token；未配置 token 时默认放行。"""
+        if not self.auth_token:
+            return True
+
+        candidate = self._extract_auth_token(request)
+        if not candidate:
+            return False
+        return hmac.compare_digest(candidate, self.auth_token)
+
+    @staticmethod
+    def _extract_auth_token(request: web.Request) -> str:
+        """从 Header 或 Query 中提取设备 token。"""
+        auth_header = request.headers.get("Authorization", "").strip()
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:].strip()
+
+        header_token = request.headers.get("X-Device-Token", "").strip()
+        if header_token:
+            return header_token
+
+        return request.query.get("token", "").strip()
 
     # ── 接收处理 ─────────────────────────────────────────────
 
@@ -347,7 +487,7 @@ class DeviceChannel:
             await self._on_shake_event(data)
 
         elif msg_type == DeviceMessageType.DEVICE_STATUS:
-            self._on_device_status(data)
+            await self._on_device_status(data)
 
         else:
             logger.warning("未知消息类型: {}", msg_type)
@@ -358,6 +498,10 @@ class DeviceChannel:
         收到第一帧时切换到 LISTENING 状态。
         超过 MAX_AUDIO_BYTES 时自动截断。
         """
+        if self.state in {DeviceState.PROCESSING, DeviceState.SPEAKING}:
+            logger.debug("当前状态为 {}，忽略音频帧", self.state.value)
+            return
+
         if self.state == DeviceState.IDLE:
             await self._set_state(DeviceState.LISTENING)
 
@@ -373,37 +517,58 @@ class DeviceChannel:
             return
 
         self.audio_buffer.extend(data)
+        self._arm_recording_timeout(RECORDING_IDLE_TIMEOUT)
 
-    async def _on_audio_end(self) -> None:
+    async def _on_audio_end(self, trigger: str = "device") -> None:
         """音频接收完毕，触发 ASR 识别 → 发送到 AgentLoop。"""
-        audio_size = len(self.audio_buffer)
-        logger.info("收到 audio_end, 音频 buffer: {} bytes", audio_size)
+        async with self._audio_finalize_lock:
+            await self._cancel_task(self._recording_timeout_task)
+            audio_size = len(self.audio_buffer)
+            logger.info("收到 audio_end(trigger={}), 音频 buffer: {} bytes", trigger, audio_size)
 
-        pcm_data = bytes(self.audio_buffer)
-        self.audio_buffer.clear()
+            pcm_data = bytes(self.audio_buffer)
+            self.audio_buffer.clear()
 
-        if audio_size < MIN_AUDIO_BYTES:
-            logger.warning("音频太短 ({} bytes < {}), 忽略", audio_size, MIN_AUDIO_BYTES)
-            await self._set_state(DeviceState.IDLE)
-            return
+            if audio_size < MIN_AUDIO_BYTES:
+                logger.warning("音频太短 ({} bytes < {}), 忽略", audio_size, MIN_AUDIO_BYTES)
+                await self._set_state(DeviceState.IDLE)
+                return
 
-        if not self.asr:
-            logger.warning("ASR 服务未初始化，无法识别音频")
-            await self._set_state(DeviceState.IDLE)
-            return
+            if not self.asr:
+                logger.warning("ASR 服务未初始化，无法识别音频")
+                await self._set_state(DeviceState.IDLE)
+                return
 
-        # 切换到 PROCESSING 状态
-        await self._set_state(DeviceState.PROCESSING)
+            if self._asr_task and not self._asr_task.done():
+                logger.warning("已有 ASR 任务在处理中，忽略重复 audio_end")
+                await self._set_state(DeviceState.IDLE)
+                return
 
-        # ASR 识别
+            # 切换到 PROCESSING 状态
+            await self._set_state(DeviceState.PROCESSING)
+            self._asr_task = asyncio.create_task(
+                self._run_asr_and_publish(pcm_data, audio_size)
+            )
+
+    async def _run_asr_and_publish(self, pcm_data: bytes, audio_size: int) -> None:
+        """后台执行 ASR，并将识别文本投递给 AgentLoop。"""
         t0 = time.monotonic()
         try:
             text = await self.asr.transcribe(pcm_data)
+        except asyncio.CancelledError:
+            logger.info("ASR 任务已取消")
+            await self._send_display_update("已取消")
+            if self.state == DeviceState.PROCESSING:
+                await self._set_state(DeviceState.IDLE)
+            return
         except Exception:
             logger.exception("ASR 识别失败")
             await self._send_display_update("语音识别失败，请重试")
             await self._set_state(DeviceState.IDLE)
             return
+        finally:
+            if self._asr_task is asyncio.current_task():
+                self._asr_task = None
 
         asr_ms = (time.monotonic() - t0) * 1000
         audio_duration = audio_size / (16000 * 2)
@@ -418,15 +583,12 @@ class DeviceChannel:
             await self._set_state(DeviceState.IDLE)
             return
 
-        # 记录对话时间（用于 ACTIVE 状态判定）
         self._last_chat_time = time.time()
 
-        # 构建 metadata（含情感信息）
         meta = {"source": "voice", "asr_ms": asr_ms}
         if self.asr.last_emotion:
             meta["emotion"] = self.asr.last_emotion
 
-        # 发送到 AgentLoop
         await self.bus.publish_inbound(InboundMessage(
             channel=DEVICE_CHANNEL,
             sender_id="esp32",
@@ -452,24 +614,24 @@ class DeviceChannel:
             if self.state == DeviceState.IDLE:
                 # 开始录音：通知设备进入 LISTENING
                 await self._set_state(DeviceState.LISTENING)
+                self._arm_recording_timeout(LISTENING_START_TIMEOUT)
             elif self.state == DeviceState.LISTENING:
                 # 结束录音：触发 audio_end 处理
                 await self._on_audio_end()
             elif self.state == DeviceState.SPEAKING:
                 # 播放中单击 → 打断，回到 IDLE
-                await self._set_state(DeviceState.IDLE)
+                await self.interrupt_current_activity()
 
         elif action == "double":
             # 双击：无论当前状态，打断并回到 IDLE
             if self.state != DeviceState.IDLE:
-                self.audio_buffer.clear()
-                await self._set_state(DeviceState.IDLE)
-                await self._send_display_update("已取消")
+                await self.interrupt_current_activity()
 
         elif action == "long_press":
             # 长按开始：进入 LISTENING
             if self.state == DeviceState.IDLE:
                 await self._set_state(DeviceState.LISTENING)
+                self._arm_recording_timeout(LISTENING_START_TIMEOUT)
 
         elif action == "long_release":
             # 长按松开：结束录音
@@ -500,7 +662,7 @@ class DeviceChannel:
 
     # ── 设备状态上报 (Phase 5.4) ──────────────────────────────
 
-    def _on_device_status(self, data: dict) -> None:
+    async def _on_device_status(self, data: dict) -> None:
         """记录设备状态（电量/WiFi/充电）。"""
         if "battery" in data:
             self.device_info["battery"] = data["battery"]
@@ -513,6 +675,10 @@ class DeviceChannel:
             self.device_info["battery"],
             self.device_info["wifi_rssi"],
             self.device_info["charging"],
+        )
+        await self._notify_event_observer(
+            "on_device_status_updated",
+            snapshot=self.get_snapshot(),
         )
 
     # ── 状态栏定时推送 (Phase 3) ─────────────────────────────
@@ -633,6 +799,26 @@ class DeviceChannel:
         msg = make_server_message(ServerMessageType.TEXT_REPLY, {"text": text})
         await self.send_json(msg)
 
+    async def send_outbound(self, out_msg: OutboundMessage) -> None:
+        """按设备规则发送一条 outbound 消息。"""
+        if out_msg.channel != DEVICE_CHANNEL:
+            logger.debug("忽略非 device 消息 (channel={})", out_msg.channel)
+            return
+
+        if out_msg.metadata.get("_progress"):
+            return
+
+        if not out_msg.content:
+            return
+
+        logger.info("发送回复给设备: '{}'", out_msg.content[:50])
+
+        source = out_msg.metadata.get("source", "")
+        if self.tts and source == "voice":
+            await self._send_voice_reply(out_msg.content)
+        else:
+            await self.send_text_reply(out_msg.content)
+
     async def _send_voice_reply(self, text: str) -> None:
         """TTS 合成并流式发送语音回复给设备。
 
@@ -648,45 +834,52 @@ class DeviceChannel:
             logger.warning("TTS 服务未初始化，仅发送文字回复")
             await self.send_text_reply(text)
             return
-
-        # 1. 屏幕显示文字（带截断）
-        await self._send_display_update(text)
-
-        # 2. 切换到 SPEAKING 状态
-        await self._set_state(DeviceState.SPEAKING)
-
-        # 3. TTS 合成并流式发送
-        t0 = time.monotonic()
+        playback_task = asyncio.create_task(self._stream_voice_reply(text))
         try:
-            await self.send_json(make_server_message(
-                ServerMessageType.AUDIO_PLAY, {}
-            ))
-
-            chunk_count = 0
-            total_bytes = 0
-            async for chunk in self.tts.synthesize_stream(text, chunk_size=AUDIO_CHUNK_SIZE):
-                await self.send_bytes(chunk)
-                chunk_count += 1
-                total_bytes += len(chunk)
-
+            self._tts_task = playback_task
+            await playback_task
+        except asyncio.CancelledError:
+            logger.info("语音播放已取消")
             await self.send_json(make_server_message(
                 ServerMessageType.AUDIO_PLAY_END, {}
             ))
-
-            tts_ms = (time.monotonic() - t0) * 1000
-            duration_s = total_bytes / (16000 * 2)
-            logger.info(
-                "[TTS {:.1f}s] {} chunks, {} bytes ({:.1f}s 音频)",
-                tts_ms / 1000, chunk_count, total_bytes, duration_s,
-            )
-
         except Exception:
             logger.exception("TTS 合成/发送失败，降级为文字回复")
             # TTS 失败降级: 发送文字回复 (Phase 6.2)
             await self.send_text_reply(text)
+        finally:
+            if self._tts_task is playback_task and playback_task.done():
+                self._tts_task = None
+            if self.state != DeviceState.IDLE:
+                await self._set_state(DeviceState.IDLE)
 
-        # 4. 恢复 IDLE 状态
-        await self._set_state(DeviceState.IDLE)
+    async def _stream_voice_reply(self, text: str) -> None:
+        """执行实际的 TTS 合成与音频流发送。"""
+        await self._send_display_update(text)
+        await self._set_state(DeviceState.SPEAKING)
+
+        t0 = time.monotonic()
+        await self.send_json(make_server_message(
+            ServerMessageType.AUDIO_PLAY, {}
+        ))
+
+        chunk_count = 0
+        total_bytes = 0
+        async for chunk in self.tts.synthesize_stream(text, chunk_size=AUDIO_CHUNK_SIZE):
+            await self.send_bytes(chunk)
+            chunk_count += 1
+            total_bytes += len(chunk)
+
+        await self.send_json(make_server_message(
+            ServerMessageType.AUDIO_PLAY_END, {}
+        ))
+
+        tts_ms = (time.monotonic() - t0) * 1000
+        duration_s = total_bytes / (16000 * 2)
+        logger.info(
+            "[TTS {:.1f}s] {} chunks, {} bytes ({:.1f}s 音频)",
+            tts_ms / 1000, chunk_count, total_bytes, duration_s,
+        )
 
     # ── Outbound 消费 ────────────────────────────────────────
 
@@ -696,29 +889,7 @@ class DeviceChannel:
         while True:
             try:
                 out_msg: OutboundMessage = await self.bus.consume_outbound()
-
-                # 只处理发给 device channel 的消息
-                if out_msg.channel != DEVICE_CHANNEL:
-                    logger.debug("忽略非 device 消息 (channel={})", out_msg.channel)
-                    continue
-
-                # 跳过 progress 消息（工具调用中间状态）
-                if out_msg.metadata.get("_progress"):
-                    continue
-
-                if not out_msg.content:
-                    continue
-
-                logger.info("发送回复给设备: '{}'", out_msg.content[:50])
-
-                # 判断是否需要语音回复
-                # 如果原始消息来自语音输入，或者 TTS 可用，则发语音
-                source = out_msg.metadata.get("source", "")
-                if self.tts and source == "voice":
-                    await self._send_voice_reply(out_msg.content)
-                else:
-                    # 纯文字回复 (来自 test_client 文字输入)
-                    await self.send_text_reply(out_msg.content)
+                await self.send_outbound(out_msg)
 
             except asyncio.CancelledError:
                 logger.info("DeviceChannel outbound 消费者已停止")

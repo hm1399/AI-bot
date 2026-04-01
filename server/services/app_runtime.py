@@ -1,0 +1,1322 @@
+from __future__ import annotations
+
+import asyncio
+from collections import deque
+import hmac
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from aiohttp import WSMsgType, web
+from loguru import logger
+
+from channels.device_channel import DEVICE_CHANNEL, DEVICE_CHAT_ID, DeviceChannel
+from nanobot.bus.events import InboundMessage, OutboundMessage
+from nanobot.bus.queue import MessageBus
+from nanobot.session.manager import Session, SessionManager
+
+
+class AppRuntimeService:
+    """Flutter App 本地局域网 API、事件流与共享运行态服务。"""
+
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        *,
+        bus: MessageBus,
+        sessions: SessionManager,
+        device_channel: DeviceChannel,
+        version: str,
+        start_time: float,
+    ) -> None:
+        self.cfg = cfg
+        self.bus = bus
+        self.sessions = sessions
+        self.device_channel = device_channel
+        self.version = version
+        self.start_time = start_time
+        self.auth_token = cfg.get("app", {}).get("auth_token", "").strip()
+        self.default_session_id = cfg.get("app", {}).get("default_session_id", "app:main")
+        self.event_buffer_size = self._coerce_positive_int(
+            cfg.get("app", {}).get("event_buffer_size"),
+            default=500,
+        )
+        self.event_replay_limit = self._coerce_positive_int(
+            cfg.get("app", {}).get("event_replay_limit"),
+            default=200,
+        )
+        self._lock = asyncio.Lock()
+        self._ws_clients: set[web.WebSocketResponse] = set()
+        self._tasks: dict[str, dict[str, Any]] = {}
+        self._task_order: list[str] = []
+        self._event_history: deque[dict[str, Any]] = deque(maxlen=self.event_buffer_size)
+        self._runtime_dir = self.sessions.workspace / "runtime"
+        self._runtime_dir.mkdir(parents=True, exist_ok=True)
+        self._todo_summary_path = self._runtime_dir / "todo_summary.json"
+        self._calendar_summary_path = self._runtime_dir / "calendar_summary.json"
+        self._todo_summary = self._load_summary_file(
+            self._todo_summary_path,
+            self._default_todo_summary(),
+        )
+        self._calendar_summary = self._load_summary_file(
+            self._calendar_summary_path,
+            self._default_calendar_summary(),
+        )
+
+    def register_routes(self, app: web.Application) -> None:
+        """注册 Flutter App 的 HTTP / WebSocket 接口。"""
+        app.router.add_get("/api/app/v1/bootstrap", self.handle_bootstrap)
+        app.router.add_get("/api/app/v1/sessions", self.handle_list_sessions)
+        app.router.add_post("/api/app/v1/sessions", self.handle_create_session)
+        app.router.add_get("/api/app/v1/sessions/{session_id}", self.handle_get_session)
+        app.router.add_get("/api/app/v1/sessions/{session_id}/messages", self.handle_get_messages)
+        app.router.add_post("/api/app/v1/sessions/{session_id}/messages", self.handle_post_message)
+        app.router.add_get("/api/app/v1/runtime/state", self.handle_runtime_state)
+        app.router.add_post("/api/app/v1/runtime/stop", self.handle_runtime_stop)
+        app.router.add_get("/api/app/v1/runtime/todo-summary", self.handle_todo_summary)
+        app.router.add_post("/api/app/v1/runtime/todo-summary", self.handle_set_todo_summary)
+        app.router.add_get("/api/app/v1/runtime/calendar-summary", self.handle_calendar_summary)
+        app.router.add_post("/api/app/v1/runtime/calendar-summary", self.handle_set_calendar_summary)
+        app.router.add_get("/api/app/v1/device", self.handle_device)
+        app.router.add_post("/api/app/v1/device/speak", self.handle_device_speak)
+        app.router.add_get("/api/app/v1/capabilities", self.handle_capabilities)
+        app.router.add_get("/ws/app/v1/events", self.handle_events_ws)
+
+    async def on_inbound_published(self, msg: InboundMessage) -> None:
+        """观察 inbound 队列，登记任务与 App 用户消息。"""
+        if msg.channel == "system" or msg.content.strip().lower().startswith("/"):
+            return
+
+        now = self._now_iso()
+        async with self._lock:
+            msg.metadata.setdefault("task_id", self._new_id("task"))
+            task_id = msg.metadata["task_id"]
+            msg.metadata.setdefault("message_id", self._new_id("msg"))
+            if msg.channel == "app":
+                msg.metadata.setdefault("assistant_message_id", self._new_id("msg"))
+
+            task = self._tasks.get(task_id)
+            if task is None:
+                task = {
+                    "task_id": task_id,
+                    "kind": "chat",
+                    "source_channel": msg.channel,
+                    "source_session_id": self._session_id_for(msg.channel, msg.chat_id),
+                    "source_chat_id": msg.chat_id,
+                    "summary": self._summarize(msg.content),
+                    "stage": "queued",
+                    "status": "queued",
+                    "cancellable": True,
+                    "created_at": now,
+                    "started_at": None,
+                    "updated_at": now,
+                }
+                self._tasks[task_id] = task
+                self._task_order.append(task_id)
+            else:
+                task["updated_at"] = now
+
+            queue_payload = self._build_queue_event_payload_unlocked()
+            session_id = task["source_session_id"]
+            user_message = None
+            if msg.channel == "app":
+                user_message = self._build_message_payload(
+                    message_id=msg.metadata["message_id"],
+                    session_id=session_id,
+                    role="user",
+                    content=msg.content,
+                    status="pending",
+                    created_at=now,
+                    metadata={
+                        "client_message_id": msg.metadata.get("client_message_id"),
+                        "task_id": task_id,
+                    },
+                )
+
+        await self._broadcast_event(
+            "runtime.task.queue_changed",
+            payload=queue_payload,
+            scope="global",
+        )
+        if user_message is not None:
+            await self._broadcast_event(
+                "session.message.created",
+                payload={"message": user_message},
+                scope="session",
+                session_id=session_id,
+                task_id=task_id,
+            )
+
+    async def on_outbound_published(self, msg: OutboundMessage) -> None:
+        """观察 outbound 队列，转成 App 实时事件与运行态更新。"""
+        task_id = msg.metadata.get("task_id")
+        if not task_id or msg.channel != "app" or not msg.content:
+            return
+
+        session_id = self._session_id_for(msg.channel, msg.chat_id)
+        if msg.metadata.get("_progress"):
+            kind = "tool_hint" if msg.metadata.get("_tool_hint") else "thinking"
+            async with self._lock:
+                task = self._tasks.get(task_id)
+                if task is not None:
+                    task["stage"] = kind
+                    task["summary"] = self._summarize(msg.content)
+                    task["updated_at"] = self._now_iso()
+                current_payload = self._build_current_task_event_payload_unlocked()
+
+            await self._broadcast_event(
+                "session.message.progress",
+                payload={
+                    "message_id": msg.metadata.get("assistant_message_id"),
+                    "kind": kind,
+                    "content": msg.content,
+                    "tool_hint": bool(msg.metadata.get("_tool_hint")),
+                },
+                scope="session",
+                session_id=session_id,
+                task_id=task_id,
+            )
+            await self._broadcast_event(
+                "runtime.task.current_changed",
+                payload=current_payload,
+                scope="global",
+                task_id=task_id,
+            )
+            return
+
+        await self._broadcast_event(
+            "session.message.completed",
+            payload={
+                "message": self._build_message_payload(
+                    message_id=msg.metadata.get("assistant_message_id")
+                    or msg.metadata.get("message_id")
+                    or self._new_id("msg"),
+                    session_id=session_id,
+                    role="assistant",
+                    content=msg.content,
+                    status="completed",
+                    created_at=self._now_iso(),
+                    metadata={"task_id": task_id},
+                )
+            },
+            scope="session",
+            session_id=session_id,
+            task_id=task_id,
+        )
+
+    async def on_task_started(self, *, msg: InboundMessage, session_key: str) -> None:
+        """Agent 开始实际处理任务。"""
+        if msg.channel == "system" or msg.content.strip().lower().startswith("/"):
+            return
+
+        async with self._lock:
+            task_id = msg.metadata.get("task_id")
+            if not task_id:
+                return
+            task = self._tasks.get(task_id)
+            if task is None:
+                return
+            if task["status"] != "running":
+                now = self._now_iso()
+                task["status"] = "running"
+                task["stage"] = "thinking"
+                task["started_at"] = task["started_at"] or now
+                task["updated_at"] = now
+            current_payload = self._build_current_task_event_payload_unlocked()
+            queue_payload = self._build_queue_event_payload_unlocked()
+
+        await self._broadcast_event(
+            "runtime.task.current_changed",
+            payload=current_payload,
+            scope="global",
+            session_id=session_key,
+            task_id=task_id,
+        )
+        await self._broadcast_event(
+            "runtime.task.queue_changed",
+            payload=queue_payload,
+            scope="global",
+            session_id=session_key,
+            task_id=task_id,
+        )
+
+    async def on_task_finished(
+        self,
+        *,
+        msg: InboundMessage,
+        session_key: str,
+        response: OutboundMessage | None,
+    ) -> None:
+        """Agent 正常结束任务。"""
+        if msg.channel == "system" or msg.content.strip().lower().startswith("/"):
+            return
+        await self._finalize_task(msg, session_key=session_key, status="completed")
+
+    async def on_task_failed(self, *, msg: InboundMessage, session_key: str, error: str) -> None:
+        """Agent 处理失败。"""
+        if msg.channel == "system" or msg.content.strip().lower().startswith("/"):
+            return
+        await self._finalize_task(
+            msg,
+            session_key=session_key,
+            status="failed",
+            error=error,
+        )
+
+    async def on_task_cancelled(self, *, msg: InboundMessage, session_key: str) -> None:
+        """Agent 任务被取消。"""
+        if msg.channel == "system" or msg.content.strip().lower().startswith("/"):
+            return
+        await self._finalize_task(
+            msg,
+            session_key=session_key,
+            status="cancelled",
+            error="cancelled",
+        )
+
+    async def on_device_connection_changed(self, *, connected: bool, snapshot: dict[str, Any]) -> None:
+        await self._broadcast_event(
+            "device.connection.changed",
+            payload={
+                "connected": connected,
+                "reconnect_count": snapshot.get("reconnect_count", 0),
+            },
+            scope="global",
+        )
+
+    async def on_device_state_changed(
+        self,
+        *,
+        old_state: str,
+        new_state: str,
+        snapshot: dict[str, Any],
+    ) -> None:
+        await self._broadcast_event(
+            "device.state.changed",
+            payload={
+                "state": new_state,
+                "previous_state": old_state,
+            },
+            scope="global",
+        )
+
+    async def on_device_status_updated(self, *, snapshot: dict[str, Any]) -> None:
+        await self._broadcast_event(
+            "device.status.updated",
+            payload={
+                "battery": snapshot.get("battery"),
+                "wifi_rssi": snapshot.get("wifi_rssi"),
+                "charging": snapshot.get("charging"),
+            },
+            scope="global",
+        )
+
+    async def handle_bootstrap(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        self._ensure_app_session(self.default_session_id, title="主对话")
+        return self._ok({
+            "server_version": self.version,
+            "capabilities": self._capabilities(),
+            "runtime": await self.get_runtime_state(),
+            "sessions": self._list_app_sessions(limit=20),
+            "event_stream": {
+                "type": "websocket",
+                "path": "/ws/app/v1/events",
+                "resume": {
+                    "query": "last_event_id",
+                    "replay_limit": self.event_replay_limit,
+                    "latest_event_id": self._latest_event_id(),
+                },
+            },
+        })
+
+    async def handle_list_sessions(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        self._ensure_app_session(self.default_session_id, title="主对话")
+        limit = self._parse_limit(request.query.get("limit"), default=20, maximum=100)
+        archived = self._parse_bool(request.query.get("archived"))
+        pinned_first = self._parse_bool(request.query.get("pinned_first"), default=True)
+        sessions = self._list_app_sessions(limit=limit, archived=archived, pinned_first=pinned_first)
+        return self._ok(sessions)
+
+    async def handle_create_session(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        title = str(payload.get("title") or "").strip() or "新对话"
+        session_id = f"app:{uuid.uuid4().hex[:8]}"
+        session = self._ensure_app_session(session_id, title=title)
+        return self._ok(self._serialize_session(session), status=201)
+
+    async def handle_get_session(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        session_id = request.match_info["session_id"]
+        valid, error = self._validate_app_session_id(session_id)
+        if not valid:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+
+        session = self.sessions.get(session_id)
+        if session is None:
+            return self._error("SESSION_NOT_FOUND", "session does not exist", status=404)
+        return self._ok(self._serialize_session(session))
+
+    async def handle_get_messages(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        session_id = request.match_info["session_id"]
+        valid, error = self._validate_app_session_id(session_id)
+        if not valid:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+
+        session = self.sessions.get(session_id)
+        if session is None:
+            return self._error("SESSION_NOT_FOUND", "session does not exist", status=404)
+
+        limit = self._parse_limit(request.query.get("limit"), default=50, maximum=200)
+        messages = self._serialize_messages(session)
+        before = request.query.get("before", "").strip() or None
+        after = request.query.get("after", "").strip() or None
+        page, error = self._paginate_messages(
+            session_id=session_id,
+            messages=messages,
+            before=before,
+            after=after,
+            limit=limit,
+        )
+        if error:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+        return self._ok(page)
+
+    async def handle_post_message(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        session_id = request.match_info["session_id"]
+        valid, error = self._validate_app_session_id(session_id)
+        if not valid:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        content = str(payload.get("content") or "").strip()
+        if not content:
+            return self._error("INVALID_ARGUMENT", "content is required", status=400)
+
+        session = self._ensure_app_session(session_id)
+        chat_id = session_id.split(":", 1)[1]
+        msg = InboundMessage(
+            channel="app",
+            sender_id="flutter",
+            chat_id=chat_id,
+            content=content,
+            metadata={},
+        )
+        client_message_id = str(payload.get("client_message_id") or "").strip()
+        if client_message_id:
+            msg.metadata["client_message_id"] = client_message_id
+
+        await self.bus.publish_inbound(msg)
+
+        return self._ok({
+            "accepted_message": self._build_message_payload(
+                message_id=msg.metadata["message_id"],
+                session_id=session.key,
+                role="user",
+                content=content,
+                status="pending",
+                created_at=self._now_iso(),
+                metadata={
+                    "client_message_id": client_message_id or None,
+                    "task_id": msg.metadata["task_id"],
+                },
+            ),
+            "task_id": msg.metadata["task_id"],
+            "queued": True,
+        }, status=202)
+
+    async def handle_runtime_state(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(await self.get_runtime_state())
+
+    async def handle_runtime_stop(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            payload = {}
+
+        task_id = str(payload.get("task_id") or "").strip()
+        async with self._lock:
+            if not task_id:
+                current_id = self._get_current_task_id_unlocked()
+                task_id = current_id or ""
+            task = self._tasks.get(task_id) if task_id else None
+
+        if not task_id or task is None:
+            return self._error("TASK_NOT_FOUND", "task does not exist", status=404)
+        if not task.get("cancellable", False):
+            return self._error("TASK_NOT_CANCELLABLE", "task is not cancellable", status=400)
+
+        await self.bus.publish_inbound(InboundMessage(
+            channel="system",
+            sender_id="app",
+            chat_id=task["source_session_id"],
+            content="/stop",
+        ))
+        return self._ok({"task_id": task_id, "stopping": True})
+
+    async def handle_todo_summary(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self.get_todo_summary())
+
+    async def handle_set_todo_summary(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        summary, error = await self.set_todo_summary(payload)
+        if error:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+        return self._ok(summary)
+
+    async def handle_calendar_summary(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self.get_calendar_summary())
+
+    async def handle_set_calendar_summary(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        summary, error = await self.set_calendar_summary(payload)
+        if error:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+        return self._ok(summary)
+
+    async def handle_device(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self.device_channel.get_snapshot())
+
+    async def handle_device_speak(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            return self._error("INVALID_ARGUMENT", "text is required", status=400)
+        if not self.device_channel.connected:
+            return self._error("DEVICE_OFFLINE", "device is offline", status=409)
+
+        await self.device_channel.send_outbound(OutboundMessage(
+            channel=DEVICE_CHANNEL,
+            chat_id=DEVICE_CHAT_ID,
+            content=text,
+            metadata={"source": "voice"},
+        ))
+        return self._ok({"accepted": True, "text": text})
+
+    async def handle_capabilities(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self._capabilities())
+
+    async def handle_events_ws(self, request: web.Request) -> web.StreamResponse:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        ws = web.WebSocketResponse(heartbeat=30)
+        await ws.prepare(request)
+        await self._attach_event_client(
+            ws,
+            last_event_id=request.query.get("last_event_id", "").strip() or None,
+            replay_limit=self._parse_limit(
+                request.query.get("replay_limit"),
+                default=self.event_replay_limit,
+                maximum=max(self.event_replay_limit, self.event_buffer_size),
+            ),
+        )
+
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.ERROR:
+                    logger.warning("App events websocket error: {}", ws.exception())
+        finally:
+            self._ws_clients.discard(ws)
+
+        return ws
+
+    async def get_runtime_state(self) -> dict[str, Any]:
+        """构建共享运行态快照。"""
+        async with self._lock:
+            current_task_id = self._get_current_task_id_unlocked()
+            current_task = self._serialize_runtime_task(self._tasks.get(current_task_id)) if current_task_id else None
+            task_queue = [
+                self._serialize_runtime_task(self._tasks[task_id], for_queue=True)
+                for task_id in self._task_order
+                if task_id in self._tasks
+                and self._tasks[task_id]["status"] in {"queued", "running"}
+                and task_id != current_task_id
+            ]
+
+        return {
+            "current_task": current_task,
+            "task_queue": task_queue,
+            "device": self.device_channel.get_snapshot(),
+            "todo_summary": self.get_todo_summary(),
+            "calendar_summary": self.get_calendar_summary(),
+        }
+
+    def get_todo_summary(self) -> dict[str, Any]:
+        """返回当前 Todo 摘要快照。"""
+        return dict(self._todo_summary)
+
+    def get_calendar_summary(self) -> dict[str, Any]:
+        """返回当前日历摘要快照。"""
+        return dict(self._calendar_summary)
+
+    async def set_todo_summary(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        """更新 Todo 摘要，并在变更时广播事件。"""
+        async with self._lock:
+            updated, error = self._normalize_todo_summary(self._todo_summary, payload)
+            if error:
+                return {}, error
+            changed = updated != self._todo_summary
+            self._todo_summary = updated
+            if changed:
+                self._save_summary_file(self._todo_summary_path, updated)
+
+        if changed:
+            await self._broadcast_event(
+                "todo.summary.changed",
+                payload=dict(updated),
+                scope="global",
+            )
+        return dict(updated), None
+
+    async def set_calendar_summary(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        """更新日历摘要，并在变更时广播事件。"""
+        async with self._lock:
+            updated, error = self._normalize_calendar_summary(self._calendar_summary, payload)
+            if error:
+                return {}, error
+            changed = updated != self._calendar_summary
+            self._calendar_summary = updated
+            if changed:
+                self._save_summary_file(self._calendar_summary_path, updated)
+
+        if changed:
+            await self._broadcast_event(
+                "calendar.summary.changed",
+                payload=dict(updated),
+                scope="global",
+            )
+        return dict(updated), None
+
+    async def _finalize_task(
+        self,
+        msg: InboundMessage,
+        *,
+        session_key: str,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        async with self._lock:
+            task_id = msg.metadata.get("task_id")
+            if not task_id:
+                return
+            task = self._tasks.get(task_id)
+            if task is None:
+                return
+            task["status"] = status
+            task["stage"] = status
+            task["updated_at"] = self._now_iso()
+            current_payload = self._build_current_task_event_payload_unlocked()
+            queue_payload = self._build_queue_event_payload_unlocked()
+            should_emit_failed = msg.channel == "app" and status in {"failed", "cancelled"}
+            session_id = task["source_session_id"]
+
+        await self._broadcast_event(
+            "runtime.task.current_changed",
+            payload=current_payload,
+            scope="global",
+            session_id=session_key,
+            task_id=msg.metadata.get("task_id"),
+        )
+        await self._broadcast_event(
+            "runtime.task.queue_changed",
+            payload=queue_payload,
+            scope="global",
+            session_id=session_key,
+            task_id=msg.metadata.get("task_id"),
+        )
+
+        if should_emit_failed:
+            await self._broadcast_event(
+                "session.message.failed",
+                payload={
+                    "message_id": msg.metadata.get("assistant_message_id"),
+                    "reason": error or status,
+                },
+                scope="session",
+                session_id=session_id,
+                task_id=msg.metadata.get("task_id"),
+            )
+
+    async def _broadcast_event(
+        self,
+        event_type: str,
+        *,
+        payload: dict[str, Any],
+        scope: str,
+        session_id: str | None = None,
+        task_id: str | None = None,
+    ) -> None:
+        event = self._make_event(
+            event_type=event_type,
+            payload=payload,
+            scope=scope,
+            session_id=session_id,
+            task_id=task_id,
+        )
+        self._event_history.append(event)
+
+        if not self._ws_clients:
+            return
+
+        dead_clients: list[web.WebSocketResponse] = []
+        for ws in tuple(self._ws_clients):
+            try:
+                await ws.send_json(event)
+            except Exception:
+                dead_clients.append(ws)
+        for ws in dead_clients:
+            self._ws_clients.discard(ws)
+
+    async def _broadcast_direct(
+        self,
+        ws: web.WebSocketResponse,
+        event_type: str,
+        *,
+        payload: dict[str, Any],
+        scope: str,
+    ) -> None:
+        await ws.send_json({
+            "event_id": self._new_id("evt"),
+            "event_type": event_type,
+            "scope": scope,
+            "occurred_at": self._now_iso(),
+            "session_id": None,
+            "task_id": None,
+            "payload": payload,
+        })
+
+    def _list_app_sessions(
+        self,
+        *,
+        limit: int,
+        archived: bool | None = None,
+        pinned_first: bool = True,
+    ) -> list[dict[str, Any]]:
+        sessions: list[dict[str, Any]] = []
+        for item in self.sessions.list_sessions():
+            key = item.get("key", "")
+            if not key.startswith("app:"):
+                continue
+            session = self.sessions.get(key)
+            if session is None:
+                continue
+            data = self._serialize_session(session)
+            if archived is not None and data["archived"] != archived:
+                continue
+            sessions.append(data)
+
+        sessions.sort(key=lambda item: item["last_message_at"] or "", reverse=True)
+        if pinned_first:
+            sessions.sort(key=lambda item: not item["pinned"])
+        if limit:
+            sessions = sessions[:limit]
+        return sessions
+
+    def _serialize_session(self, session: Session) -> dict[str, Any]:
+        session = self._ensure_app_session(session.key, title=session.metadata.get("title"))
+        visible_messages = self._serialize_messages(session)
+        last_message = visible_messages[-1] if visible_messages else None
+        return {
+            "session_id": session.key,
+            "channel": "app",
+            "title": session.metadata.get("title") or self._default_title_for(session.key),
+            "summary": (last_message or {}).get("content", "")[:80],
+            "last_message_at": (last_message or {}).get("created_at") or session.updated_at.isoformat(),
+            "message_count": len(visible_messages),
+            "pinned": bool(session.metadata.get("pinned", session.key == self.default_session_id)),
+            "archived": bool(session.metadata.get("archived", False)),
+        }
+
+    def _serialize_messages(self, session: Session) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        visible_index = 0
+        for entry in session.messages:
+            role = entry.get("role")
+            if role not in {"user", "assistant", "system"}:
+                continue
+            content = self._content_to_text(entry.get("content"))
+            if not content:
+                continue
+            visible_index += 1
+            messages.append(self._build_message_payload(
+                message_id=entry.get("message_id") or f"msg_{session.key.replace(':', '_')}_{visible_index}",
+                session_id=session.key,
+                role=role,
+                content=content,
+                status="completed",
+                created_at=entry.get("timestamp") or session.updated_at.isoformat(),
+                metadata=self._extract_message_metadata(entry),
+            ))
+        return messages
+
+    def _serialize_runtime_task(
+        self,
+        task: dict[str, Any] | None,
+        *,
+        for_queue: bool = False,
+    ) -> dict[str, Any] | None:
+        if task is None:
+            return None
+        data = {
+            "task_id": task["task_id"],
+            "kind": task["kind"],
+            "source_channel": task["source_channel"],
+            "source_session_id": task["source_session_id"],
+            "summary": task["summary"],
+            "stage": task["stage"],
+            "cancellable": task["cancellable"],
+        }
+        if not for_queue:
+            data["started_at"] = task["started_at"]
+        return data
+
+    def _build_message_payload(
+        self,
+        *,
+        message_id: str | None,
+        session_id: str,
+        role: str,
+        content: str,
+        status: str,
+        created_at: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "message_id": message_id or self._new_id("msg"),
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "content_type": "text",
+            "status": status,
+            "created_at": created_at,
+            "metadata": metadata,
+        }
+
+    async def _attach_event_client(
+        self,
+        ws: web.WebSocketResponse,
+        *,
+        last_event_id: str | None,
+        replay_limit: int,
+    ) -> None:
+        """注册一个事件客户端，并按需回放断线期间的事件。"""
+        self._ws_clients.add(ws)
+        hello_payload, replay_events = self._build_replay_payload(
+            last_event_id=last_event_id,
+            replay_limit=replay_limit,
+        )
+        await self._broadcast_direct(
+            ws,
+            "system.hello",
+            payload=hello_payload,
+            scope="global",
+        )
+        for event in replay_events:
+            await ws.send_json(event)
+
+    def _build_current_task_event_payload_unlocked(self) -> dict[str, Any]:
+        current_task_id = self._get_current_task_id_unlocked()
+        return {
+            "current_task": self._serialize_runtime_task(self._tasks.get(current_task_id))
+            if current_task_id else None
+        }
+
+    def _build_queue_event_payload_unlocked(self) -> dict[str, Any]:
+        current_task_id = self._get_current_task_id_unlocked()
+        return {
+            "task_queue": [
+                self._serialize_runtime_task(self._tasks[task_id], for_queue=True)
+                for task_id in self._task_order
+                if task_id in self._tasks
+                and self._tasks[task_id]["status"] in {"queued", "running"}
+                and task_id != current_task_id
+            ]
+        }
+
+    def _get_current_task_id_unlocked(self) -> str | None:
+        running_ids = [
+            task_id
+            for task_id in self._task_order
+            if task_id in self._tasks and self._tasks[task_id]["status"] == "running"
+        ]
+        return running_ids[-1] if running_ids else None
+
+    def _ensure_app_session(self, session_id: str, title: str | None = None) -> Session:
+        session = self.sessions.get_or_create(session_id)
+        changed = False
+        if session.metadata.get("channel") != "app":
+            session.metadata["channel"] = "app"
+            changed = True
+        desired_title = title or session.metadata.get("title") or self._default_title_for(session_id)
+        if session.metadata.get("title") != desired_title:
+            session.metadata["title"] = desired_title
+            changed = True
+        if "pinned" not in session.metadata:
+            session.metadata["pinned"] = session_id == self.default_session_id
+            changed = True
+        if "archived" not in session.metadata:
+            session.metadata["archived"] = False
+            changed = True
+        if changed:
+            self.sessions.save(session)
+        return session
+
+    def _build_replay_payload(
+        self,
+        *,
+        last_event_id: str | None,
+        replay_limit: int,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        history = list(self._event_history)
+        latest_event_id = history[-1]["event_id"] if history else None
+        resume = {
+            "requested": bool(last_event_id),
+            "accepted": False,
+            "replayed_count": 0,
+            "replay_limit": replay_limit,
+            "latest_event_id": latest_event_id,
+            "history_size": len(history),
+            "should_refetch_bootstrap": False,
+            "reason": None,
+        }
+
+        replay_events: list[dict[str, Any]] = []
+        if last_event_id:
+            matched_index = next(
+                (index for index, event in enumerate(history) if event["event_id"] == last_event_id),
+                None,
+            )
+            if matched_index is None:
+                resume["should_refetch_bootstrap"] = True
+                resume["reason"] = "last_event_id_not_found"
+            else:
+                missed_events = history[matched_index + 1:]
+                if len(missed_events) > replay_limit:
+                    resume["should_refetch_bootstrap"] = True
+                    resume["reason"] = "replay_limit_exceeded"
+                else:
+                    replay_events = missed_events
+                    resume["accepted"] = True
+                    resume["replayed_count"] = len(replay_events)
+
+        hello_payload = {
+            "server_version": self.version,
+            "protocol_version": "app-v1",
+            "ts": self._now_iso(),
+            "resume": resume,
+        }
+        return hello_payload, replay_events
+
+    def _make_event(
+        self,
+        *,
+        event_type: str,
+        payload: dict[str, Any],
+        scope: str,
+        session_id: str | None = None,
+        task_id: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "event_id": self._new_id("evt"),
+            "event_type": event_type,
+            "scope": scope,
+            "occurred_at": self._now_iso(),
+            "session_id": session_id,
+            "task_id": task_id,
+            "payload": payload,
+        }
+
+    def _paginate_messages(
+        self,
+        *,
+        session_id: str,
+        messages: list[dict[str, Any]],
+        before: str | None,
+        after: str | None,
+        limit: int,
+    ) -> tuple[dict[str, Any], str | None]:
+        id_to_index = {message["message_id"]: index for index, message in enumerate(messages)}
+
+        if before and before not in id_to_index:
+            return {}, "before cursor not found"
+        if after and after not in id_to_index:
+            return {}, "after cursor not found"
+
+        slice_start = id_to_index[after] + 1 if after else 0
+        slice_end = id_to_index[before] if before else len(messages)
+        if slice_end < slice_start:
+            slice_end = slice_start
+
+        anchor_on_before = before is not None or after is None
+        if limit and (slice_end - slice_start) > limit:
+            if anchor_on_before:
+                result_start = max(slice_start, slice_end - limit)
+                result_end = slice_end
+            else:
+                result_start = slice_start
+                result_end = min(slice_end, slice_start + limit)
+        else:
+            result_start = slice_start
+            result_end = slice_end
+
+        items = messages[result_start:result_end]
+        return {
+            "session_id": session_id,
+            "items": items,
+            "page_info": {
+                "limit": limit,
+                "before": before,
+                "after": after,
+                "returned": len(items),
+                "has_more_before": result_start > slice_start,
+                "has_more_after": result_end < slice_end,
+                "next_before": items[0]["message_id"] if items and result_start > slice_start else None,
+                "next_after": items[-1]["message_id"] if items and result_end < slice_end else None,
+            },
+        }, None
+
+    @staticmethod
+    def _extract_message_metadata(entry: dict[str, Any]) -> dict[str, Any]:
+        metadata: dict[str, Any] = {}
+        for key in ("task_id", "client_message_id"):
+            if entry.get(key) is not None:
+                metadata[key] = entry[key]
+        return metadata
+
+    @staticmethod
+    def _default_todo_summary() -> dict[str, Any]:
+        return {
+            "enabled": False,
+            "pending_count": 0,
+            "overdue_count": 0,
+            "next_due_at": None,
+        }
+
+    @staticmethod
+    def _default_calendar_summary() -> dict[str, Any]:
+        return {
+            "enabled": False,
+            "today_count": 0,
+            "next_event_at": None,
+            "next_event_title": None,
+        }
+
+    def _load_summary_file(self, path: Path, default: dict[str, Any]) -> dict[str, Any]:
+        if not path.exists():
+            return dict(default)
+        try:
+            with open(path, encoding="utf-8") as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                raise ValueError("summary file must be a json object")
+        except Exception:
+            logger.warning("Failed to load summary file {}", path)
+            return dict(default)
+        merged = dict(default)
+        merged.update(payload)
+        return merged
+
+    @staticmethod
+    def _save_summary_file(path: Path, summary: dict[str, Any]) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+
+    def _normalize_todo_summary(
+        self,
+        current: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], str | None]:
+        summary = dict(self._default_todo_summary())
+        summary.update(current)
+        summary["enabled"] = self._normalize_bool_field(
+            payload,
+            key="enabled",
+            current=summary["enabled"],
+        )
+        counts, error = self._normalize_nonnegative_int_fields(
+            payload,
+            current=summary,
+            keys=("pending_count", "overdue_count"),
+        )
+        if error:
+            return {}, error
+        summary.update(counts)
+        next_due_at, error = self._normalize_optional_string_field(
+            payload,
+            key="next_due_at",
+            current=summary["next_due_at"],
+        )
+        if error:
+            return {}, error
+        summary["next_due_at"] = next_due_at
+        if not summary["enabled"]:
+            summary = self._default_todo_summary()
+        return summary, None
+
+    def _normalize_calendar_summary(
+        self,
+        current: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], str | None]:
+        summary = dict(self._default_calendar_summary())
+        summary.update(current)
+        summary["enabled"] = self._normalize_bool_field(
+            payload,
+            key="enabled",
+            current=summary["enabled"],
+        )
+        counts, error = self._normalize_nonnegative_int_fields(
+            payload,
+            current=summary,
+            keys=("today_count",),
+        )
+        if error:
+            return {}, error
+        summary.update(counts)
+        next_event_at, error = self._normalize_optional_string_field(
+            payload,
+            key="next_event_at",
+            current=summary["next_event_at"],
+        )
+        if error:
+            return {}, error
+        next_event_title, error = self._normalize_optional_string_field(
+            payload,
+            key="next_event_title",
+            current=summary["next_event_title"],
+        )
+        if error:
+            return {}, error
+        summary["next_event_at"] = next_event_at
+        summary["next_event_title"] = next_event_title
+        if not summary["enabled"]:
+            summary = self._default_calendar_summary()
+        return summary, None
+
+    @staticmethod
+    def _normalize_bool_field(payload: dict[str, Any], *, key: str, current: bool) -> bool:
+        value = payload.get(key, current)
+        return value if isinstance(value, bool) else current
+
+    @staticmethod
+    def _normalize_nonnegative_int_fields(
+        payload: dict[str, Any],
+        *,
+        current: dict[str, Any],
+        keys: tuple[str, ...],
+    ) -> tuple[dict[str, int], str | None]:
+        normalized: dict[str, int] = {}
+        for key in keys:
+            value = payload.get(key, current[key])
+            if not isinstance(value, int) or value < 0:
+                return {}, f"{key} must be a non-negative integer"
+            normalized[key] = value
+        return normalized, None
+
+    @staticmethod
+    def _normalize_optional_string_field(
+        payload: dict[str, Any],
+        *,
+        key: str,
+        current: str | None,
+    ) -> tuple[str | None, str | None]:
+        if key not in payload:
+            return current, None
+        value = payload[key]
+        if value is None:
+            return None, None
+        if not isinstance(value, str):
+            return None, f"{key} must be a string or null"
+        cleaned = value.strip()
+        return cleaned or None, None
+
+    def _is_authorized(self, request: web.Request) -> bool:
+        if not self.auth_token:
+            return True
+        candidate = self._extract_token(request)
+        if not candidate:
+            return False
+        return hmac.compare_digest(candidate, self.auth_token)
+
+    @staticmethod
+    def _extract_token(request: web.Request) -> str:
+        auth_header = request.headers.get("Authorization", "").strip()
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:].strip()
+
+        header_token = request.headers.get("X-App-Token", "").strip()
+        if header_token:
+            return header_token
+
+        return request.query.get("token", "").strip()
+
+    def _validate_app_session_id(self, session_id: str) -> tuple[bool, str]:
+        if not session_id.startswith("app:"):
+            return False, "session_id must start with 'app:'"
+        if ":" not in session_id or not session_id.split(":", 1)[1].strip():
+            return False, "session_id suffix is required"
+        return True, ""
+
+    def _capabilities(self) -> dict[str, Any]:
+        return {
+            "chat": True,
+            "device_control": True,
+            "voice_pipeline": bool(self.device_channel.asr and self.device_channel.tts),
+            "whatsapp_bridge": bool(self.cfg.get("whatsapp", {}).get("enabled", False)),
+            "todo_summary": True,
+            "calendar_summary": True,
+            "app_events": True,
+            "event_replay": True,
+            "app_auth_enabled": bool(self.auth_token),
+        }
+
+    @staticmethod
+    def _parse_limit(raw: str | None, *, default: int, maximum: int) -> int:
+        if not raw:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            return default
+        return max(1, min(value, maximum))
+
+    @staticmethod
+    def _parse_bool(raw: str | None, *, default: bool | None = None) -> bool | None:
+        if raw is None:
+            return default
+        lowered = raw.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+        return default
+
+    @staticmethod
+    async def _read_json(request: web.Request) -> dict[str, Any] | None:
+        if request.content_length in (None, 0):
+            return {}
+        try:
+            data = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    @staticmethod
+    def _content_to_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "text" and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+                elif item.get("type") == "image_url":
+                    parts.append("[image]")
+            return "\n".join(part for part in parts if part).strip()
+        return ""
+
+    @staticmethod
+    def _default_title_for(session_id: str) -> str:
+        if session_id == "app:main":
+            return "主对话"
+        return session_id.split(":", 1)[1]
+
+    @staticmethod
+    def _summarize(content: str) -> str:
+        text = " ".join(content.strip().split())
+        return text[:80] if len(text) <= 80 else f"{text[:77]}..."
+
+    @staticmethod
+    def _session_id_for(channel: str, chat_id: str) -> str:
+        return f"{channel}:{chat_id}"
+
+    @staticmethod
+    def _new_id(prefix: str) -> str:
+        return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+    def _latest_event_id(self) -> str | None:
+        return self._event_history[-1]["event_id"] if self._event_history else None
+
+    @staticmethod
+    def _coerce_positive_int(raw: Any, *, default: int) -> int:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return default
+        return value if value > 0 else default
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+
+    def _ok(self, data: Any, *, status: int = 200) -> web.Response:
+        return web.json_response({
+            "ok": True,
+            "data": data,
+            "request_id": self._new_id("req"),
+            "ts": self._now_iso(),
+        }, status=status)
+
+    def _error(self, code: str, message: str, *, status: int) -> web.Response:
+        return web.json_response({
+            "ok": False,
+            "error": {
+                "code": code,
+                "message": message,
+            },
+            "request_id": self._new_id("req"),
+            "ts": self._now_iso(),
+        }, status=status)
