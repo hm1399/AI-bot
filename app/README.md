@@ -1,36 +1,13 @@
+# AI Bot App
 
-  # App Builder (超多次修改)
+Flutter frontend for `AI-bot/server` using the `app-v1` HTTP and WebSocket contract.
 
-  This is a code bundle for App Builder (超多次修改). The original project is available at https://www.figma.com/design/xrV9OSHTy2Xibx8OV2wuMk/App-Builder--%E8%B6%85%E5%A4%9A%E6%AC%A1%E4%BF%AE%E6%94%B9-.
+## Features
 
-  ## Running the code
-
-  Run `npm i` to install the dependencies.
-
-  Run `npm run dev` to start the development server.
-
-## Running backend API server
-
-  1. Install the backend dependencies:
-
-     `npm i express ws`
-
-  2. Start API server:
-
-     `npm run start:api`
-
-  3. 默认接口:
-
-     - GET /api/config
-     - PUT /api/config
-     - GET /api/device/status
-     - POST /api/device/mute
-     - POST /api/device/led/toggle
-     - POST /api/device/restart
-     - GET /api/history
-     - POST /api/chat
-     - GET/POST/PUT/DELETE /api/tasks
-     - GET/POST/PUT/DELETE /api/events
-     - WS 在 ws://localhost:8000/ws/app
-
-  
+- Connect with `host`, `port`, and optional `app token`
+- Bootstrap + event stream resume using `/api/app/v1/bootstrap` and `/ws/app/v1/events`
+- Backend-driven chat
+- Runtime, device, todo, and calendar dashboard
+- Settings through backend APIs
+- Tasks, events, notifications, and reminders placeholders with backend-not-ready handling
+- Demo mode separated from real backend mode

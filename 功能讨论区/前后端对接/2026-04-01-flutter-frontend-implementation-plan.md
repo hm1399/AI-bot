@@ -503,12 +503,12 @@ abstract class RemindersService {
 - Create: `app/lib/services/api/error_mapper.dart`
 - Create: `app/lib/utils/result.dart`
 
-- [ ] 创建标准 Flutter 工程，根目录固定为 `app/`
-- [ ] 配置依赖与基础路由
+- [x] 创建标准 Flutter 工程，根目录固定为 `app/`
+- [x] 配置依赖与基础路由
 - [x] 实现统一 HTTP client、超时、headers、envelope 解析
 - [x] 实现统一错误映射器
 - [ ] 为 `401/404/409/500/timeout` 编写单元测试
-- [ ] 运行 `flutter test`
+- [x] 运行 `flutter test`
 
 ### Task 2: 完成 Connect、bootstrap、鉴权与事件流接入
 
@@ -608,7 +608,7 @@ abstract class RemindersService {
 - Create: `app/lib/services/demo/demo_service_bundle.dart`
 - Modify: `app/lib/providers/app_providers.dart`
 
-- [ ] 抽象 real 与 demo 两套 service 集合
+- [x] 抽象 real 与 demo 两套 service 集合
 - [x] 确保页面层不直接依赖 mock 数据结构
 - [ ] 增加启动模式切换测试
 
@@ -618,7 +618,7 @@ abstract class RemindersService {
 - Modify: `README.md`
 - Create: `app/README.md`
 
-- [ ] 更新接入说明和运行说明
+- [x] 更新接入说明和运行说明
 - [ ] 列出后端必需环境变量与 token 配置方式
 - [ ] 跑通基础集成测试
 - [x] 确认删除任何前端直连 AI 的残留代码
