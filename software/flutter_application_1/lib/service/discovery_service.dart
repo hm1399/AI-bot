@@ -50,10 +50,4 @@ class DiscoveryService {
     }
     return null;
   }
-
-  Future<Object?> getSavedDeviceIp() async {
-    return null;
-  }
-
-  void dispose() {}
 }
