@@ -21,6 +21,7 @@ server/bridge/dist/
 # Environment
 .env
 *.env
+venv/
 
 # IDE
 .vscode/

@@ -16,6 +16,13 @@ from channels.device_channel import DEVICE_CHANNEL, DEVICE_CHAT_ID, DeviceChanne
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.session.manager import Session, SessionManager
+from nanobot.utils.atomic_write import atomic_write_text
+from services.app_api import (
+    AppResourceService,
+    ResourceNotFoundError,
+    ResourceValidationError,
+    SettingsService,
+)
 
 
 class AppRuntimeService:
@@ -64,15 +71,37 @@ class AppRuntimeService:
             self._calendar_summary_path,
             self._default_calendar_summary(),
         )
+        self.settings = SettingsService(self.cfg, self._runtime_dir)
+        self.resources = AppResourceService(self._runtime_dir)
 
     def register_routes(self, app: web.Application) -> None:
         """注册 Flutter App 的 HTTP / WebSocket 接口。"""
         app.router.add_get("/api/app/v1/bootstrap", self.handle_bootstrap)
+        app.router.add_get("/api/app/v1/settings", self.handle_get_settings)
+        app.router.add_put("/api/app/v1/settings", self.handle_put_settings)
+        app.router.add_post("/api/app/v1/settings/llm/test", self.handle_test_llm_settings)
         app.router.add_get("/api/app/v1/sessions", self.handle_list_sessions)
         app.router.add_post("/api/app/v1/sessions", self.handle_create_session)
         app.router.add_get("/api/app/v1/sessions/{session_id}", self.handle_get_session)
         app.router.add_get("/api/app/v1/sessions/{session_id}/messages", self.handle_get_messages)
         app.router.add_post("/api/app/v1/sessions/{session_id}/messages", self.handle_post_message)
+        app.router.add_get("/api/app/v1/tasks", self.handle_list_tasks)
+        app.router.add_post("/api/app/v1/tasks", self.handle_create_task)
+        app.router.add_patch("/api/app/v1/tasks/{task_id}", self.handle_patch_task)
+        app.router.add_delete("/api/app/v1/tasks/{task_id}", self.handle_delete_task)
+        app.router.add_get("/api/app/v1/events", self.handle_list_events)
+        app.router.add_post("/api/app/v1/events", self.handle_create_event)
+        app.router.add_patch("/api/app/v1/events/{event_id}", self.handle_patch_event)
+        app.router.add_delete("/api/app/v1/events/{event_id}", self.handle_delete_event)
+        app.router.add_get("/api/app/v1/notifications", self.handle_list_notifications)
+        app.router.add_patch("/api/app/v1/notifications/{notification_id}", self.handle_patch_notification)
+        app.router.add_post("/api/app/v1/notifications/read-all", self.handle_read_all_notifications)
+        app.router.add_delete("/api/app/v1/notifications/{notification_id}", self.handle_delete_notification)
+        app.router.add_delete("/api/app/v1/notifications", self.handle_delete_notifications)
+        app.router.add_get("/api/app/v1/reminders", self.handle_list_reminders)
+        app.router.add_post("/api/app/v1/reminders", self.handle_create_reminder)
+        app.router.add_patch("/api/app/v1/reminders/{reminder_id}", self.handle_patch_reminder)
+        app.router.add_delete("/api/app/v1/reminders/{reminder_id}", self.handle_delete_reminder)
         app.router.add_get("/api/app/v1/runtime/state", self.handle_runtime_state)
         app.router.add_post("/api/app/v1/runtime/stop", self.handle_runtime_stop)
         app.router.add_get("/api/app/v1/runtime/todo-summary", self.handle_todo_summary)
@@ -81,6 +110,7 @@ class AppRuntimeService:
         app.router.add_post("/api/app/v1/runtime/calendar-summary", self.handle_set_calendar_summary)
         app.router.add_get("/api/app/v1/device", self.handle_device)
         app.router.add_post("/api/app/v1/device/speak", self.handle_device_speak)
+        app.router.add_post("/api/app/v1/device/commands", self.handle_device_command)
         app.router.add_get("/api/app/v1/capabilities", self.handle_capabilities)
         app.router.add_get("/ws/app/v1/events", self.handle_events_ws)
 
@@ -334,6 +364,46 @@ class AppRuntimeService:
             },
         })
 
+    async def handle_get_settings(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self.settings.get_public_settings())
+
+    async def handle_put_settings(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        try:
+            settings = self.settings.update_settings(payload)
+        except ValueError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+
+        await self._broadcast_event(
+            "settings.updated",
+            payload=settings,
+            scope="global",
+        )
+        return self._ok(settings)
+
+    async def handle_test_llm_settings(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        ok, result, error = await self.settings.test_llm_connection(payload)
+        if ok:
+            return self._ok(result)
+
+        assert error is not None
+        return self._error(error["code"], error["message"], status=error.get("status", 400))
+
     async def handle_list_sessions(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
             return self._error("UNAUTHORIZED", "unauthorized", status=401)
@@ -449,6 +519,213 @@ class AppRuntimeService:
             "queued": True,
         }, status=202)
 
+    async def handle_list_tasks(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        try:
+            result = self.resources.list_tasks(
+                completed=self._parse_bool(request.query.get("completed"), default=None),
+                priority=request.query.get("priority", "").strip() or None,
+                limit=self._parse_limit(request.query.get("limit"), default=50, maximum=200),
+            )
+        except ResourceValidationError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        return self._ok(result)
+
+    async def handle_create_task(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        try:
+            task = self.resources.create_task(payload)
+        except ResourceValidationError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        await self._broadcast_event("task.created", payload={"task": task}, scope="global")
+        return self._ok(task, status=201)
+
+    async def handle_patch_task(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        try:
+            task = self.resources.update_task(request.match_info["task_id"], payload)
+        except ResourceValidationError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        except ResourceNotFoundError as exc:
+            return self._error(exc.args[0], "task does not exist", status=404)
+        await self._broadcast_event("task.updated", payload={"task": task}, scope="global")
+        return self._ok(task)
+
+    async def handle_delete_task(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        try:
+            task = self.resources.delete_task(request.match_info["task_id"])
+        except ResourceNotFoundError as exc:
+            return self._error(exc.args[0], "task does not exist", status=404)
+        await self._broadcast_event("task.deleted", payload={"task": task}, scope="global")
+        return self._ok({"deleted": True, "task_id": task["task_id"]})
+
+    async def handle_list_events(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        result = self.resources.list_events(
+            limit=self._parse_limit(request.query.get("limit"), default=50, maximum=200),
+        )
+        return self._ok(result)
+
+    async def handle_create_event(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        try:
+            event = self.resources.create_event(payload)
+        except ResourceValidationError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        await self._broadcast_event("event.created", payload={"event": event}, scope="global")
+        return self._ok(event, status=201)
+
+    async def handle_patch_event(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        try:
+            event = self.resources.update_event(request.match_info["event_id"], payload)
+        except ResourceValidationError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        except ResourceNotFoundError as exc:
+            return self._error(exc.args[0], "event does not exist", status=404)
+        await self._broadcast_event("event.updated", payload={"event": event}, scope="global")
+        return self._ok(event)
+
+    async def handle_delete_event(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        try:
+            event = self.resources.delete_event(request.match_info["event_id"])
+        except ResourceNotFoundError as exc:
+            return self._error(exc.args[0], "event does not exist", status=404)
+        await self._broadcast_event("event.deleted", payload={"event": event}, scope="global")
+        return self._ok({"deleted": True, "event_id": event["event_id"]})
+
+    async def handle_list_notifications(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self.resources.list_notifications())
+
+    async def handle_patch_notification(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        try:
+            notification = self.resources.update_notification(
+                request.match_info["notification_id"],
+                payload,
+            )
+        except ResourceValidationError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        except ResourceNotFoundError as exc:
+            return self._error(exc.args[0], "notification does not exist", status=404)
+        await self._broadcast_event(
+            "notification.updated",
+            payload={"notification": notification},
+            scope="global",
+        )
+        return self._ok(notification)
+
+    async def handle_read_all_notifications(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        summary = self.resources.mark_all_notifications_read()
+        for item in summary.pop("changed_items"):
+            await self._broadcast_event(
+                "notification.updated",
+                payload={"notification": item},
+                scope="global",
+            )
+        return self._ok(summary)
+
+    async def handle_delete_notification(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        try:
+            notification = self.resources.delete_notification(request.match_info["notification_id"])
+        except ResourceNotFoundError as exc:
+            return self._error(exc.args[0], "notification does not exist", status=404)
+        await self._broadcast_event(
+            "notification.deleted",
+            payload={"notification": notification},
+            scope="global",
+        )
+        return self._ok({"deleted": True, "notification_id": notification["notification_id"]})
+
+    async def handle_delete_notifications(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        summary = self.resources.clear_notifications()
+        for item in summary["deleted_items"]:
+            await self._broadcast_event(
+                "notification.deleted",
+                payload={"notification": item},
+                scope="global",
+            )
+        return self._ok({"deleted_count": summary["deleted_count"]})
+
+    async def handle_list_reminders(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self.resources.list_reminders(
+            limit=self._parse_limit(request.query.get("limit"), default=50, maximum=200),
+        ))
+
+    async def handle_create_reminder(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        try:
+            reminder = self.resources.create_reminder(payload)
+        except ResourceValidationError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        await self._broadcast_event("reminder.created", payload={"reminder": reminder}, scope="global")
+        return self._ok(reminder, status=201)
+
+    async def handle_patch_reminder(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        try:
+            reminder = self.resources.update_reminder(request.match_info["reminder_id"], payload)
+        except ResourceValidationError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        except ResourceNotFoundError as exc:
+            return self._error(exc.args[0], "reminder does not exist", status=404)
+        await self._broadcast_event("reminder.updated", payload={"reminder": reminder}, scope="global")
+        return self._ok(reminder)
+
+    async def handle_delete_reminder(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        try:
+            reminder = self.resources.delete_reminder(request.match_info["reminder_id"])
+        except ResourceNotFoundError as exc:
+            return self._error(exc.args[0], "reminder does not exist", status=404)
+        await self._broadcast_event("reminder.deleted", payload={"reminder": reminder}, scope="global")
+        return self._ok({"deleted": True, "reminder_id": reminder["reminder_id"]})
+
     async def handle_runtime_state(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
             return self._error("UNAUTHORIZED", "unauthorized", status=401)
@@ -540,6 +817,46 @@ class AppRuntimeService:
             metadata={"source": "voice"},
         ))
         return self._ok({"accepted": True, "text": text})
+
+    async def handle_device_command(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        command = payload.get("command")
+        if not isinstance(command, str) or not command.strip():
+            return self._error("INVALID_ARGUMENT", "command is required", status=400)
+
+        params = payload.get("params", {})
+        if not isinstance(params, dict):
+            return self._error("INVALID_ARGUMENT", "params must be an object", status=400)
+        if not self.device_channel.connected:
+            return self._error("DEVICE_OFFLINE", "device is offline", status=409)
+
+        try:
+            result = await self.device_channel.execute_app_command(
+                command.strip(),
+                params,
+                client_command_id=str(payload.get("client_command_id") or "").strip() or None,
+            )
+        except RuntimeError as exc:
+            if str(exc) == "DEVICE_OFFLINE":
+                return self._error("DEVICE_OFFLINE", "device is offline", status=409)
+            raise
+        except ValueError as exc:
+            if str(exc) == "COMMAND_NOT_SUPPORTED":
+                return self._error("COMMAND_NOT_SUPPORTED", "command is not supported", status=400)
+            return self._error("INVALID_ARGUMENT", "invalid command params", status=400)
+
+        await self._broadcast_event(
+            "device.command.accepted",
+            payload=result,
+            scope="global",
+        )
+        return self._ok(result)
 
     async def handle_capabilities(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -1069,8 +1386,10 @@ class AppRuntimeService:
 
     @staticmethod
     def _save_summary_file(path: Path, summary: dict[str, Any]) -> None:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
+        def _write(handle) -> None:
+            json.dump(summary, handle, ensure_ascii=False, indent=2)
+
+        atomic_write_text(path, _write, encoding="utf-8")
 
     def _normalize_todo_summary(
         self,
@@ -1212,8 +1531,14 @@ class AppRuntimeService:
         return {
             "chat": True,
             "device_control": True,
+            "device_commands": True,
             "voice_pipeline": bool(self.device_channel.asr and self.device_channel.tts),
             "whatsapp_bridge": bool(self.cfg.get("whatsapp", {}).get("enabled", False)),
+            "settings": True,
+            "tasks": True,
+            "events": True,
+            "notifications": True,
+            "reminders": True,
             "todo_summary": True,
             "calendar_summary": True,
             "app_events": True,

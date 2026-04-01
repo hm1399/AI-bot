@@ -21,6 +21,7 @@ import asyncio
 import hmac
 import json
 import time
+import uuid
 from typing import Any, Optional
 
 import aiohttp
@@ -76,6 +77,17 @@ _STATE_TO_FACE: dict[DeviceState, str] = {
     DeviceState.PROCESSING: "PROCESSING",
     DeviceState.SPEAKING: "SPEAKING",
     DeviceState.ERROR: "IDLE",  # 错误状态显示默认表情
+}
+
+_SUPPORTED_APP_COMMANDS = {
+    "mute",
+    "toggle_led",
+    "restart",
+    "wake",
+    "sleep",
+    "set_volume",
+    "set_led_color",
+    "set_led_brightness",
 }
 
 
@@ -798,6 +810,58 @@ class DeviceChannel:
         """发送文字回复给设备。"""
         msg = make_server_message(ServerMessageType.TEXT_REPLY, {"text": text})
         await self.send_json(msg)
+
+    async def execute_app_command(
+        self,
+        command: str,
+        params: dict[str, Any],
+        *,
+        client_command_id: str | None = None,
+    ) -> dict[str, Any]:
+        """执行来自 Flutter App 的设备控制命令。"""
+        if not self.connected:
+            raise RuntimeError("DEVICE_OFFLINE")
+        if command not in _SUPPORTED_APP_COMMANDS:
+            raise ValueError("COMMAND_NOT_SUPPORTED")
+
+        normalized_params = self._normalize_app_command_params(command, params)
+        command_id = f"cmd_{uuid.uuid4().hex[:12]}"
+        await self.send_json(make_server_message(
+            ServerMessageType.DEVICE_COMMAND,
+            {
+                "command_id": command_id,
+                "client_command_id": client_command_id,
+                "command": command,
+                "params": normalized_params,
+            },
+        ))
+        return {
+            "accepted": True,
+            "command_id": command_id,
+            "command": command,
+            "device": self.get_snapshot(),
+        }
+
+    @staticmethod
+    def _normalize_app_command_params(command: str, params: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(params, dict):
+            raise ValueError("INVALID_ARGUMENT")
+
+        normalized = dict(params)
+        if command == "set_volume":
+            level = normalized.get("level")
+            if not isinstance(level, int) or level < 0 or level > 100:
+                raise ValueError("INVALID_ARGUMENT")
+        elif command == "set_led_brightness":
+            level = normalized.get("level")
+            if not isinstance(level, int) or level < 0 or level > 100:
+                raise ValueError("INVALID_ARGUMENT")
+        elif command == "set_led_color":
+            color = normalized.get("color")
+            if not isinstance(color, str) or not color.strip():
+                raise ValueError("INVALID_ARGUMENT")
+            normalized["color"] = color.strip()
+        return normalized
 
     async def send_outbound(self, out_msg: OutboundMessage) -> None:
         """按设备规则发送一条 outbound 消息。"""

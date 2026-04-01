@@ -27,6 +27,7 @@ class ServerMessageType(str, Enum):
     STATUS_BAR_UPDATE = "status_bar_update"
     FACE_UPDATE = "face_update"
     LED_CONTROL = "led_control"
+    DEVICE_COMMAND = "device_command"
     AUDIO_PLAY = "audio_play"
     AUDIO_PLAY_END = "audio_play_end"
     TEXT_REPLY = "text_reply"
