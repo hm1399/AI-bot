@@ -5,3 +5,4 @@
 功能讨论区/TODO/2026-04-01-app实现状态复核与已实现功能清单.md
 功能讨论区/TODO/2026-04-01-app改造为Flutter工程实施.md
 功能讨论区/TODO/2026-04-02-CHANGELOG补充Autodesk-Fusion硬件3D设计记录.md
+功能讨论区/TODO/2026-04-02-Week11-logbook-docx生成.md
