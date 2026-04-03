@@ -8,6 +8,7 @@
 
 #include <Arduino.h>
 #include <driver/i2s.h>
+#include <esp_system.h>
 #include <limits.h>
 
 namespace {
@@ -43,6 +44,49 @@ int32_t g_samples[FRAME_COUNT * 2];
 long g_noiseFloor = 1;
 bool g_verboseOutput = true;
 unsigned long g_lastPrintAt = 0;
+
+const char* resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_UNKNOWN:   return "Unknown";
+    case ESP_RST_POWERON:   return "PowerOn";
+    case ESP_RST_EXT:       return "ExtPin";
+    case ESP_RST_SW:        return "Reboot";
+    case ESP_RST_PANIC:     return "Crash";
+    case ESP_RST_INT_WDT:   return "WDT_Int";
+    case ESP_RST_TASK_WDT:  return "WDT_Task";
+    case ESP_RST_WDT:       return "WDT_Other";
+    case ESP_RST_DEEPSLEEP: return "Sleep";
+    case ESP_RST_BROWNOUT:  return "BrownOut";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "";
+  }
+}
+
+void printChipInfo() {
+  const uint64_t mac = ESP.getEfuseMac();
+  const esp_reset_reason_t reason = esp_reset_reason();
+
+  Serial.println("=== Chip Info ===");
+  Serial.printf("Model: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
+  Serial.printf("Cores: %d, CPU: %u MHz\n", ESP.getChipCores(), ESP.getCpuFreqMHz());
+  Serial.printf("SDK: %s\n", ESP.getSdkVersion());
+  Serial.printf("Flash: %u bytes\n", ESP.getFlashChipSize());
+  Serial.printf("PSRAM: %u bytes, Free PSRAM: %u bytes\n", ESP.getPsramSize(), ESP.getFreePsram());
+  Serial.printf("Heap: %u bytes free\n", ESP.getFreeHeap());
+  Serial.printf("MAC: %04X%08X\n", (uint16_t)(mac >> 32), (uint32_t)mac);
+  Serial.printf("Reset Reason: %d - %s\n", reason, resetReasonName(reason));
+  Serial.println();
+}
+
+void printReadingGuide() {
+  Serial.println("=== How to Read This ===");
+  Serial.println("1. Chip Info looks normal -> ESP32 itself is alive.");
+  Serial.println("2. Reset Reason = BrownOut -> power is unstable, fix power first.");
+  Serial.println("3. PSRAM = 0 is fine only if PSRAM is disabled in board settings.");
+  Serial.println("4. If slot0/slot1 stay near zero while you speak, mic path is not working.");
+  Serial.println("5. If only one slot moves a lot, that is usually normal for INMP441.");
+  Serial.println();
+}
 
 int64_t sampleAbs(int32_t value) {
   return value < 0 ? -(int64_t)value : (int64_t)value;
@@ -80,6 +124,7 @@ void finalizeChannelStats(ChannelStats& stats, int frameCount) {
 void printHelp() {
   Serial.println("Commands:");
   Serial.println("  h  show help");
+  Serial.println("  i  print chip info again");
   Serial.println("  p  toggle detailed/compact output");
   Serial.println("  r  recalibrate noise floor");
   Serial.println();
@@ -264,6 +309,19 @@ void printStats(const MicStats& stats) {
   Serial.println();
 }
 
+void printWorkState(const MicStats& stats) {
+  Serial.printf(
+    "work: activeSlot=%d avg=%ld peak=%ld noise=%ld signal=%s heap=%u psram=%u\n",
+    stats.activeSlot,
+    stats.activeAvg,
+    stats.activePeak,
+    g_noiseFloor,
+    signalState(stats.activeAvg),
+    ESP.getFreeHeap(),
+    ESP.getFreePsram()
+  );
+}
+
 void calibrateNoiseFloor() {
   Serial.println();
   Serial.println("Noise floor calibration: keep the room quiet for about 1 second.");
@@ -322,6 +380,12 @@ void handleSerialCommands() {
         Serial.printf("Output mode -> %s\n\n", g_verboseOutput ? "detailed" : "compact");
         break;
 
+      case 'i':
+      case 'I':
+        printChipInfo();
+        printReadingGuide();
+        break;
+
       case 'r':
       case 'R':
         calibrateNoiseFloor();
@@ -346,11 +410,13 @@ void setup() {
   Serial.println("========================================");
   Serial.println("INMP441 microphone diagnostic test");
   Serial.println("========================================");
+  printChipInfo();
   Serial.printf("Pins: SCK=IO%d, WS=IO%d, SD=IO%d\n", I2S_SCK, I2S_WS, I2S_SD);
   Serial.printf("Sample rate: %d Hz, I2S slot width: 32-bit\n", SAMPLE_RATE);
   Serial.println("Speak toward the microphone and watch which slot becomes active.");
   Serial.println("If both slots stay near zero, check power, soldering, orientation, and L/R wiring.");
   Serial.println();
+  printReadingGuide();
   printHelp();
 
   if (!initMicrophone()) {
@@ -381,5 +447,6 @@ void loop() {
 
   updateNoiseFloor(stats.activeAvg);
   printStats(stats);
+  printWorkState(stats);
   g_lastPrintAt = millis();
 }
