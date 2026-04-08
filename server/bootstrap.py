@@ -246,6 +246,7 @@ def build_runtime(start_time: float) -> RuntimeComponents:
         device_channel=device_channel,
         auth_token=cfg.get("desktop_voice", {}).get("auth_token", "") or cfg.get("app", {}).get("auth_token", ""),
         default_app_session_id=cfg.get("app", {}).get("default_session_id", "app:main"),
+        enable_local_microphone=cfg.get("desktop_voice", {}).get("enable_local_microphone", True),
     )
     whatsapp_channel = create_whatsapp_channel(cfg, bus)
     app = create_http_app(
@@ -292,6 +293,15 @@ def log_startup_summary(runtime: RuntimeComponents) -> None:
     logger.info(
         "  App Auth: {}",
         "enabled" if runtime.config.get("app", {}).get("auth_token") else "disabled",
+    )
+    logger.info(
+        "  Desktop Voice: embedded-local-mic {}",
+        "enabled" if runtime.desktop_voice_service.enable_local_microphone else "disabled",
+    )
+    wa_cfg = runtime.config.get("whatsapp", {})
+    logger.info(
+        "  WhatsApp: {}",
+        "enabled" if wa_cfg.get("enabled", False) else "disabled (optional)",
     )
     logger.info("  健康检查: http://localhost:{}/api/health", runtime.server_config["port"])
     logger.info("  App Bootstrap: http://localhost:{}/api/app/v1/bootstrap", runtime.server_config["port"])

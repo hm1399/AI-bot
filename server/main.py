@@ -1,7 +1,7 @@
 """
 AI-Bot 服务端入口
 Phase 1-6: aiohttp 服务 + AgentLoop + DeviceChannel + 语音交互 + 状态机 + 稳定性
-Demo: 集成 WhatsApp Channel，AI 回复同时发送到设备屏幕和 WhatsApp
+Demo: WhatsApp Channel 为可选辅助通道，不影响硬件主链路
 """
 from __future__ import annotations
 
@@ -50,6 +50,8 @@ async def main() -> None:
         wa_cfg = runtime.config.get("whatsapp", {})
         whatsapp_task = asyncio.create_task(runtime.whatsapp_channel.start())
         logger.info("WhatsApp channel 已启用，bridge: {}", wa_cfg.get("bridge_url"))
+    else:
+        logger.info("WhatsApp channel 未启用；当前主流程不依赖 WhatsApp")
 
     # 启动 AgentLoop 后台任务
     agent_task = asyncio.create_task(runtime.agent.run())
@@ -75,6 +77,14 @@ async def main() -> None:
     await runtime.app["app_runtime"].start_background_tasks()
 
     log_startup_summary(runtime)
+    if runtime.desktop_voice_service.enable_local_microphone:
+        logger.info(
+            "桌面麦克风已内置到 main.py 进程；正常联调只需运行 python3 main.py，无需再启动 tools/desktop_voice_client.py"
+        )
+    else:
+        logger.info(
+            "桌面麦克风内置模式已关闭；如需桌面代采，请继续使用 /ws/desktop-voice 调试客户端"
+        )
 
     # 优雅关闭 (Phase 6.1)
     shutdown_event = asyncio.Event()

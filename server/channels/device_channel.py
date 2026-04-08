@@ -192,8 +192,11 @@ class DeviceChannel:
         await self._send_display_update("正在回复")
 
     async def deliver_external_text_response(self, text: str) -> None:
-        """桌面麦克风链路默认走设备文字/状态反馈，不走 TTS 播放。"""
+        """把桌面麦克风链路的回复回传到设备，优先走设备喇叭播放。"""
         if not self.connected:
+            return
+        if self.tts:
+            await self._send_voice_reply(text)
             return
         if self.state != DeviceState.SPEAKING:
             await self._set_state(DeviceState.SPEAKING)
@@ -985,6 +988,11 @@ class DeviceChannel:
         """执行实际的 TTS 合成与音频流发送。"""
         await self._send_display_update(text)
         await self._set_state(DeviceState.SPEAKING)
+        logger.info(
+            "开始向设备发送 TTS 音频: voice={}, text='{}'",
+            self.tts.voice if self.tts else "unknown",
+            text[:50],
+        )
 
         t0 = time.monotonic()
         await self.send_json(make_server_message(
@@ -1001,6 +1009,9 @@ class DeviceChannel:
         await self.send_json(make_server_message(
             ServerMessageType.AUDIO_PLAY_END, {}
         ))
+
+        if total_bytes == 0:
+            logger.warning("设备 TTS 播放结束，但未发送任何 PCM 字节")
 
         tts_ms = (time.monotonic() - t0) * 1000
         duration_s = total_bytes / (16000 * 2)

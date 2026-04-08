@@ -56,7 +56,7 @@ class UnifiedOutboundRouter:
 
         if out_msg.channel == DEVICE_CHANNEL:
             await self.device_channel.send_outbound(out_msg)
-            await self._mirror_device_reply_to_whatsapp(out_msg)
+            await self._mirror_reply_to_whatsapp(out_msg)
             return
 
         if out_msg.channel == DESKTOP_VOICE_CHANNEL:
@@ -64,6 +64,7 @@ class UnifiedOutboundRouter:
                 await self.desktop_voice_service.send_outbound(out_msg)
             else:
                 logger.warning("Desktop voice service 未启用，忽略消息")
+            await self._mirror_reply_to_whatsapp(out_msg)
             return
 
         if out_msg.channel == WHATSAPP_CHANNEL:
@@ -80,10 +81,14 @@ class UnifiedOutboundRouter:
 
         logger.debug("忽略未知 channel 消息: {}", out_msg.channel)
 
-    async def _mirror_device_reply_to_whatsapp(self, out_msg: OutboundMessage) -> None:
-        """Demo 模式：把设备回复镜像到最近活跃的 WhatsApp 会话。"""
+    async def _mirror_reply_to_whatsapp(self, out_msg: OutboundMessage) -> None:
+        """Demo 模式：把设备相关回复镜像到最近活跃的 WhatsApp 会话。"""
         if not self.whatsapp_channel:
             return
+        if out_msg.channel == DESKTOP_VOICE_CHANNEL:
+            interaction_surface = str(out_msg.metadata.get("interaction_surface") or "").strip()
+            if interaction_surface != "device_press":
+                return
 
         chat_id = self.whatsapp_channel.last_inbound_chat_id
         if not chat_id:
@@ -95,4 +100,4 @@ class UnifiedOutboundRouter:
             content=out_msg.content,
         )
         await self.whatsapp_channel.send(wa_msg)
-        logger.info("设备回复已镜像转发到 WhatsApp")
+        logger.info("{} 回复已镜像转发到 WhatsApp", out_msg.channel)

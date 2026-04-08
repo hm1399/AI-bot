@@ -36,3 +36,27 @@
 - 影响：后续联调时，无法仅凭串口首屏快速判断当前固件究竟在连哪个 WebSocket 目标，排错成本高。
 - 建议动作：后续如需提升可观测性，可单独立项为 demo 固件补一条启动日志，明确打印 `WS_HOST:WS_PORT` 与路径。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-08-02 `server/tools/desktop_voice_client.py` 已退化为兼容/调试入口
+
+- 发现来源：本轮 main 单进程桌面麦克风收口。
+- 当前状态：正常联调已经改成只运行 `python3 main.py`，但旧的 `/ws/desktop-voice` 客户端工具和对应文档口径仍需长期并存。
+- 影响：后续如果有人继续按旧文档把它当成必跑进程，会增加第三个终端和额外排障噪音；如果未来忘了它只是调试工具，也容易让主流程和兼容流程混在一起。
+- 建议动作：后续可单独立项，决定是继续长期保留这个调试客户端，还是在 UI/文档/启动日志里把它明确标注为 debug-only。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-08-03 `whatsapp.enabled` 默认开启会给 main-only 联调带来额外噪音
+
+- 发现来源：本轮 main-only 工作流复核。
+- 当前状态：`server/config.yaml` 默认启用 WhatsApp bridge，哪怕当前只是本地硬件语音链路验证，`main.py` 也会尝试连接桥接服务。
+- 影响：如果用户只是单测“硬件触摸 -> 电脑麦克风 -> 硬件喇叭”，WhatsApp bridge 不在线时会出现额外重连日志，干扰主问题定位。
+- 建议动作：后续可单独立项，为 main-only 联调加一个更明确的“关闭 WhatsApp”配置口径，或在文档里把 WhatsApp 标成可选辅助通道。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-08-04 当前 Python/LibreSSL 环境会持续打印 `urllib3` 警告
+
+- 发现来源：本轮 ASR 依赖补齐与导入验证。
+- 当前状态：`server/.venv` 建在 Xcode 自带 Python 3.9 上，运行时会看到 `urllib3 v2 only supports OpenSSL 1.1.1+` 与 `LibreSSL 2.8.3` 的警告。
+- 影响：这条警告当前不会直接阻断 ASR / TTS 主链路，但会污染启动日志，也可能在后续依赖升级时带来更多兼容问题。
+- 建议动作：后续可单独立项，把服务端虚拟环境迁到 Homebrew / python.org 的较新 Python（自带 OpenSSL 1.1.1+），减少网络库兼容噪音。
+- 本轮处理：未处理。

@@ -750,6 +750,8 @@ class DesktopVoiceService:
                 "app_session_id": app_session_id,
                 "asr_ms": asr_ms,
             }
+            if interaction_surface == "device_press":
+                metadata["reply_language"] = "English"
             if self.asr.last_emotion:
                 metadata["emotion"] = self.asr.last_emotion
 

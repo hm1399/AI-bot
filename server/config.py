@@ -206,12 +206,18 @@ def validate_config(cfg: dict) -> list[str]:
     dependency_requirements = [
         ("numpy", "ASR 依赖缺失：请安装 numpy"),
         ("funasr", "ASR 依赖缺失：请安装 funasr"),
+        ("torch", "ASR 依赖缺失：请安装 torch"),
+        ("torchaudio", "ASR 依赖缺失：请安装 torchaudio"),
         ("edge_tts", "TTS 依赖缺失：请安装 edge-tts"),
         ("miniaudio", "TTS 依赖缺失：请安装 miniaudio"),
     ]
     if cfg.get("whatsapp", {}).get("enabled", False):
         dependency_requirements.append(
             ("websockets", "WhatsApp 通道依赖缺失：请安装 websockets")
+        )
+    if cfg.get("desktop_voice", {}).get("enable_local_microphone", True):
+        dependency_requirements.append(
+            ("sounddevice", "桌面麦克风依赖缺失：请安装 sounddevice")
         )
 
     for module_name, error_message in dependency_requirements:

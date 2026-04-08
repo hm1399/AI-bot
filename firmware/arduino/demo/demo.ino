@@ -27,7 +27,7 @@ const char* WIFI_SSID = "AAAAA";  // EE3070_P1615_1 / AAAAA
 const char* WIFI_PASS = "92935903";  // EE3070P1615 / 92935903
 
 // ===== WebSocket 服务端配置 =====
-const char* WS_HOST = "182.239.114.144";  // ← 改为你电脑的局域网 IP
+const char* WS_HOST = "172.20.10.3";  // ← 改为你电脑的局域网 IP
 const uint16_t WS_PORT = 8765;
 const char* WS_PATH = "/ws/device";
 

@@ -20,7 +20,7 @@ asr:
   use_itn: true
 
 tts:
-  voice: zh-CN-XiaoxiaoNeural
+  voice: en-US-AriaNeural
 
 device:
   auth_token: ${DEVICE_AUTH_TOKEN}
@@ -35,7 +35,7 @@ weather:
   units: metric
 
 whatsapp:
-  enabled: true
+  enabled: false
   bridge_url: ws://localhost:3001
   bridge_token: ""
   self_only: true
