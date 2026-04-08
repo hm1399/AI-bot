@@ -32,15 +32,45 @@ def _mp3_to_pcm_16k_mono(mp3_data: bytes) -> bytes:
     return bytes(decoded.samples)
 
 
+def _scale_pcm_16bit_le(pcm_data: bytes, volume_scale: float) -> bytes:
+    """按比例缩放 16-bit little-endian PCM 振幅。"""
+    if not pcm_data or volume_scale >= 0.999:
+        return pcm_data
+
+    import numpy as np
+
+    samples = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32)
+    samples *= volume_scale
+    samples = np.clip(samples, -32768, 32767).astype(np.int16)
+    return samples.tobytes()
+
+
 class TTSService:
     """基于 edge-tts 的语音合成服务。"""
 
-    def __init__(self, voice: str = "zh-CN-XiaoxiaoNeural"):
+    def __init__(self, voice: str = "zh-CN-XiaoxiaoNeural", volume_scale: float = 0.55):
         self.voice = voice
+        self.english_voice = voice if voice.startswith("en-") else "en-US-AriaNeural"
+        self.chinese_voice = voice if voice.startswith("zh-") else "zh-CN-XiaoxiaoNeural"
+        self.volume_scale = max(0.0, min(float(volume_scale), 1.0))
 
     @staticmethod
     def _contains_cjk(text: str) -> bool:
         return bool(_CJK_PATTERN.search(text))
+
+    def _candidate_voices(self, text: str) -> list[str]:
+        """按文本内容返回候选 voice，优先保证中英文都可播报。"""
+        candidates: list[str] = []
+        if self._contains_cjk(text):
+            candidates.extend([self.chinese_voice, self.english_voice, self.voice])
+        else:
+            candidates.extend([self.english_voice, self.chinese_voice, self.voice])
+
+        deduped: list[str] = []
+        for item in candidates:
+            if item and item not in deduped:
+                deduped.append(item)
+        return deduped
 
     async def synthesize(self, text: str) -> bytes:
         """将文字合成为 PCM 音频。
@@ -57,34 +87,69 @@ class TTSService:
             logger.warning("TTS 收到空文本")
             return b""
 
-        if self.voice.startswith("en-") and self._contains_cjk(text):
-            logger.warning(
-                "TTS 当前使用英文 voice={}, 但文本仍包含 CJK 字符: '{}'",
-                self.voice,
-                text[:60],
+        candidate_voices = self._candidate_voices(text)
+        if len(candidate_voices) > 1:
+            logger.info(
+                "TTS 自动选音色: text='{}', candidates={}",
+                text[:30] + "..." if len(text) > 30 else text,
+                candidate_voices,
             )
 
-        logger.info("TTS 开始合成: '{}' (voice={})", text[:30] + "..." if len(text) > 30 else text, self.voice)
+        last_error: Exception | None = None
+        for selected_voice in candidate_voices:
+            try:
+                logger.info(
+                    "TTS 开始合成: '{}' (voice={})",
+                    text[:30] + "..." if len(text) > 30 else text,
+                    selected_voice,
+                )
 
-        # edge-tts 生成 MP3
-        communicate = edge_tts.Communicate(text, self.voice)
-        mp3_buffer = io.BytesIO()
+                communicate = edge_tts.Communicate(text, selected_voice)
+                mp3_buffer = io.BytesIO()
 
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                mp3_buffer.write(chunk["data"])
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        mp3_buffer.write(chunk["data"])
 
-        mp3_data = mp3_buffer.getvalue()
-        if not mp3_data:
-            logger.error("TTS 合成失败: edge-tts 返回空数据")
-            return b""
+                mp3_data = mp3_buffer.getvalue()
+                if not mp3_data:
+                    raise edge_tts.exceptions.NoAudioReceived(
+                        "edge-tts returned empty audio data",
+                    )
 
-        # MP3 → PCM (在线程池中运行，避免阻塞)
-        pcm_data = await asyncio.to_thread(_mp3_to_pcm_16k_mono, mp3_data)
+                pcm_data = await asyncio.to_thread(_mp3_to_pcm_16k_mono, mp3_data)
+                if self.volume_scale < 0.999:
+                    pcm_data = await asyncio.to_thread(
+                        _scale_pcm_16bit_le,
+                        pcm_data,
+                        self.volume_scale,
+                    )
+                duration_s = len(pcm_data) / (16000 * 2)
+                logger.info(
+                    "TTS 合成完成: {} bytes PCM ({:.1f}s, voice={}, volume_scale={:.2f})",
+                    len(pcm_data),
+                    duration_s,
+                    selected_voice,
+                    self.volume_scale,
+                )
+                return pcm_data
+            except edge_tts.exceptions.NoAudioReceived as exc:
+                last_error = exc
+                logger.warning(
+                    "TTS voice={} 未返回音频，尝试下一个音色",
+                    selected_voice,
+                )
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "TTS voice={} 合成失败: {}，尝试下一个音色",
+                    selected_voice,
+                    exc,
+                )
 
-        duration_s = len(pcm_data) / (16000 * 2)  # 16kHz, 16bit = 2 bytes/sample
-        logger.info("TTS 合成完成: {} bytes PCM ({:.1f}s)", len(pcm_data), duration_s)
-        return pcm_data
+        if last_error:
+            raise last_error
+        return b""
 
     async def synthesize_stream(self, text: str, chunk_size: int = 4096) -> AsyncGenerator[bytes, None]:
         """流式合成：先完整合成，再分块发送 PCM 数据。

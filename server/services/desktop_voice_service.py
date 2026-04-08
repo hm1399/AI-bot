@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import re
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -32,6 +33,14 @@ STATUS_LISTENING = "listening"
 STATUS_TRANSCRIBING = "transcribing"
 STATUS_RESPONDING = "responding"
 STATUS_ERROR = "error"
+
+_CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_EXPLICIT_CHINESE_REPLY_PATTERN = re.compile(
+    r"(用中文|说中文|中文回答|中文回复|汉语回答|普通话回答|reply in chinese|answer in chinese|speak chinese|mandarin|chinese)"
+)
+_EXPLICIT_ENGLISH_REPLY_PATTERN = re.compile(
+    r"(用英文|说英文|英文回答|英文回复|英语回答|reply in english|answer in english|speak english|english)"
+)
 
 
 class DesktopVoiceService:
@@ -115,6 +124,26 @@ class DesktopVoiceService:
 
     def is_ready(self) -> bool:
         return bool(self._primary_ws and not self._primary_ws.closed) or self._local_microphone_available()
+
+    @staticmethod
+    def _preferred_reply_language_from_transcript(transcript: str) -> str | None:
+        normalized = transcript.strip()
+        if not normalized:
+            return None
+
+        lowered = normalized.casefold()
+        if _EXPLICIT_ENGLISH_REPLY_PATTERN.search(lowered):
+            return "English"
+        if _EXPLICIT_CHINESE_REPLY_PATTERN.search(lowered):
+            return "Chinese"
+
+        contains_cjk = bool(_CJK_PATTERN.search(normalized))
+        contains_latin = bool(re.search(r"[A-Za-z]", normalized))
+        if contains_cjk and not contains_latin:
+            return "Chinese"
+        if contains_latin and not contains_cjk:
+            return "English"
+        return None
 
     async def start_device_push_to_talk(self) -> bool:
         use_external_client = False
@@ -750,8 +779,9 @@ class DesktopVoiceService:
                 "app_session_id": app_session_id,
                 "asr_ms": asr_ms,
             }
-            if interaction_surface == "device_press":
-                metadata["reply_language"] = "English"
+            reply_language = self._preferred_reply_language_from_transcript(transcript)
+            if reply_language:
+                metadata["reply_language"] = reply_language
             if self.asr.last_emotion:
                 metadata["emotion"] = self.asr.last_emotion
 
