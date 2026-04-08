@@ -32,14 +32,14 @@ class NotificationsService {
     return _apiClient.patch(
       '${ApiConstants.notificationsPath}/$notificationId',
       body: <String, dynamic>{'read': read},
-      parser: (_) => null,
+      parser: (_) {},
     );
   }
 
   Future<void> markAllRead() {
     return _apiClient.post(
       ApiConstants.notificationsReadAllPath,
-      parser: (_) => null,
+      parser: (_) {},
     );
   }
 

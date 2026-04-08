@@ -12,20 +12,32 @@ Flutter frontend for `AI-bot/server` using the `app-v1` HTTP and WebSocket contr
 - Tasks, events, notifications, and reminders placeholders with backend-not-ready handling
 - Demo mode separated from real backend mode
 
-## Run On Web
+## Desktop Targets
 
 ```bash
-flutter run -d chrome
+Windows + macOS + Linux
 ```
 
-Or build static assets:
+## Run On Desktop
 
 ```bash
-flutter build web
+flutter run -d windows
 ```
 
-Notes for browser usage:
+On macOS or Linux, run the matching desktop device instead:
 
-- The connect page now supports `HTTPS / WSS` mode for secure deployments.
-- On Web, you can use `Use Current Page Origin` to fill the host, port, and scheme from the page you opened.
-- The backend now returns basic CORS headers so the Web app can call it from another origin during development.
+```bash
+flutter run -d macos
+flutter run -d linux
+```
+
+Build a Windows desktop executable:
+
+```bash
+flutter build windows
+```
+
+Notes:
+
+- The main Flutter desktop project is `app/`.
+- Unrelated directories in the repository are kept, but they are not required for running the desktop app.

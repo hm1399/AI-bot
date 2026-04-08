@@ -30,13 +30,17 @@ class DeviceService {
     Map<String, dynamic>? params,
     String? clientCommandId,
   }) {
+    final body = <String, dynamic>{'command': command};
+    if (params != null) {
+      body['params'] = params;
+    }
+    if (clientCommandId != null) {
+      body['client_command_id'] = clientCommandId;
+    }
+
     return _apiClient.post(
       ApiConstants.deviceCommandsPath,
-      body: <String, dynamic>{
-        'command': command,
-        if (params != null) 'params': params,
-        if (clientCommandId != null) 'client_command_id': clientCommandId,
-      },
+      body: body,
       parser: (dynamic data) =>
           data is Map<String, dynamic> ? data : <String, dynamic>{},
     );
