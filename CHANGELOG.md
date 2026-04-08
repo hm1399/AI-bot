@@ -1028,6 +1028,74 @@
 
 ---
 
+## 2026-03-29~2026-04-01 - Autodesk Fusion 硬件 3D 设计完成
+
+### 硬件 3D 结构设计
+
+- 在 2026-03-29 至 2026-04-01 期间，使用 Autodesk Fusion 完成硬件的 3D 设计
+
+---
+
+## 2026-04-01 - Flutter 后端新增接口落地与对接文档同步
+
+### Flutter App API 扩展
+
+- 在 `server/services/app_runtime.py` 中补齐 Flutter 前端当前需要的新增接口
+- 新增 `settings` 读取、保存与 LLM 连通性测试接口
+- 新增 `tasks`、`events`、`notifications`、`reminders` 四类资源的 REST API
+- 新增 `POST /api/app/v1/device/commands`，统一承接 Flutter 侧设备控制命令
+- `capabilities` 返回补齐 `settings`、`tasks`、`events`、`notifications`、`reminders`、`device_commands`
+
+### App 资源服务与本地持久化
+
+- 新增 `server/services/app_api/` 目录，拆分出独立的 app 资源服务层
+- 新增 `json_store.py`，用原子写方式持久化 runtime JSON 数据
+- 新增 `resource_service.py`，统一处理 task / event / notification / reminder 的 CRUD、筛选与计数逻辑
+- 新增 `settings_service.py`，负责设置 overlay、secret 隔离与 LLM 测试逻辑
+- 当前新增资源统一持久化在 `server/workspace/runtime/` 下
+
+### 设备链路与协议补充
+
+- `server/models/protocol.py` 新增 `device_command` 消息类型
+- `server/channels/device_channel.py` 新增 `execute_app_command()`，支持设备命令统一下发
+- 当前支持命令包括：`mute`、`toggle_led`、`restart`、`wake`、`sleep`、`set_volume`、`set_led_color`、`set_led_brightness`
+- `App Runtime` 与设备状态链路保持兼容，硬件与后端仍通过 `/ws/device` WebSocket 长连接通信
+
+### WebSocket 事件补齐
+
+- 为 Flutter 端新增并打通以下事件：
+  - `settings.updated`
+  - `task.created` / `task.updated` / `task.deleted`
+  - `event.created` / `event.updated` / `event.deleted`
+  - `notification.updated` / `notification.deleted`
+  - `reminder.created` / `reminder.updated` / `reminder.deleted`
+  - `device.command.accepted`
+
+### 测试补强
+
+- 新增 `server/tests/test_app_api_services.py`
+- 扩充 `server/tests/test_app_runtime.py`，覆盖 settings、资源 CRUD、device commands
+- 扩充 `server/tests/test_device_channel.py`，覆盖设备命令下发
+- 本轮验证结果：`python3 -m unittest discover server/tests -v` 共 `37` 项通过
+
+### 对接文档同步
+
+- 新增并完善 `功能讨论区/前后端对接/后端接口.md`
+- 文档按当前真实实现同步了：
+  - HTTP / WebSocket 基础约定
+  - 现有可复用接口
+  - 新增接口请求与响应
+  - 事件模型
+  - 错误码
+  - 当前实现限制说明
+
+### 工程清理
+
+- 更新 `.gitignore`，新增 `venv/` 忽略规则
+- 避免本地虚拟环境中的 `pytest`、`numpy` 等依赖文件继续出现在仓库状态中
+
+---
+
 ## 当前待办更新
 
 - [x] IO8 飞线至 IO21 — 已完成，I2S 通信正常

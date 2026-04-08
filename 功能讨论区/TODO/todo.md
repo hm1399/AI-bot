@@ -4,3 +4,12 @@
 功能讨论区/TODO/2026-04-01-Appbuilder迁移到AI-bot-app目录.md
 功能讨论区/TODO/2026-04-01-app实现状态复核与已实现功能清单.md
 功能讨论区/TODO/2026-04-01-app改造为Flutter工程实施.md
+功能讨论区/TODO/2026-04-02-CHANGELOG补充Autodesk-Fusion硬件3D设计记录.md
+功能讨论区/TODO/2026-04-02-Week11-logbook-docx生成.md
+功能讨论区/TODO/2026-04-02-Week11-logbook补充前后端对接内容.md
+功能讨论区/TODO/2026-04-03-arduino麦克风测试草图.md
+功能讨论区/TODO/2026-04-03-arduino麦克风测试草图实施计划.md
+功能讨论区/TODO/2026-04-03-麦克风无声诊断增强.md
+功能讨论区/TODO/2026-04-06-前后端实现进度全面调研与总结.md
+功能讨论区/TODO/2026-04-06-调研文档改为功能对齐口径.md
+功能讨论区/TODO/2026-04-06-总TODO清单生成功能对齐与硬件协同调研.md
