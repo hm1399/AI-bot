@@ -1,9 +1,0 @@
-ai-bot-flutter-network-layer/
-├── lib/
-│   └── services/
-│       ├── api_service.dart
-│       ├── discovery_service.dart
-│       └── ws_service.dart
-├── pubspec.yaml
-├── README.md
-└── .gitignore  # 選用，忽略 Flutter 暫存檔
