@@ -23,6 +23,7 @@ from services.app_api import (
     ResourceValidationError,
     SettingsService,
 )
+from services.reminder_scheduler import ReminderScheduler
 
 
 class AppRuntimeService:
@@ -35,6 +36,7 @@ class AppRuntimeService:
         bus: MessageBus,
         sessions: SessionManager,
         device_channel: DeviceChannel,
+        desktop_voice_service: Any | None = None,
         version: str,
         start_time: float,
     ) -> None:
@@ -42,6 +44,7 @@ class AppRuntimeService:
         self.bus = bus
         self.sessions = sessions
         self.device_channel = device_channel
+        self.desktop_voice_service = desktop_voice_service
         self.version = version
         self.start_time = start_time
         self.auth_token = cfg.get("app", {}).get("auth_token", "").strip()
@@ -73,6 +76,10 @@ class AppRuntimeService:
         )
         self.settings = SettingsService(self.cfg, self._runtime_dir)
         self.resources = AppResourceService(self._runtime_dir)
+        self.reminder_scheduler = ReminderScheduler(
+            self.resources,
+            event_observer=self,
+        )
 
     def register_routes(self, app: web.Application) -> None:
         """注册 Flutter App 的 HTTP / WebSocket 接口。"""
@@ -114,17 +121,24 @@ class AppRuntimeService:
         app.router.add_get("/api/app/v1/capabilities", self.handle_capabilities)
         app.router.add_get("/ws/app/v1/events", self.handle_events_ws)
 
+    async def start_background_tasks(self) -> None:
+        await self.reminder_scheduler.start()
+
+    async def stop_background_tasks(self) -> None:
+        await self.reminder_scheduler.stop()
+
     async def on_inbound_published(self, msg: InboundMessage) -> None:
         """观察 inbound 队列，登记任务与 App 用户消息。"""
         if msg.channel == "system" or msg.content.strip().lower().startswith("/"):
             return
 
         now = self._now_iso()
+        app_session_id = self._app_session_id_from_message(msg)
         async with self._lock:
             msg.metadata.setdefault("task_id", self._new_id("task"))
             task_id = msg.metadata["task_id"]
             msg.metadata.setdefault("message_id", self._new_id("msg"))
-            if msg.channel == "app":
+            if app_session_id:
                 msg.metadata.setdefault("assistant_message_id", self._new_id("msg"))
 
             task = self._tasks.get(task_id)
@@ -133,7 +147,7 @@ class AppRuntimeService:
                     "task_id": task_id,
                     "kind": "chat",
                     "source_channel": msg.channel,
-                    "source_session_id": self._session_id_for(msg.channel, msg.chat_id),
+                    "source_session_id": app_session_id or self._session_id_for(msg.channel, msg.chat_id),
                     "source_chat_id": msg.chat_id,
                     "summary": self._summarize(msg.content),
                     "stage": "queued",
@@ -151,7 +165,7 @@ class AppRuntimeService:
             queue_payload = self._build_queue_event_payload_unlocked()
             session_id = task["source_session_id"]
             user_message = None
-            if msg.channel == "app":
+            if app_session_id:
                 user_message = self._build_message_payload(
                     message_id=msg.metadata["message_id"],
                     session_id=session_id,
@@ -159,10 +173,7 @@ class AppRuntimeService:
                     content=msg.content,
                     status="pending",
                     created_at=now,
-                    metadata={
-                        "client_message_id": msg.metadata.get("client_message_id"),
-                        "task_id": task_id,
-                    },
+                    metadata=self._session_message_metadata(msg.metadata, task_id),
                 )
 
         await self._broadcast_event(
@@ -182,10 +193,12 @@ class AppRuntimeService:
     async def on_outbound_published(self, msg: OutboundMessage) -> None:
         """观察 outbound 队列，转成 App 实时事件与运行态更新。"""
         task_id = msg.metadata.get("task_id")
-        if not task_id or msg.channel != "app" or not msg.content:
+        if not task_id or not msg.content:
             return
 
-        session_id = self._session_id_for(msg.channel, msg.chat_id)
+        session_id = self._app_session_id_from_metadata(msg.metadata)
+        if not session_id and msg.channel == "app":
+            session_id = self._session_id_for(msg.channel, msg.chat_id)
         if msg.metadata.get("_progress"):
             kind = "tool_hint" if msg.metadata.get("_tool_hint") else "thinking"
             async with self._lock:
@@ -196,18 +209,19 @@ class AppRuntimeService:
                     task["updated_at"] = self._now_iso()
                 current_payload = self._build_current_task_event_payload_unlocked()
 
-            await self._broadcast_event(
-                "session.message.progress",
-                payload={
-                    "message_id": msg.metadata.get("assistant_message_id"),
-                    "kind": kind,
-                    "content": msg.content,
-                    "tool_hint": bool(msg.metadata.get("_tool_hint")),
-                },
-                scope="session",
-                session_id=session_id,
-                task_id=task_id,
-            )
+            if session_id:
+                await self._broadcast_event(
+                    "session.message.progress",
+                    payload={
+                        "message_id": msg.metadata.get("assistant_message_id"),
+                        "kind": kind,
+                        "content": msg.content,
+                        "tool_hint": bool(msg.metadata.get("_tool_hint")),
+                    },
+                    scope="session",
+                    session_id=session_id,
+                    task_id=task_id,
+                )
             await self._broadcast_event(
                 "runtime.task.current_changed",
                 payload=current_payload,
@@ -216,25 +230,26 @@ class AppRuntimeService:
             )
             return
 
-        await self._broadcast_event(
-            "session.message.completed",
-            payload={
-                "message": self._build_message_payload(
-                    message_id=msg.metadata.get("assistant_message_id")
-                    or msg.metadata.get("message_id")
-                    or self._new_id("msg"),
-                    session_id=session_id,
-                    role="assistant",
-                    content=msg.content,
-                    status="completed",
-                    created_at=self._now_iso(),
-                    metadata={"task_id": task_id},
-                )
-            },
-            scope="session",
-            session_id=session_id,
-            task_id=task_id,
-        )
+        if session_id:
+            await self._broadcast_event(
+                "session.message.completed",
+                payload={
+                    "message": self._build_message_payload(
+                        message_id=msg.metadata.get("assistant_message_id")
+                        or msg.metadata.get("message_id")
+                        or self._new_id("msg"),
+                        session_id=session_id,
+                        role="assistant",
+                        content=msg.content,
+                        status="completed",
+                        created_at=self._now_iso(),
+                        metadata={"task_id": task_id},
+                    )
+                },
+                scope="session",
+                session_id=session_id,
+                task_id=task_id,
+            )
 
     async def on_task_started(self, *, msg: InboundMessage, session_key: str) -> None:
         """Agent 开始实际处理任务。"""
@@ -340,6 +355,93 @@ class AppRuntimeService:
                 "wifi_rssi": snapshot.get("wifi_rssi"),
                 "charging": snapshot.get("charging"),
             },
+            scope="global",
+        )
+
+    async def on_desktop_voice_state_changed(self, *, snapshot: dict[str, Any]) -> None:
+        await self._broadcast_event(
+            "desktop_voice.state.changed",
+            payload=snapshot,
+            scope="global",
+        )
+
+    async def on_desktop_voice_transcript(
+        self,
+        *,
+        transcript: str,
+        metadata: dict[str, Any],
+        snapshot: dict[str, Any],
+    ) -> None:
+        await self._broadcast_event(
+            "desktop_voice.transcript",
+            payload={
+                "text": transcript,
+                "metadata": metadata,
+                "state": snapshot,
+            },
+            scope="global",
+            session_id=self._app_session_id_from_metadata(metadata),
+            task_id=metadata.get("task_id"),
+        )
+
+    async def on_desktop_voice_response(
+        self,
+        *,
+        text: str,
+        snapshot: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> None:
+        await self._broadcast_event(
+            "desktop_voice.response",
+            payload={
+                "text": text,
+                "metadata": metadata,
+                "state": snapshot,
+            },
+            scope="global",
+            session_id=self._app_session_id_from_metadata(metadata),
+            task_id=metadata.get("task_id"),
+        )
+
+    async def on_desktop_voice_error(
+        self,
+        *,
+        code: str,
+        message: str,
+        snapshot: dict[str, Any],
+    ) -> None:
+        await self._broadcast_event(
+            "desktop_voice.error",
+            payload={
+                "code": code,
+                "message": message,
+                "state": snapshot,
+            },
+            scope="global",
+        )
+
+    async def on_reminder_triggered(
+        self,
+        *,
+        reminder: dict[str, Any],
+        notification: dict[str, Any],
+    ) -> None:
+        await self._broadcast_event(
+            "reminder.updated",
+            payload={"reminder": reminder},
+            scope="global",
+        )
+        await self._broadcast_event(
+            "reminder.triggered",
+            payload={
+                "reminder": reminder,
+                "notification": notification,
+            },
+            scope="global",
+        )
+        await self._broadcast_event(
+            "notification.created",
+            payload={"notification": notification},
             scope="global",
         )
 
@@ -698,6 +800,7 @@ class AppRuntimeService:
             reminder = self.resources.create_reminder(payload)
         except ResourceValidationError as exc:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
         await self._broadcast_event("reminder.created", payload={"reminder": reminder}, scope="global")
         return self._ok(reminder, status=201)
 
@@ -713,6 +816,7 @@ class AppRuntimeService:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "reminder does not exist", status=404)
+        reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
         await self._broadcast_event("reminder.updated", payload={"reminder": reminder}, scope="global")
         return self._ok(reminder)
 
@@ -723,6 +827,7 @@ class AppRuntimeService:
             reminder = self.resources.delete_reminder(request.match_info["reminder_id"])
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "reminder does not exist", status=404)
+        await self.reminder_scheduler.sync_all()
         await self._broadcast_event("reminder.deleted", payload={"reminder": reminder}, scope="global")
         return self._ok({"deleted": True, "reminder_id": reminder["reminder_id"]})
 
@@ -905,6 +1010,11 @@ class AppRuntimeService:
             "current_task": current_task,
             "task_queue": task_queue,
             "device": self.device_channel.get_snapshot(),
+            "desktop_voice": self._desktop_voice_runtime(),
+            "voice": self._voice_runtime_state(),
+            "reminders": {
+                "scheduler_running": self.reminder_scheduler.is_running(),
+            },
             "todo_summary": self.get_todo_summary(),
             "calendar_summary": self.get_calendar_summary(),
         }
@@ -975,7 +1085,7 @@ class AppRuntimeService:
             task["updated_at"] = self._now_iso()
             current_payload = self._build_current_task_event_payload_unlocked()
             queue_payload = self._build_queue_event_payload_unlocked()
-            should_emit_failed = msg.channel == "app" and status in {"failed", "cancelled"}
+            should_emit_failed = bool(self._app_session_id_from_message(msg)) and status in {"failed", "cancelled"}
             session_id = task["source_session_id"]
 
         await self._broadcast_event(
@@ -1346,7 +1456,13 @@ class AppRuntimeService:
     @staticmethod
     def _extract_message_metadata(entry: dict[str, Any]) -> dict[str, Any]:
         metadata: dict[str, Any] = {}
-        for key in ("task_id", "client_message_id"):
+        for key in (
+            "task_id",
+            "client_message_id",
+            "interaction_surface",
+            "capture_source",
+            "source_channel",
+        ):
             if entry.get(key) is not None:
                 metadata[key] = entry[key]
         return metadata
@@ -1527,12 +1643,61 @@ class AppRuntimeService:
             return False, "session_id suffix is required"
         return True, ""
 
+    def _desktop_voice_runtime(self) -> dict[str, Any]:
+        if self.desktop_voice_service is None:
+            return {
+                "connected": False,
+                "ready": False,
+                "status": "idle",
+                "capture_active": False,
+                "client_count": 0,
+                "device_feedback_available": bool(self.device_channel.connected),
+                "asr_available": bool(self.device_channel.asr),
+                "wake_word_active": False,
+                "auto_listen_active": False,
+            }
+        return self.desktop_voice_service.get_snapshot()
+
+    def _voice_runtime_state(self) -> dict[str, Any]:
+        settings = self.settings.get_public_settings()
+        desktop = self._desktop_voice_runtime()
+        return {
+            "pipeline_ready": bool(self.device_channel.asr and desktop.get("ready")),
+            "desktop_bridge": desktop,
+            "device_feedback_available": bool(self.device_channel.connected),
+            "wake_word": {
+                "configured_value": settings.get("wake_word"),
+                "configured": bool(settings.get("wake_word")),
+                "implemented": False,
+                "active": False,
+                "reason": "configured_only_not_runtime_enabled",
+            },
+            "auto_listen": {
+                "configured_value": bool(settings.get("auto_listen", False)),
+                "configured": True,
+                "implemented": False,
+                "active": False,
+                "reason": "configured_only_not_runtime_enabled",
+            },
+        }
+
     def _capabilities(self) -> dict[str, Any]:
+        desktop = self._desktop_voice_runtime()
         return {
             "chat": True,
             "device_control": True,
             "device_commands": True,
-            "voice_pipeline": bool(self.device_channel.asr and self.device_channel.tts),
+            "voice_pipeline": bool(self.device_channel.asr and desktop.get("ready")),
+            "desktop_voice": {
+                "http_path": "/api/desktop-voice/v1/state",
+                "ws_path": "/ws/desktop-voice",
+                "desktop_client_ready": bool(desktop.get("ready")),
+                "capture_source": "desktop_mic",
+                "device_feedback_available": bool(self.device_channel.connected),
+                "local_speaker_output": False,
+            },
+            "wake_word": False,
+            "auto_listen": False,
             "whatsapp_bridge": bool(self.cfg.get("whatsapp", {}).get("enabled", False)),
             "settings": True,
             "tasks": True,
@@ -1545,6 +1710,34 @@ class AppRuntimeService:
             "event_replay": True,
             "app_auth_enabled": bool(self.auth_token),
         }
+
+    @staticmethod
+    def _app_session_id_from_metadata(metadata: dict[str, Any] | None) -> str | None:
+        if not isinstance(metadata, dict):
+            return None
+        candidate = str(metadata.get("app_session_id") or "").strip()
+        return candidate or None
+
+    def _app_session_id_from_message(self, msg: InboundMessage) -> str | None:
+        metadata_session = self._app_session_id_from_metadata(msg.metadata)
+        if metadata_session:
+            return metadata_session
+        if msg.channel == "app":
+            return self._session_id_for(msg.channel, msg.chat_id)
+        if msg.session_key_override and msg.session_key_override.startswith("app:"):
+            return msg.session_key_override
+        return None
+
+    @staticmethod
+    def _session_message_metadata(metadata: dict[str, Any], task_id: str) -> dict[str, Any]:
+        payload = {
+            "task_id": task_id,
+            "client_message_id": metadata.get("client_message_id"),
+            "interaction_surface": metadata.get("interaction_surface"),
+            "capture_source": metadata.get("capture_source"),
+            "source_channel": metadata.get("source_channel"),
+        }
+        return {key: value for key, value in payload.items() if value is not None}
 
     @staticmethod
     def _parse_limit(raw: str | None, *, default: int, maximum: int) -> int:

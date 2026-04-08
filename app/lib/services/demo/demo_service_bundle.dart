@@ -22,6 +22,18 @@ class DemoServiceBundle {
       pinned: true,
       archived: false,
     ),
+    SessionModel(
+      sessionId: 'app:demo-briefing',
+      channel: 'app',
+      title: 'Daily Briefing',
+      summary: 'A second local session for switching flows.',
+      lastMessageAt: DateTime.now()
+          .subtract(const Duration(hours: 3))
+          .toIso8601String(),
+      messageCount: 2,
+      pinned: false,
+      archived: false,
+    ),
   ];
 
   static final RuntimeStateModel runtime = RuntimeStateModel(
@@ -57,6 +69,17 @@ class DemoServiceBundle {
       wifiSignal: 77,
       charging: false,
       reconnectCount: 0,
+    ),
+    voice: const VoiceStatusModel(
+      reportedByBackend: true,
+      desktopBridgeReady: true,
+      deviceFeedbackReady: true,
+      backendPipelineReady: true,
+      inputMode: 'device_press_desktop_mic',
+      outputMode: 'device_text_feedback',
+      status: 'ready',
+      statusMessage: 'Demo mode simulates the desktop microphone bridge.',
+      lastError: null,
     ),
     todoSummary: TodoSummaryModel(
       enabled: true,
@@ -132,6 +155,29 @@ class DemoServiceBundle {
         status: 'completed',
         createdAt: DateTime.now()
             .subtract(const Duration(minutes: 57))
+            .toIso8601String(),
+      ),
+    ],
+    'app:demo-briefing': <MessageModel>[
+      MessageModel(
+        id: 'msg_demo_b1',
+        sessionId: 'app:demo-briefing',
+        role: 'assistant',
+        text:
+            'This second session is here to validate switching and creation flows.',
+        status: 'completed',
+        createdAt: DateTime.now()
+            .subtract(const Duration(hours: 3))
+            .toIso8601String(),
+      ),
+      MessageModel(
+        id: 'msg_demo_b2',
+        sessionId: 'app:demo-briefing',
+        role: 'user',
+        text: 'Keep the UI minimal, but make it actionable.',
+        status: 'completed',
+        createdAt: DateTime.now()
+            .subtract(const Duration(hours: 2, minutes: 55))
             .toIso8601String(),
       ),
     ],

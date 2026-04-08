@@ -1,58 +1,65 @@
 /*
  * AI-Bot Demo 固件
- * ESP32-S3 + INMP441 麦克风 + ST7789 屏幕 + 触摸录音 + WebSocket
+ * ESP32-S3 + ST7789 屏幕 + 触摸触发 + 桌面麦克风代采 + MAX98357A 喇叭回放
  *
  * 功能:
  * 1. 连接 WiFi → 连接服务端 WebSocket
- * 2. 触摸 IO7 按住录音，松开发送
- * 3. 麦克风 I2S 采集 16kHz 16bit 单声道 PCM
- * 4. 屏幕显示连接状态 + AI 回复文字
- * 5. 连接成功后发送自我介绍请求
+ * 2. 触摸 IO7 按下发送 long_press，松开发送 long_release
+ * 3. 由电脑端 desktop voice client 负责实际采音
+ * 4. 服务端回传 PCM 16kHz/16bit/mono 音频，固件本地播放到 MAX98357A
+ * 5. 屏幕显示连接状态、AI 回复文字、播放状态
  *
- * 依赖库: TFT_eSPI, WebSocketsClient (arduinoWebSockets), ArduinoJson
+ * 依赖库: TFT_eSPI, WebSocketsClient (arduinoWebSockets), ArduinoJson, ESP_I2S
  * 引脚: 见 CLAUDE.md 引脚分配表
  */
 
+#include <Arduino.h>
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
-#include <driver/i2s.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
+#include <ESP_I2S.h>
 #include "face_display.h"
 
 // ===== WiFi 配置 =====
-const char* WIFI_SSID = "AAAAA"; //EE3070_P1615_1   /  AAAAA
-const char* WIFI_PASS = "92935903";  //EE3070P1615。     / 92935903
+const char* WIFI_SSID = "AAAAA";  // EE3070_P1615_1 / AAAAA
+const char* WIFI_PASS = "92935903";  // EE3070P1615 / 92935903
 
 // ===== WebSocket 服务端配置 =====
-const char* WS_HOST = "172.20.10.2";  // ← 改为你电脑的局域网 IP
+const char* WS_HOST = "172.20.10.3";  // ← 改为你电脑的局域网 IP
 const uint16_t WS_PORT = 8765;
 const char* WS_PATH = "/ws/device";
-
-// ===== I2S 麦克风引脚 (INMP441) =====
-#define I2S_SCK   14
-#define I2S_WS    15
-#define I2S_SD    16
-#define I2S_PORT  I2S_NUM_0
-#define SAMPLE_RATE 16000
 
 // ===== 触摸引脚 =====
 #define TOUCH_PIN 7
 #define TOUCH_THRESHOLD 40000
 
-// ===== 音频 buffer =====
-#define AUDIO_BUFFER_SIZE 1024
-int16_t audioBuffer[AUDIO_BUFFER_SIZE];
+// ===== MAX98357A 喇叭引脚 =====
+#define SPEAKER_BCLK 17
+#define SPEAKER_LRC 18
+#define SPEAKER_DOUT 21
+#define SPEAKER_SD_MODE_PIN 2
+#define SPEAKER_SAMPLE_RATE 16000
+#define PLAYBACK_BATCH_SAMPLES 256
+
+enum SpeakerSdMode {
+  SPEAKER_SD_SHUTDOWN = 0,
+  SPEAKER_SD_LEFT = 1,
+};
 
 // ===== 全局对象 =====
 TFT_eSPI tft = TFT_eSPI();
 WebSocketsClient webSocket;
+I2SClass speakerI2S;
 
 // ===== 状态变量 =====
 bool wsConnected = false;
-bool isRecording = false;
 bool introSent = false;
+bool lastTouchPressed = false;
+bool speakerReady = false;
+bool playbackActive = false;
+SpeakerSdMode currentSpeakerMode = SPEAKER_SD_SHUTDOWN;
 String lastReply = "";
 unsigned long lastTouchCheck = 0;
 unsigned long lastNtpUpdate = 0;
@@ -70,42 +77,90 @@ void updateStatusBar() {
 }
 
 // ──────────────────────────────────────────────
-// I2S 麦克风初始化
+// 喇叭初始化 / 播放
 // ──────────────────────────────────────────────
 
-bool initMicrophone() {
-  i2s_config_t i2s_config = {
-    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-    .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-    .dma_buf_count = 4,
-    .dma_buf_len = AUDIO_BUFFER_SIZE,
-    .use_apll = false,
-    .tx_desc_auto_clear = false,
-    .fixed_mclk = 0
-  };
+const char* speakerModeName(SpeakerSdMode mode) {
+  switch (mode) {
+    case SPEAKER_SD_SHUTDOWN:
+      return "shutdown";
+    case SPEAKER_SD_LEFT:
+      return "left channel";
+    default:
+      return "unknown";
+  }
+}
 
-  i2s_pin_config_t pin_config = {
-    .bck_io_num = I2S_SCK,
-    .ws_io_num = I2S_WS,
-    .data_out_num = I2S_PIN_NO_CHANGE,
-    .data_in_num = I2S_SD
-  };
+void applySpeakerMode(SpeakerSdMode mode) {
+  pinMode(SPEAKER_SD_MODE_PIN, OUTPUT);
+  digitalWrite(SPEAKER_SD_MODE_PIN, mode == SPEAKER_SD_LEFT ? HIGH : LOW);
+  currentSpeakerMode = mode;
+  delay(10);
+  Serial.printf(
+    "Speaker SD_MODE -> %s (IO%d = %s)\n",
+    speakerModeName(mode),
+    SPEAKER_SD_MODE_PIN,
+    mode == SPEAKER_SD_LEFT ? "HIGH" : "LOW"
+  );
+}
 
-  if (i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL) != ESP_OK) {
-    Serial.println("I2S driver install failed");
+bool initSpeaker() {
+  applySpeakerMode(SPEAKER_SD_LEFT);
+
+  speakerI2S.setPins(SPEAKER_BCLK, SPEAKER_LRC, SPEAKER_DOUT);
+  if (!speakerI2S.begin(
+        I2S_MODE_STD,
+        SPEAKER_SAMPLE_RATE,
+        I2S_DATA_BIT_WIDTH_16BIT,
+        I2S_SLOT_MODE_STEREO
+      )) {
+    Serial.println("Speaker I2S init failed");
+    applySpeakerMode(SPEAKER_SD_SHUTDOWN);
     return false;
   }
-  if (i2s_set_pin(I2S_PORT, &pin_config) != ESP_OK) {
-    Serial.println("I2S pin config failed");
-    return false;
-  }
 
-  Serial.println("Microphone initialized");
+  Serial.printf(
+    "Speaker initialized: BCLK=IO%d, LRC=IO%d, DOUT=IO%d, SD_MODE=IO%d\n",
+    SPEAKER_BCLK,
+    SPEAKER_LRC,
+    SPEAKER_DOUT,
+    SPEAKER_SD_MODE_PIN
+  );
   return true;
+}
+
+void playMonoPcmChunk(const uint8_t* payload, size_t length) {
+  if (!speakerReady || !playbackActive || payload == nullptr || length < 2) {
+    return;
+  }
+
+  if (currentSpeakerMode != SPEAKER_SD_LEFT) {
+    applySpeakerMode(SPEAKER_SD_LEFT);
+  }
+
+  const int16_t* monoSamples = reinterpret_cast<const int16_t*>(payload);
+  size_t sampleCount = length / sizeof(int16_t);
+  int16_t stereoBuffer[PLAYBACK_BATCH_SAMPLES * 2];
+  size_t offset = 0;
+
+  while (offset < sampleCount) {
+    size_t batch = sampleCount - offset;
+    if (batch > PLAYBACK_BATCH_SAMPLES) {
+      batch = PLAYBACK_BATCH_SAMPLES;
+    }
+
+    for (size_t i = 0; i < batch; ++i) {
+      int16_t sample = monoSamples[offset + i];
+      stereoBuffer[i * 2] = sample;
+      stereoBuffer[i * 2 + 1] = sample;
+    }
+
+    speakerI2S.write(
+      reinterpret_cast<const uint8_t*>(stereoBuffer),
+      batch * 2 * sizeof(int16_t)
+    );
+    offset += batch;
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -145,7 +200,7 @@ bool connectWiFi() {
 }
 
 // ──────────────────────────────────────────────
-// WebSocket 事件处理
+// WebSocket 上行消息
 // ──────────────────────────────────────────────
 
 void sendTextInput(const char* text) {
@@ -162,21 +217,25 @@ void sendTextInput(const char* text) {
   Serial.printf("Sent text_input: %s\n", text);
 }
 
-void sendAudioEnd() {
+void sendTouchEvent(const char* action) {
   if (!wsConnected) return;
 
   JsonDocument doc;
-  doc["type"] = "audio_end";
-  doc["data"] = JsonObject();
+  doc["type"] = "touch_event";
+  JsonObject data = doc["data"].to<JsonObject>();
+  data["action"] = action;
 
   String json;
   serializeJson(doc, json);
   webSocket.sendTXT(json);
-  Serial.println("Sent audio_end");
+  Serial.printf("Sent touch_event: %s\n", action);
 }
 
+// ──────────────────────────────────────────────
+// WebSocket 事件处理
+// ──────────────────────────────────────────────
+
 void handleServerMessage(uint8_t* payload, size_t length) {
-  // 打印原始 JSON
   Serial.printf("[WS RX] %.*s\n", (int)length, (char*)payload);
 
   JsonDocument doc;
@@ -228,9 +287,12 @@ void handleServerMessage(uint8_t* payload, size_t length) {
     const char* timeStr = data["time"] | nullptr;
     int battery = data["battery"] | -1;
     const char* weather = data["weather"] | nullptr;
-    Serial.printf("[status_bar_update] time=%s battery=%d weather=%s\n",
-                  timeStr ? timeStr : "null", battery,
-                  weather ? weather : "null");
+    Serial.printf(
+      "[status_bar_update] time=%s battery=%d weather=%s\n",
+      timeStr ? timeStr : "null",
+      battery,
+      weather ? weather : "null"
+    );
     faceSetStatusBar(timeStr, WiFi.status() == WL_CONNECTED, wsConnected);
     if (battery >= 0) {
       faceSetBattery(battery);
@@ -238,6 +300,14 @@ void handleServerMessage(uint8_t* payload, size_t length) {
     if (weather) {
       faceSetWeather(weather);
     }
+
+  } else if (strcmp(type, "audio_play") == 0) {
+    playbackActive = true;
+    Serial.println("[audio_play] start");
+
+  } else if (strcmp(type, "audio_play_end") == 0) {
+    playbackActive = false;
+    Serial.println("[audio_play_end] done");
 
   } else {
     Serial.printf("[unknown type] %s\n", type);
@@ -249,6 +319,8 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
     case WStype_DISCONNECTED:
       wsConnected = false;
       introSent = false;
+      lastTouchPressed = false;
+      playbackActive = false;
       Serial.println("WebSocket disconnected");
       updateStatusBar();
       faceSetText("服务器已断开");
@@ -256,11 +328,11 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 
     case WStype_CONNECTED:
       wsConnected = true;
+      lastTouchPressed = false;
       Serial.println("WebSocket connected!");
       updateStatusBar();
       faceSetText("已连接服务器");
 
-      // 连接成功后发送自我介绍请求
       if (!introSent) {
         delay(500);
         sendTextInput("设备已连接，请用中文简短地自我介绍一下（不超过50字）");
@@ -273,7 +345,9 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       break;
 
     case WStype_BIN:
-      // 服务端发来的音频数据（demo 不播放，忽略）
+      if (playbackActive) {
+        playMonoPcmChunk(payload, length);
+      }
       break;
 
     case WStype_PING:
@@ -286,38 +360,27 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 }
 
 // ──────────────────────────────────────────────
-// 触摸录音处理
+// 触摸处理：只触发 long_press / long_release
 // ──────────────────────────────────────────────
 
 void handleTouch() {
   uint32_t touchVal = touchRead(TOUCH_PIN);
   bool touched = touchVal > TOUCH_THRESHOLD;
 
-  if (touched && !isRecording) {
-    // 开始录音
-    isRecording = true;
-    Serial.println("Recording started");
+  if (touched && !lastTouchPressed) {
+    lastTouchPressed = true;
+    Serial.println("Touch long_press");
     faceSetState(FACE_LISTENING);
-    faceSetText("聆听中...");
+    faceSetText("请对电脑说话...");
+    sendTouchEvent("long_press");
   }
 
-  if (touched && isRecording) {
-    // 持续录音：读取 I2S 数据并通过 WebSocket 发送
-    size_t bytesRead = 0;
-    esp_err_t err = i2s_read(I2S_PORT, audioBuffer, sizeof(audioBuffer),
-                             &bytesRead, pdMS_TO_TICKS(50));
-    if (err == ESP_OK && bytesRead > 0 && wsConnected) {
-      webSocket.sendBIN((uint8_t*)audioBuffer, bytesRead);
-    }
-  }
-
-  if (!touched && isRecording) {
-    // 停止录音
-    isRecording = false;
-    Serial.println("Recording stopped, sending audio_end");
+  if (!touched && lastTouchPressed) {
+    lastTouchPressed = false;
+    Serial.println("Touch long_release");
     faceSetState(FACE_PROCESSING);
-    faceSetText("思考中...");
-    sendAudioEnd();
+    faceSetText("录音结束，识别中...");
+    sendTouchEvent("long_release");
   }
 }
 
@@ -328,30 +391,23 @@ void handleTouch() {
 void setup() {
   Serial.begin(115200);
   delay(2000);
-  Serial.println("\n=== AI-Bot Demo ===");
+  Serial.println("\n=== AI-Bot Demo (desktop voice + speaker playback) ===");
 
-  // 初始化屏幕
   displayInit();
   delay(500);
 
-  // 初始化麦克风
-  if (!initMicrophone()) {
-    Serial.println("Microphone init failed!");
-    tft.fillScreen(TFT_RED);
-    tft.setTextColor(TFT_WHITE);
-    tft.setCursor(20, 120);
-    tft.println("MIC INIT FAILED");
-    while (1) delay(1000);
+  speakerReady = initSpeaker();
+  if (!speakerReady) {
+    Serial.println("Speaker init failed, will continue without local playback");
+    faceSetText("喇叭初始化失败");
   }
 
-  // 连接 WiFi
   if (!connectWiFi()) {
     Serial.println("WiFi failed, restarting in 5s...");
     delay(5000);
     ESP.restart();
   }
 
-  // 初始化 WebSocket
   webSocket.begin(WS_HOST, WS_PORT, WS_PATH);
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(3000);
@@ -360,13 +416,9 @@ void setup() {
 }
 
 void loop() {
-  // 维持 WebSocket 连接
   webSocket.loop();
-
-  // 表情动画更新（Phase 2 生效）
   faceUpdate();
 
-  // NTP 本地时间更新（每 30 秒）
   if (millis() - lastNtpUpdate >= NTP_UPDATE_INTERVAL) {
     lastNtpUpdate = millis();
     struct tm timeinfo;
@@ -377,7 +429,6 @@ void loop() {
     }
   }
 
-  // 触摸录音检测（每 20ms 检查一次）
   if (millis() - lastTouchCheck >= 20) {
     lastTouchCheck = millis();
     if (wsConnected) {

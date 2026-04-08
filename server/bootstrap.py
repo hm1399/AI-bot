@@ -26,6 +26,7 @@ from services.app_runtime import AppRuntimeService
 if TYPE_CHECKING:
     from channels.device_channel import DeviceChannel
     from nanobot.channels.whatsapp import WhatsAppChannel
+    from services.desktop_voice_service import DesktopVoiceService
 
 
 VERSION = "0.6.0"
@@ -51,6 +52,7 @@ class RuntimeComponents:
     agent: AgentLoop
     app: web.Application
     device_channel: DeviceChannel
+    desktop_voice_service: DesktopVoiceService
     whatsapp_channel: WhatsAppChannel | None
     asr_config: dict[str, Any]
     tts_config: dict[str, Any]
@@ -178,6 +180,7 @@ def create_http_app(
     bus: MessageBus,
     agent: AgentLoop,
     device_channel: DeviceChannel,
+    desktop_voice_service: DesktopVoiceService,
     *,
     start_time: float,
 ) -> web.Application:
@@ -206,12 +209,15 @@ def create_http_app(
         bus=bus,
         sessions=agent.sessions,
         device_channel=device_channel,
+        desktop_voice_service=desktop_voice_service,
         version=VERSION,
         start_time=start_time,
     )
     bus.add_observer(app_runtime)
     agent.task_observer = app_runtime
     device_channel.set_event_observer(app_runtime)
+    device_channel.set_desktop_voice_bridge(desktop_voice_service)
+    desktop_voice_service.set_event_observer(app_runtime)
 
     async def health_handler(request: web.Request) -> web.Response:
         nanobot_cfg = cfg.get("nanobot", {})
@@ -235,11 +241,13 @@ def create_http_app(
     app.router.add_get("/api/health", health_handler)
     app.router.add_get("/api/device", device_info_handler)
     device_channel.register_routes(app)
+    desktop_voice_service.register_routes(app)
     app_runtime.register_routes(app)
 
     app["bus"] = bus
     app["agent"] = agent
     app["device_channel"] = device_channel
+    app["desktop_voice_service"] = desktop_voice_service
     app["config"] = cfg
     app["app_runtime"] = app_runtime
     return app
@@ -247,11 +255,28 @@ def create_http_app(
 
 def build_runtime(start_time: float) -> RuntimeComponents:
     """Build the full server runtime without starting background tasks."""
+    from services.desktop_voice_service import DesktopVoiceService
+
     cfg, server_cfg = load_runtime_config()
     bus, agent = create_agent(cfg)
     device_channel, asr_cfg, tts_cfg, device_cfg = create_device_channel(cfg, bus)
+    desktop_voice_service = DesktopVoiceService(
+        bus=bus,
+        asr=device_channel.asr,
+        device_channel=device_channel,
+        auth_token=cfg.get("desktop_voice", {}).get("auth_token", "") or cfg.get("app", {}).get("auth_token", ""),
+        default_app_session_id=cfg.get("app", {}).get("default_session_id", "app:main"),
+        enable_local_microphone=cfg.get("desktop_voice", {}).get("enable_local_microphone", True),
+    )
     whatsapp_channel = create_whatsapp_channel(cfg, bus)
-    app = create_http_app(cfg, bus, agent, device_channel, start_time=start_time)
+    app = create_http_app(
+        cfg,
+        bus,
+        agent,
+        device_channel,
+        desktop_voice_service,
+        start_time=start_time,
+    )
     return RuntimeComponents(
         config=cfg,
         server_config=server_cfg,
@@ -259,6 +284,7 @@ def build_runtime(start_time: float) -> RuntimeComponents:
         agent=agent,
         app=app,
         device_channel=device_channel,
+        desktop_voice_service=desktop_voice_service,
         whatsapp_channel=whatsapp_channel,
         asr_config=asr_cfg,
         tts_config=tts_cfg,
@@ -287,6 +313,15 @@ def log_startup_summary(runtime: RuntimeComponents) -> None:
     logger.info(
         "  App Auth: {}",
         "enabled" if runtime.config.get("app", {}).get("auth_token") else "disabled",
+    )
+    logger.info(
+        "  Desktop Voice: embedded-local-mic {}",
+        "enabled" if runtime.desktop_voice_service.enable_local_microphone else "disabled",
+    )
+    wa_cfg = runtime.config.get("whatsapp", {})
+    logger.info(
+        "  WhatsApp: {}",
+        "enabled" if wa_cfg.get("enabled", False) else "disabled (optional)",
     )
     logger.info("  健康检查: http://localhost:{}/api/health", runtime.server_config["port"])
     logger.info("  App Bootstrap: http://localhost:{}/api/app/v1/bootstrap", runtime.server_config["port"])

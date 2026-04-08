@@ -19,6 +19,19 @@ class NotificationModel {
   final String createdAt;
   final Map<String, dynamic> metadata;
 
+  NotificationModel copyWith({bool? read}) {
+    return NotificationModel(
+      id: id,
+      type: type,
+      priority: priority,
+      title: title,
+      message: message,
+      read: read ?? this.read,
+      createdAt: createdAt,
+      metadata: metadata,
+    );
+  }
+
   factory NotificationModel.fromJson(Map<String, dynamic> json) {
     return NotificationModel(
       id: json['notification_id']?.toString() ?? '',

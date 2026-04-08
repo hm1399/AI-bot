@@ -61,4 +61,6 @@ class TaskModel {
       'due_at': dueAt,
     };
   }
+
+  Map<String, dynamic> toUpdateJson() => toCreateJson();
 }

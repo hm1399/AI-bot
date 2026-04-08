@@ -4,13 +4,15 @@ class MessageInput extends StatefulWidget {
   const MessageInput({
     required this.onSend,
     required this.onVoiceTap,
-    required this.voiceEnabled,
+    required this.voiceReady,
+    required this.voiceTooltip,
     super.key,
   });
 
   final Future<void> Function(String text) onSend;
   final Future<void> Function() onVoiceTap;
-  final bool voiceEnabled;
+  final bool voiceReady;
+  final String voiceTooltip;
 
   @override
   State<MessageInput> createState() => _MessageInputState();
@@ -64,8 +66,13 @@ class _MessageInputState extends State<MessageInput> {
             ),
             const SizedBox(width: 8),
             IconButton.filledTonal(
-              onPressed: widget.voiceEnabled ? widget.onVoiceTap : null,
-              icon: const Icon(Icons.mic_none),
+              tooltip: widget.voiceTooltip,
+              onPressed: widget.onVoiceTap,
+              icon: Icon(
+                widget.voiceReady
+                    ? Icons.mic_external_on_outlined
+                    : Icons.info_outline,
+              ),
             ),
             const SizedBox(width: 8),
             IconButton.filled(

@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import io
-import struct
+import re
 from typing import AsyncGenerator
 
 from loguru import logger
+
+
+_CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
 def _mp3_to_pcm_16k_mono(mp3_data: bytes) -> bytes:
@@ -35,6 +38,10 @@ class TTSService:
     def __init__(self, voice: str = "zh-CN-XiaoxiaoNeural"):
         self.voice = voice
 
+    @staticmethod
+    def _contains_cjk(text: str) -> bool:
+        return bool(_CJK_PATTERN.search(text))
+
     async def synthesize(self, text: str) -> bytes:
         """将文字合成为 PCM 音频。
 
@@ -49,6 +56,13 @@ class TTSService:
         if not text or not text.strip():
             logger.warning("TTS 收到空文本")
             return b""
+
+        if self.voice.startswith("en-") and self._contains_cjk(text):
+            logger.warning(
+                "TTS 当前使用英文 voice={}, 但文本仍包含 CJK 字符: '{}'",
+                self.voice,
+                text[:60],
+            )
 
         logger.info("TTS 开始合成: '{}' (voice={})", text[:30] + "..." if len(text) > 30 else text, self.voice)
 

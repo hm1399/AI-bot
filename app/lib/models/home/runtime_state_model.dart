@@ -87,6 +87,157 @@ class DeviceStatusModel {
   }
 }
 
+class VoiceStatusModel {
+  const VoiceStatusModel({
+    required this.reportedByBackend,
+    required this.desktopBridgeReady,
+    required this.deviceFeedbackReady,
+    required this.backendPipelineReady,
+    required this.inputMode,
+    required this.outputMode,
+    required this.status,
+    required this.statusMessage,
+    required this.lastError,
+  });
+
+  final bool reportedByBackend;
+  final bool desktopBridgeReady;
+  final bool deviceFeedbackReady;
+  final bool backendPipelineReady;
+  final String inputMode;
+  final String outputMode;
+  final String status;
+  final String? statusMessage;
+  final String? lastError;
+
+  factory VoiceStatusModel.fromParentJson(Map<String, dynamic> json) {
+    final payload = _extractVoicePayload(json);
+    if (payload == null) {
+      return VoiceStatusModel.empty();
+    }
+    return VoiceStatusModel.fromJson(payload);
+  }
+
+  factory VoiceStatusModel.fromJson(Map<String, dynamic> json) {
+    final bridge = json['desktop_bridge'] is Map<String, dynamic>
+        ? json['desktop_bridge'] as Map<String, dynamic>
+        : json;
+    return VoiceStatusModel(
+      reportedByBackend: true,
+      desktopBridgeReady: _readBool(bridge, const <String>[
+        'desktop_bridge_ready',
+        'desktop_mic_bridge_ready',
+        'bridge_ready',
+        'desktop_ready',
+        'ready',
+      ]),
+      deviceFeedbackReady: _readBool(json, const <String>[
+        'device_feedback_ready',
+        'device_ready',
+      ]),
+      backendPipelineReady: _readBool(json, const <String>[
+        'backend_pipeline_ready',
+        'pipeline_ready',
+        'ready',
+      ]),
+      inputMode: _readString(json, const <String>[
+        'input_mode',
+        'capture_mode',
+      ], fallback: 'device_press_desktop_mic'),
+      outputMode: _readString(json, const <String>[
+        'output_mode',
+        'response_mode',
+      ], fallback: 'device_text_feedback'),
+      status: _readString(bridge, const <String>[
+        'status',
+        'bridge_state',
+      ], fallback: 'unknown'),
+      statusMessage: _readNullableString(bridge, const <String>[
+        'status_message',
+        'note',
+        'message',
+      ]),
+      lastError: _readNullableString(bridge, const <String>[
+        'last_error',
+        'error',
+      ]),
+    );
+  }
+
+  factory VoiceStatusModel.empty() {
+    return const VoiceStatusModel(
+      reportedByBackend: false,
+      desktopBridgeReady: false,
+      deviceFeedbackReady: false,
+      backendPipelineReady: false,
+      inputMode: 'device_press_desktop_mic',
+      outputMode: 'device_text_feedback',
+      status: 'unknown',
+      statusMessage: null,
+      lastError: null,
+    );
+  }
+
+  static Map<String, dynamic>? _extractVoicePayload(Map<String, dynamic> json) {
+    for (final key in <String>[
+      'voice',
+      'voice_status',
+      'voice_bridge',
+      'desktop_voice',
+    ]) {
+      final value = json[key];
+      if (value is Map<String, dynamic>) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  static bool _readBool(Map<String, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      final value = json[key];
+      if (value is bool) {
+        return value;
+      }
+      final normalized = value?.toString().trim().toLowerCase();
+      if (normalized == 'true') {
+        return true;
+      }
+      if (normalized == 'false') {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  static String _readString(
+    Map<String, dynamic> json,
+    List<String> keys, {
+    required String fallback,
+  }) {
+    for (final key in keys) {
+      final value = json[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    }
+    return fallback;
+  }
+
+  static String? _readNullableString(
+    Map<String, dynamic> json,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = json[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    }
+    return null;
+  }
+}
+
 class TodoSummaryModel {
   const TodoSummaryModel({
     required this.enabled,
@@ -162,6 +313,7 @@ class RuntimeStateModel {
     required this.currentTask,
     required this.taskQueue,
     required this.device,
+    required this.voice,
     required this.todoSummary,
     required this.calendarSummary,
   });
@@ -169,6 +321,7 @@ class RuntimeStateModel {
   final RuntimeTaskModel? currentTask;
   final List<RuntimeTaskModel> taskQueue;
   final DeviceStatusModel device;
+  final VoiceStatusModel voice;
   final TodoSummaryModel todoSummary;
   final CalendarSummaryModel calendarSummary;
 
@@ -177,6 +330,7 @@ class RuntimeStateModel {
       currentTask: currentTask,
       taskQueue: taskQueue,
       device: device,
+      voice: voice,
       todoSummary: todoSummary,
       calendarSummary: calendarSummary,
     );
@@ -204,6 +358,7 @@ class RuntimeStateModel {
             ? json['device'] as Map<String, dynamic>
             : <String, dynamic>{},
       ),
+      voice: VoiceStatusModel.fromParentJson(json),
       todoSummary: TodoSummaryModel.fromJson(
         json['todo_summary'] is Map<String, dynamic>
             ? json['todo_summary'] as Map<String, dynamic>
@@ -222,6 +377,7 @@ class RuntimeStateModel {
       currentTask: null,
       taskQueue: const <RuntimeTaskModel>[],
       device: DeviceStatusModel.empty(),
+      voice: VoiceStatusModel.empty(),
       todoSummary: TodoSummaryModel.empty(),
       calendarSummary: CalendarSummaryModel.empty(),
     );
