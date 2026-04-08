@@ -111,6 +111,7 @@ class AppController extends StateNotifier<AppState> {
       await connect(
         host: saved.host,
         port: saved.port,
+        secure: saved.secure,
         token: saved.token,
         preferredSessionId: saved.currentSessionId,
         latestEventId: saved.latestEventId,
@@ -124,6 +125,7 @@ class AppController extends StateNotifier<AppState> {
   Future<void> connect({
     required String host,
     required int port,
+    required bool secure,
     required String token,
     String? preferredSessionId,
     String? latestEventId,
@@ -135,6 +137,7 @@ class AppController extends StateNotifier<AppState> {
     final connection = connectService.buildConnection(
       host: host,
       port: port,
+      secure: secure,
       token: token,
       currentSessionId: preferredSessionId ?? '',
       latestEventId: latestEventId ?? '',
@@ -149,7 +152,7 @@ class AppController extends StateNotifier<AppState> {
 
     _apiClient.setConnection(connection);
     try {
-      await connectService.checkHealth(host, port, token);
+      await connectService.checkHealth(host, port, token, secure);
       final bootstrap = await bootstrapService.fetchBootstrap();
       final sessionId = _pickSessionId(
         bootstrap.sessions,
@@ -216,6 +219,7 @@ class AppController extends StateNotifier<AppState> {
     final demoConnection = ConnectionConfigModel(
       host: 'demo.local',
       port: 8000,
+      secure: false,
       token: '',
       currentSessionId: DemoServiceBundle.sessions.first.sessionId,
       latestEventId:

@@ -30,7 +30,7 @@ class ApiClient {
       );
     }
     return Uri(
-      scheme: 'http',
+      scheme: _connection.secure ? 'https' : 'http',
       host: _connection.host,
       port: _connection.port,
       path: path,

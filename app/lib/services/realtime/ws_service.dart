@@ -50,7 +50,7 @@ class WebSocketService {
     }
     _statusController.add(RealtimeConnectionStatus.connecting);
     final uri = Uri(
-      scheme: 'ws',
+      scheme: _connection.secure ? 'wss' : 'ws',
       host: _connection.host,
       port: _connection.port,
       path: _path,

@@ -22,16 +22,14 @@ class ConnectService {
     String host,
     int port,
     String token,
+    bool secure,
   ) {
-    _apiClient.setConnection(
-      ConnectionConfigModel(
-        host: host,
-        port: port,
-        token: token,
-        currentSessionId: '',
-        latestEventId: '',
-      ),
-    );
+    _apiClient.setConnection(buildConnection(
+      host: host,
+      port: port,
+      token: token,
+      secure: secure,
+    ));
     return _apiClient.getRaw(
       ApiConstants.healthPath,
       timeout: const Duration(seconds: 5),
@@ -42,15 +40,43 @@ class ConnectService {
     required String host,
     required int port,
     required String token,
+    required bool secure,
     String currentSessionId = '',
     String latestEventId = '',
   }) {
+    final endpoint = _parseEndpoint(host);
     return ConnectionConfigModel(
-      host: host.trim(),
-      port: port <= 0 ? AppConfig.defaultPort : port,
+      host: endpoint.host,
+      port: endpoint.port ?? (port <= 0 ? AppConfig.defaultPort : port),
+      secure: endpoint.secure ?? secure,
       token: token.trim(),
       currentSessionId: currentSessionId,
       latestEventId: latestEventId,
+    );
+  }
+
+  ({String host, int? port, bool? secure}) _parseEndpoint(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      return (host: '', port: null, secure: null);
+    }
+
+    final withScheme = trimmed.contains('://') ? trimmed : 'http://$trimmed';
+    final parsed = Uri.tryParse(withScheme);
+    if (parsed == null || parsed.host.isEmpty) {
+      return (host: trimmed, port: null, secure: null);
+    }
+
+    final secure = switch (parsed.scheme) {
+      'https' || 'wss' => true,
+      'http' || 'ws' => false,
+      _ => null,
+    };
+
+    return (
+      host: parsed.host,
+      port: parsed.hasPort ? parsed.port : null,
+      secure: secure,
     );
   }
 }

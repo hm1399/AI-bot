@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -18,6 +19,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     text: '8000',
   );
   final TextEditingController _tokenController = TextEditingController();
+  bool _secureConnection = false;
 
   @override
   void dispose() {
@@ -35,9 +37,31 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
       _hostController.text = state.connection.host;
       _portController.text = '${state.connection.port}';
       _tokenController.text = state.connection.token;
+      _secureConnection = state.connection.secure;
+      if (!state.connection.hasServer && kIsWeb && Uri.base.host.isNotEmpty) {
+        _hostController.text = Uri.base.host;
+        _secureConnection = Uri.base.scheme == 'https';
+      }
       if (state.isConnected) {
         context.go('/app/home');
       }
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  void _useCurrentPageOrigin() {
+    if (!kIsWeb || Uri.base.host.isEmpty) {
+      return;
+    }
+    setState(() {
+      _hostController.text = Uri.base.host;
+      final port = Uri.base.port;
+      if (port > 0) {
+        _portController.text = '$port';
+      }
+      _secureConnection = Uri.base.scheme == 'https';
     });
   }
 
@@ -91,7 +115,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                         controller: _hostController,
                         decoration: const InputDecoration(
                           labelText: 'Server Host',
-                          hintText: '192.168.1.100 or localhost',
+                          hintText:
+                              '192.168.1.100, localhost, or your deployed host',
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -109,6 +134,29 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                           helperText: 'Used for both HTTP and WebSocket auth.',
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: _secureConnection,
+                        onChanged: (bool value) {
+                          setState(() {
+                            _secureConnection = value;
+                          });
+                        },
+                        title: const Text('Use HTTPS / WSS'),
+                        subtitle: const Text(
+                          'Enable this when the backend is exposed over HTTPS.',
+                        ),
+                      ),
+                      if (kIsWeb)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _useCurrentPageOrigin,
+                            icon: const Icon(Icons.language),
+                            label: const Text('Use Current Page Origin'),
+                          ),
+                        ),
                       const SizedBox(height: 20),
                       FilledButton(
                         onPressed: state.isConnecting
@@ -124,6 +172,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                                               _portController.text.trim(),
                                             ) ??
                                             8000,
+                                        secure: _secureConnection,
                                         token: _tokenController.text.trim(),
                                       );
                                 } catch (_) {}

@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
 
 VERSION = "0.6.0"
+_CORS_ALLOW_HEADERS = "Authorization, Content-Type, X-App-Token"
+_CORS_ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 
 
 class ConfigValidationError(Exception):
@@ -181,6 +183,24 @@ def create_http_app(
 ) -> web.Application:
     """Create the aiohttp application and register routes."""
 
+    @web.middleware
+    async def cors_middleware(
+        request: web.Request,
+        handler,
+    ) -> web.StreamResponse:
+        if request.method == "OPTIONS":
+            response: web.StreamResponse = web.Response(status=204)
+        else:
+            try:
+                response = await handler(request)
+            except web.HTTPException as exc:
+                response = exc
+
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = _CORS_ALLOW_HEADERS
+        response.headers["Access-Control-Allow-Methods"] = _CORS_ALLOW_METHODS
+        return response
+
     app_runtime = AppRuntimeService(
         cfg,
         bus=bus,
@@ -211,7 +231,7 @@ def create_http_app(
     async def device_info_handler(request: web.Request) -> web.Response:
         return web.json_response(device_channel.get_snapshot())
 
-    app = web.Application()
+    app = web.Application(middlewares=[cors_middleware])
     app.router.add_get("/api/health", health_handler)
     app.router.add_get("/api/device", device_info_handler)
     device_channel.register_routes(app)
