@@ -34,8 +34,10 @@ class DeviceService {
       ApiConstants.deviceCommandsPath,
       body: <String, dynamic>{
         'command': command,
-        if (params != null) 'params': params,
-        if (clientCommandId != null) 'client_command_id': clientCommandId,
+        ...?params == null ? null : <String, dynamic>{'params': params},
+        ...?clientCommandId == null
+            ? null
+            : <String, dynamic>{'client_command_id': clientCommandId},
       },
       parser: (dynamic data) =>
           data is Map<String, dynamic> ? data : <String, dynamic>{},

@@ -19,6 +19,25 @@ class EventModel {
   final String createdAt;
   final String? updatedAt;
 
+  EventModel copyWith({
+    String? title,
+    String? description,
+    String? startAt,
+    String? endAt,
+    String? location,
+  }) {
+    return EventModel(
+      id: id,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      startAt: startAt ?? this.startAt,
+      endAt: endAt ?? this.endAt,
+      location: location ?? this.location,
+      createdAt: createdAt,
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+  }
+
   factory EventModel.fromJson(Map<String, dynamic> json) {
     return EventModel(
       id: json['event_id']?.toString() ?? json['id']?.toString() ?? '',
@@ -48,4 +67,6 @@ class EventModel {
       'location': location,
     };
   }
+
+  Map<String, dynamic> toUpdateJson() => toCreateJson();
 }

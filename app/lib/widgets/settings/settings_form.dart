@@ -27,6 +27,16 @@ class SettingsForm extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: <Widget>[
+        Card(
+          color: const Color(0xFFFFFBEB),
+          child: const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'wake_word and auto_listen are configuration fields only in the current P0 build. Saving them does not mean wake word detection or hands-free listening is already active.',
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         TextField(
           enabled: canEdit,
           decoration: const InputDecoration(labelText: 'LLM Provider'),
@@ -55,10 +65,26 @@ class SettingsForm extends StatelessWidget {
         const SizedBox(height: 12),
         TextField(
           enabled: canEdit,
-          decoration: const InputDecoration(labelText: 'Wake word'),
+          decoration: const InputDecoration(
+            labelText: 'Wake word',
+            helperText:
+                'Configuration only. Current voice interaction still starts from pressing and holding the device.',
+          ),
           controller: TextEditingController(text: settings.wakeWord),
           onChanged: (String value) =>
               onChanged(settings.copyWith(wakeWord: value)),
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile.adaptive(
+          value: settings.autoListen,
+          onChanged: canEdit
+              ? (bool value) => onChanged(settings.copyWith(autoListen: value))
+              : null,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Auto listen'),
+          subtitle: const Text(
+            'Saved as a backend setting only. It does not confirm an always-on listening loop is running yet.',
+          ),
         ),
         const SizedBox(height: 16),
         Row(

@@ -12,6 +12,8 @@ import '../models/tasks/task_model.dart';
 enum FeatureStatus { idle, loading, ready, notReady, error, demo }
 
 class AppState {
+  static const Object _unset = Object();
+
   const AppState({
     required this.connection,
     required this.isConnecting,
@@ -81,28 +83,28 @@ class AppState {
     bool? isConnected,
     bool? isDemoMode,
     bool? eventStreamConnected,
-    BootstrapModel? bootstrap,
+    Object? bootstrap = _unset,
     CapabilitiesModel? capabilities,
     RuntimeStateModel? runtimeState,
     List<SessionModel>? sessions,
     Map<String, List<MessageModel>>? messagesBySession,
     bool? messagesLoading,
     FeatureStatus? settingsStatus,
-    AppSettingsModel? settings,
-    String? settingsMessage,
+    Object? settings = _unset,
+    Object? settingsMessage = _unset,
     FeatureStatus? tasksStatus,
     List<TaskModel>? tasks,
-    String? tasksMessage,
+    Object? tasksMessage = _unset,
     FeatureStatus? eventsStatus,
     List<EventModel>? events,
-    String? eventsMessage,
+    Object? eventsMessage = _unset,
     FeatureStatus? notificationsStatus,
     List<NotificationModel>? notifications,
-    String? notificationsMessage,
+    Object? notificationsMessage = _unset,
     FeatureStatus? remindersStatus,
     List<ReminderModel>? reminders,
-    String? remindersMessage,
-    String? globalMessage,
+    Object? remindersMessage = _unset,
+    Object? globalMessage = _unset,
   }) {
     return AppState(
       connection: connection ?? this.connection,
@@ -110,28 +112,44 @@ class AppState {
       isConnected: isConnected ?? this.isConnected,
       isDemoMode: isDemoMode ?? this.isDemoMode,
       eventStreamConnected: eventStreamConnected ?? this.eventStreamConnected,
-      bootstrap: bootstrap ?? this.bootstrap,
+      bootstrap: identical(bootstrap, _unset)
+          ? this.bootstrap
+          : bootstrap as BootstrapModel?,
       capabilities: capabilities ?? this.capabilities,
       runtimeState: runtimeState ?? this.runtimeState,
       sessions: sessions ?? this.sessions,
       messagesBySession: messagesBySession ?? this.messagesBySession,
       messagesLoading: messagesLoading ?? this.messagesLoading,
       settingsStatus: settingsStatus ?? this.settingsStatus,
-      settings: settings ?? this.settings,
-      settingsMessage: settingsMessage ?? this.settingsMessage,
+      settings: identical(settings, _unset)
+          ? this.settings
+          : settings as AppSettingsModel?,
+      settingsMessage: identical(settingsMessage, _unset)
+          ? this.settingsMessage
+          : settingsMessage as String?,
       tasksStatus: tasksStatus ?? this.tasksStatus,
       tasks: tasks ?? this.tasks,
-      tasksMessage: tasksMessage ?? this.tasksMessage,
+      tasksMessage: identical(tasksMessage, _unset)
+          ? this.tasksMessage
+          : tasksMessage as String?,
       eventsStatus: eventsStatus ?? this.eventsStatus,
       events: events ?? this.events,
-      eventsMessage: eventsMessage ?? this.eventsMessage,
+      eventsMessage: identical(eventsMessage, _unset)
+          ? this.eventsMessage
+          : eventsMessage as String?,
       notificationsStatus: notificationsStatus ?? this.notificationsStatus,
       notifications: notifications ?? this.notifications,
-      notificationsMessage: notificationsMessage ?? this.notificationsMessage,
+      notificationsMessage: identical(notificationsMessage, _unset)
+          ? this.notificationsMessage
+          : notificationsMessage as String?,
       remindersStatus: remindersStatus ?? this.remindersStatus,
       reminders: reminders ?? this.reminders,
-      remindersMessage: remindersMessage ?? this.remindersMessage,
-      globalMessage: globalMessage ?? this.globalMessage,
+      remindersMessage: identical(remindersMessage, _unset)
+          ? this.remindersMessage
+          : remindersMessage as String?,
+      globalMessage: identical(globalMessage, _unset)
+          ? this.globalMessage
+          : globalMessage as String?,
     );
   }
 

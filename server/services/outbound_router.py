@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -8,6 +9,10 @@ from channels.device_channel import DEVICE_CHANNEL, DeviceChannel
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.whatsapp import WhatsAppChannel
+from services.desktop_voice_service import DESKTOP_VOICE_CHANNEL
+
+if TYPE_CHECKING:
+    from services.desktop_voice_service import DesktopVoiceService
 
 WHATSAPP_CHANNEL = "whatsapp"
 APP_CHANNEL = "app"
@@ -20,10 +25,12 @@ class UnifiedOutboundRouter:
         self,
         bus: MessageBus,
         device_channel: DeviceChannel,
+        desktop_voice_service: DesktopVoiceService | None = None,
         whatsapp_channel: WhatsAppChannel | None = None,
     ) -> None:
         self.bus = bus
         self.device_channel = device_channel
+        self.desktop_voice_service = desktop_voice_service
         self.whatsapp_channel = whatsapp_channel
 
     async def run(self) -> None:
@@ -50,6 +57,13 @@ class UnifiedOutboundRouter:
         if out_msg.channel == DEVICE_CHANNEL:
             await self.device_channel.send_outbound(out_msg)
             await self._mirror_device_reply_to_whatsapp(out_msg)
+            return
+
+        if out_msg.channel == DESKTOP_VOICE_CHANNEL:
+            if self.desktop_voice_service:
+                await self.desktop_voice_service.send_outbound(out_msg)
+            else:
+                logger.warning("Desktop voice service 未启用，忽略消息")
             return
 
         if out_msg.channel == WHATSAPP_CHANNEL:

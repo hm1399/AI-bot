@@ -31,6 +31,16 @@ class ChatService {
     );
   }
 
+  Future<SessionModel> createSession({required String title}) {
+    return _apiClient.post(
+      ApiConstants.sessionsPath,
+      body: <String, dynamic>{'title': title},
+      parser: (dynamic data) => SessionModel.fromJson(
+        data is Map<String, dynamic> ? data : <String, dynamic>{},
+      ),
+    );
+  }
+
   Future<MessagePageModel> getMessages(String sessionId, {int limit = 50}) {
     return _apiClient.get(
       '${ApiConstants.sessionsPath}/$sessionId/messages',

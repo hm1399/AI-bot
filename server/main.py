@@ -57,6 +57,7 @@ async def main() -> None:
     outbound_router = UnifiedOutboundRouter(
         runtime.bus,
         runtime.device_channel,
+        runtime.desktop_voice_service,
         runtime.whatsapp_channel,
     )
     outbound_task = asyncio.create_task(outbound_router.run())
@@ -71,6 +72,7 @@ async def main() -> None:
         runtime.server_config["port"],
     )
     await site.start()
+    await runtime.app["app_runtime"].start_background_tasks()
 
     log_startup_summary(runtime)
 
@@ -89,6 +91,8 @@ async def main() -> None:
 
     # 关闭顺序: WebSocket → outbound → agent → WhatsApp → HTTP
     logger.info("正在关闭服务...")
+    await runtime.app["app_runtime"].stop_background_tasks()
+    await runtime.desktop_voice_service.stop()
     await runtime.device_channel.stop()
 
     agent_task.cancel()

@@ -139,6 +139,7 @@ class DeviceChannel:
         self._weather_config: dict[str, Any] = {}
         self._last_weather: str = ""  # 缓存最新天气字符串
         self._event_observer: Any | None = None
+        self._desktop_voice_bridge: Any | None = None
 
     def set_weather_config(self, config: dict[str, Any]) -> None:
         """设置天气 API 配置（从 config.yaml 加载）。"""
@@ -147,6 +148,10 @@ class DeviceChannel:
     def set_event_observer(self, observer: Any) -> None:
         """注册设备事件观察器。"""
         self._event_observer = observer
+
+    def set_desktop_voice_bridge(self, bridge: Any) -> None:
+        """注册桌面麦克风桥接器。"""
+        self._desktop_voice_bridge = bridge
 
     async def _notify_event_observer(self, method_name: str, **kwargs: Any) -> None:
         """安全通知设备事件观察器。"""
@@ -170,6 +175,40 @@ class DeviceChannel:
             "charging": self.device_info["charging"],
             "reconnect_count": self._reconnect_count,
         }
+
+    async def notify_external_voice_transcribing(self) -> None:
+        """桌面麦克风链路进入转写阶段时，更新设备反馈。"""
+        if not self.connected:
+            return
+        await self._set_state(DeviceState.PROCESSING)
+        await self._send_display_update("录音结束，正在识别")
+
+    async def notify_external_voice_responding(self) -> None:
+        """桌面麦克风链路进入回复阶段时，更新设备反馈。"""
+        if not self.connected:
+            return
+        if self.state != DeviceState.PROCESSING:
+            await self._set_state(DeviceState.PROCESSING)
+        await self._send_display_update("正在回复")
+
+    async def deliver_external_text_response(self, text: str) -> None:
+        """桌面麦克风链路默认走设备文字/状态反馈，不走 TTS 播放。"""
+        if not self.connected:
+            return
+        if self.state != DeviceState.SPEAKING:
+            await self._set_state(DeviceState.SPEAKING)
+        await self._send_display_update(text)
+        await self.send_text_reply(text)
+        if self.state != DeviceState.IDLE:
+            await self._set_state(DeviceState.IDLE)
+
+    async def fail_external_voice_feedback(self, message: str) -> None:
+        """桌面麦克风链路异常或取消时，恢复设备状态并提示。"""
+        if not self.connected:
+            return
+        await self._send_display_update(message)
+        if self.state != DeviceState.IDLE:
+            await self._set_state(DeviceState.IDLE)
 
     # ── 状态机方法 ─────────────────────────────────────────
 
@@ -597,7 +636,14 @@ class DeviceChannel:
 
         self._last_chat_time = time.time()
 
-        meta = {"source": "voice", "asr_ms": asr_ms}
+        meta = {
+            "source": "voice",
+            "source_channel": DEVICE_CHANNEL,
+            "voice_path": "device_mic",
+            "interaction_surface": "device_press",
+            "capture_source": "device_mic",
+            "asr_ms": asr_ms,
+        }
         if self.asr.last_emotion:
             meta["emotion"] = self.asr.last_emotion
 
@@ -642,13 +688,31 @@ class DeviceChannel:
         elif action == "long_press":
             # 长按开始：进入 LISTENING
             if self.state == DeviceState.IDLE:
-                await self._set_state(DeviceState.LISTENING)
-                self._arm_recording_timeout(LISTENING_START_TIMEOUT)
+                bridge = self._desktop_voice_bridge
+                if bridge is None:
+                    await self._set_state(DeviceState.LISTENING)
+                    self._arm_recording_timeout(LISTENING_START_TIMEOUT)
+                elif getattr(bridge, "is_ready", lambda: False)():
+                    started = await bridge.start_device_push_to_talk()
+                    if started:
+                        await self._set_state(DeviceState.LISTENING)
+                    else:
+                        await self._send_display_update("桌面麦克风不可用")
+                        if self.state != DeviceState.IDLE:
+                            await self._set_state(DeviceState.IDLE)
+                else:
+                    await self._send_display_update("桌面麦克风未连接")
 
         elif action == "long_release":
             # 长按松开：结束录音
             if self.state == DeviceState.LISTENING:
-                await self._on_audio_end()
+                bridge = self._desktop_voice_bridge
+                if bridge is None:
+                    await self._on_audio_end()
+                else:
+                    stopped = await bridge.stop_device_push_to_talk()
+                    if not stopped:
+                        await self._set_state(DeviceState.IDLE)
 
         else:
             logger.warning("未知触摸动作: {}", action)

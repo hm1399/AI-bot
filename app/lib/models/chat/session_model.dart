@@ -21,6 +21,26 @@ class SessionModel {
   final bool pinned;
   final bool archived;
 
+  SessionModel copyWith({
+    String? title,
+    String? summary,
+    String? lastMessageAt,
+    int? messageCount,
+    bool? pinned,
+    bool? archived,
+  }) {
+    return SessionModel(
+      sessionId: sessionId,
+      channel: channel,
+      title: title ?? this.title,
+      summary: summary ?? this.summary,
+      lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      messageCount: messageCount ?? this.messageCount,
+      pinned: pinned ?? this.pinned,
+      archived: archived ?? this.archived,
+    );
+  }
+
   factory SessionModel.fromJson(Map<String, dynamic> json) {
     return SessionModel(
       sessionId: json['session_id']?.toString() ?? '',

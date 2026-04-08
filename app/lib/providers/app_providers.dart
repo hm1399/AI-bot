@@ -10,6 +10,8 @@ import '../models/chat/session_model.dart';
 import '../models/connect/bootstrap_model.dart';
 import '../models/connect/connection_config_model.dart';
 import '../models/events/event_model.dart';
+import '../models/notifications/notification_model.dart';
+import '../models/reminders/reminder_model.dart';
 import '../models/settings/settings_model.dart';
 import '../models/tasks/task_model.dart';
 import '../services/api/api_client.dart';
@@ -260,8 +262,101 @@ class AppController extends StateNotifier<AppState> {
   Future<void> selectSession(String sessionId) async {
     final next = state.connection.copyWith(currentSessionId: sessionId);
     await ref.read(connectServiceProvider).saveConnection(next);
-    state = state.copyWith(connection: next);
+    state = state.copyWith(
+      connection: next,
+      globalMessage: 'Switched to ${_sessionTitleFor(sessionId)}.',
+    );
     await loadMessages();
+  }
+
+  Future<void> loadSessions() async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        sessions: _sortSessions(state.sessions),
+        globalMessage: 'Demo conversations refreshed locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final sessions = await ref.read(chatServiceProvider).listSessions();
+      final currentSessionId = _pickSessionId(
+        sessions,
+        state.currentSessionId,
+        state.currentSessionId,
+      );
+      final nextConnection = state.connection.copyWith(
+        currentSessionId: currentSessionId,
+      );
+      await ref.read(connectServiceProvider).saveConnection(nextConnection);
+      state = state.copyWith(
+        connection: nextConnection,
+        sessions: sessions,
+        globalMessage: sessions.isEmpty
+            ? 'No conversations yet.'
+            : 'Conversation list refreshed.',
+      );
+      if (currentSessionId.isNotEmpty) {
+        await loadMessages();
+      }
+    } on ApiError catch (error) {
+      state = state.copyWith(globalMessage: error.message);
+    }
+  }
+
+  Future<void> createSession({String? title}) async {
+    final sessionTitle = title?.trim().isNotEmpty == true
+        ? title!.trim()
+        : 'New conversation';
+    if (state.isDemoMode) {
+      final now = DateTime.now().toIso8601String();
+      final session = SessionModel(
+        sessionId: 'app:demo-${DateTime.now().millisecondsSinceEpoch}',
+        channel: 'app',
+        title: sessionTitle,
+        summary: 'Fresh local demo session.',
+        lastMessageAt: now,
+        messageCount: 0,
+        pinned: false,
+        archived: false,
+      );
+      final nextConnection = state.connection.copyWith(
+        currentSessionId: session.sessionId,
+      );
+      await ref.read(connectServiceProvider).saveConnection(nextConnection);
+      state = state.copyWith(
+        connection: nextConnection,
+        sessions: _sortSessions(<SessionModel>[session, ...state.sessions]),
+        messagesBySession: <String, List<MessageModel>>{
+          ...state.messagesBySession,
+          session.sessionId: const <MessageModel>[],
+        },
+        globalMessage: 'Demo conversation created.',
+      );
+      return;
+    }
+
+    _apiClient.setConnection(state.connection);
+    try {
+      final session = await ref
+          .read(chatServiceProvider)
+          .createSession(title: sessionTitle);
+      final nextConnection = state.connection.copyWith(
+        currentSessionId: session.sessionId,
+      );
+      await ref.read(connectServiceProvider).saveConnection(nextConnection);
+      state = state.copyWith(
+        connection: nextConnection,
+        sessions: _sortSessions(<SessionModel>[session, ...state.sessions]),
+        messagesBySession: <String, List<MessageModel>>{
+          ...state.messagesBySession,
+          session.sessionId: const <MessageModel>[],
+        },
+        globalMessage: 'Conversation created.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(globalMessage: error.message);
+    }
   }
 
   Future<void> loadMessages() async {
@@ -291,7 +386,17 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> sendMessage(String text) async {
-    if (text.trim().isEmpty || state.currentSessionId.isEmpty) {
+    final content = text.trim();
+    if (content.isEmpty) {
+      return;
+    }
+    if (state.currentSessionId.isEmpty) {
+      await createSession(title: 'New conversation');
+      if (state.currentSessionId.isEmpty) {
+        return;
+      }
+    }
+    if (state.currentSessionId.isEmpty) {
       return;
     }
     if (state.isDemoMode) {
@@ -305,7 +410,7 @@ class AppController extends StateNotifier<AppState> {
               id: 'demo-${now.millisecondsSinceEpoch}',
               sessionId: state.currentSessionId,
               role: 'user',
-              text: text,
+              text: content,
               status: 'completed',
               createdAt: now.toIso8601String(),
             ),
@@ -320,27 +425,46 @@ class AppController extends StateNotifier<AppState> {
             ),
           ],
         },
+        sessions: _touchSession(
+          state.sessions,
+          state.currentSessionId,
+          summary: content,
+          lastMessageAt: now.toIso8601String(),
+          incrementCount: true,
+        ),
       );
       return;
     }
     _apiClient.setConnection(state.connection);
-    final result = await ref
-        .read(chatServiceProvider)
-        .postMessage(
+    try {
+      final result = await ref
+          .read(chatServiceProvider)
+          .postMessage(
+            state.currentSessionId,
+            content: content,
+            clientMessageId: 'flutter_${DateTime.now().millisecondsSinceEpoch}',
+          );
+      final updated = _upsertMessage(
+        List<MessageModel>.from(state.currentMessages),
+        result.acceptedMessage,
+      );
+      state = state.copyWith(
+        messagesBySession: <String, List<MessageModel>>{
+          ...state.messagesBySession,
+          state.currentSessionId: updated,
+        },
+        sessions: _touchSession(
+          state.sessions,
           state.currentSessionId,
-          content: text,
-          clientMessageId: 'flutter_${DateTime.now().millisecondsSinceEpoch}',
-        );
-    final updated = _upsertMessage(
-      List<MessageModel>.from(state.currentMessages),
-      result.acceptedMessage,
-    );
-    state = state.copyWith(
-      messagesBySession: <String, List<MessageModel>>{
-        ...state.messagesBySession,
-        state.currentSessionId: updated,
-      },
-    );
+          summary: content,
+          lastMessageAt: result.acceptedMessage.createdAt,
+          incrementCount: true,
+        ),
+        globalMessage: null,
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(globalMessage: error.message);
+    }
   }
 
   List<MessageModel> _upsertMessage(
@@ -405,15 +529,19 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> triggerVoiceInput() async {
-    final captured = await ref.read(voiceCaptureServiceProvider).captureText();
-    if (captured == null || captured.trim().isEmpty) {
-      state = state.copyWith(
-        globalMessage:
-            'Voice entry is reserved for the backend-aligned pipeline.',
-      );
-      return;
-    }
-    await sendMessage(captured);
+    final deviceOnline = state.runtimeState.device.connected;
+    final bridgeReady = state.runtimeState.voice.desktopBridgeReady;
+    final backendReported = state.runtimeState.voice.reportedByBackend;
+
+    final message = !deviceOnline
+        ? 'Voice starts from the device. Bring the device online, then press and hold it to talk.'
+        : !bridgeReady
+        ? backendReported
+              ? 'Device feedback is online, but the desktop microphone bridge is not ready yet. The app does not record directly.'
+              : 'The app no longer records voice directly. Use press-to-talk on the device once the desktop microphone bridge reports ready.'
+        : 'Press and hold the device to talk. Audio is captured by the desktop microphone bridge, and replies currently return as device text/status feedback.';
+
+    state = state.copyWith(globalMessage: message);
   }
 
   Future<void> loadSettings() async {
@@ -513,6 +641,86 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  Future<void> createTask(TaskModel task) async {
+    if (state.isDemoMode) {
+      final created = task.copyWith();
+      state = state.copyWith(
+        tasks: _sortTasks(<TaskModel>[created, ...state.tasks]),
+        tasksMessage: 'Demo task created locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final created = await ref.read(tasksServiceProvider).createTask(task);
+      state = state.copyWith(
+        tasksStatus: FeatureStatus.ready,
+        tasks: _sortTasks(<TaskModel>[created, ...state.tasks]),
+        tasksMessage: 'Task created.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        tasksStatus: FeatureStatus.error,
+        tasksMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> updateTask(TaskModel task) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        tasks: _sortTasks(_replaceTask(state.tasks, task)),
+        tasksMessage: 'Demo task updated locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final updated = await ref
+          .read(tasksServiceProvider)
+          .updateTask(task.id, task.toUpdateJson());
+      state = state.copyWith(
+        tasksStatus: FeatureStatus.ready,
+        tasks: _sortTasks(_replaceTask(state.tasks, updated)),
+        tasksMessage: 'Task updated.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        tasksStatus: FeatureStatus.error,
+        tasksMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> deleteTask(String taskId) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        tasks: state.tasks
+            .where((TaskModel item) => item.id != taskId)
+            .toList(),
+        tasksMessage: 'Demo task deleted locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      await ref.read(tasksServiceProvider).deleteTask(taskId);
+      final remaining = state.tasks
+          .where((TaskModel item) => item.id != taskId)
+          .toList();
+      state = state.copyWith(
+        tasksStatus: FeatureStatus.ready,
+        tasks: remaining,
+        tasksMessage: remaining.isEmpty ? 'No tasks yet.' : 'Task deleted.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        tasksStatus: FeatureStatus.error,
+        tasksMessage: error.message,
+      );
+    }
+  }
+
   Future<void> loadEvents() async {
     if (state.isDemoMode) {
       state = state.copyWith(
@@ -539,6 +747,87 @@ class AppController extends StateNotifier<AppState> {
         eventsMessage: error.isBackendNotReady
             ? AppConfig.backendNotReadyMessage
             : error.message,
+      );
+    }
+  }
+
+  Future<void> createEvent(EventModel event) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        events: _sortEvents(<EventModel>[event, ...state.events]),
+        eventsMessage: 'Demo event created locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final created = await ref.read(eventsServiceProvider).createEvent(event);
+      state = state.copyWith(
+        eventsStatus: FeatureStatus.ready,
+        events: _sortEvents(<EventModel>[created, ...state.events]),
+        eventsMessage: 'Event created.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        eventsStatus: FeatureStatus.error,
+        eventsMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> updateEvent(EventModel event) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        events: _sortEvents(_replaceEvent(state.events, event)),
+        eventsMessage: 'Demo event updated locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final updated = await ref
+          .read(eventsServiceProvider)
+          .updateEvent(event.id, event.toUpdateJson());
+      state = state.copyWith(
+        eventsStatus: FeatureStatus.ready,
+        events: _sortEvents(_replaceEvent(state.events, updated)),
+        eventsMessage: 'Event updated.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        eventsStatus: FeatureStatus.error,
+        eventsMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> deleteEvent(String eventId) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        events: state.events
+            .where((EventModel item) => item.id != eventId)
+            .toList(),
+        eventsMessage: 'Demo event deleted locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      await ref.read(eventsServiceProvider).deleteEvent(eventId);
+      final remaining = state.events
+          .where((EventModel item) => item.id != eventId)
+          .toList();
+      state = state.copyWith(
+        eventsStatus: FeatureStatus.ready,
+        events: remaining,
+        eventsMessage: remaining.isEmpty
+            ? 'No upcoming events.'
+            : 'Event deleted.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        eventsStatus: FeatureStatus.error,
+        eventsMessage: error.message,
       );
     }
   }
@@ -575,6 +864,113 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  Future<void> markNotificationRead(
+    String notificationId, {
+    required bool read,
+  }) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        notifications: _replaceNotification(
+          state.notifications,
+          state.notifications
+              .firstWhere((NotificationModel item) => item.id == notificationId)
+              .copyWith(read: read),
+        ),
+        notificationsMessage: read
+            ? 'Demo notification marked read.'
+            : 'Demo notification marked unread.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      await ref
+          .read(notificationsServiceProvider)
+          .markRead(notificationId, read: read);
+      state = state.copyWith(
+        notificationsStatus: FeatureStatus.ready,
+        notifications: _replaceNotification(
+          state.notifications,
+          state.notifications
+              .firstWhere((NotificationModel item) => item.id == notificationId)
+              .copyWith(read: read),
+        ),
+        notificationsMessage: read
+            ? 'Notification marked read.'
+            : 'Notification marked unread.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        notificationsStatus: FeatureStatus.error,
+        notificationsMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        notifications: state.notifications
+            .map((NotificationModel item) => item.copyWith(read: true))
+            .toList(),
+        notificationsMessage: 'Demo notifications marked read.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      await ref.read(notificationsServiceProvider).markAllRead();
+      state = state.copyWith(
+        notificationsStatus: FeatureStatus.ready,
+        notifications: state.notifications
+            .map((NotificationModel item) => item.copyWith(read: true))
+            .toList(),
+        notificationsMessage: 'All notifications marked read.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        notificationsStatus: FeatureStatus.error,
+        notificationsMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> deleteNotification(String notificationId) async {
+    if (state.isDemoMode) {
+      final remaining = state.notifications
+          .where((NotificationModel item) => item.id != notificationId)
+          .toList();
+      state = state.copyWith(
+        notifications: remaining,
+        notificationsMessage: remaining.isEmpty
+            ? 'No notifications.'
+            : 'Demo notification deleted locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      await ref
+          .read(notificationsServiceProvider)
+          .deleteNotification(notificationId);
+      final remaining = state.notifications
+          .where((NotificationModel item) => item.id != notificationId)
+          .toList();
+      state = state.copyWith(
+        notificationsStatus: FeatureStatus.ready,
+        notifications: remaining,
+        notificationsMessage: remaining.isEmpty
+            ? 'No notifications.'
+            : 'Notification deleted.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        notificationsStatus: FeatureStatus.error,
+        notificationsMessage: error.message,
+      );
+    }
+  }
+
   Future<void> loadReminders() async {
     if (state.isDemoMode) {
       state = state.copyWith(
@@ -603,6 +999,234 @@ class AppController extends StateNotifier<AppState> {
             : error.message,
       );
     }
+  }
+
+  Future<void> createReminder(ReminderModel reminder) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        reminders: _sortReminders(<ReminderModel>[
+          reminder,
+          ...state.reminders,
+        ]),
+        remindersMessage: 'Demo reminder created locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final created = await ref
+          .read(remindersServiceProvider)
+          .createReminder(reminder);
+      state = state.copyWith(
+        remindersStatus: FeatureStatus.ready,
+        reminders: _sortReminders(<ReminderModel>[created, ...state.reminders]),
+        remindersMessage: 'Reminder created.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        remindersStatus: FeatureStatus.error,
+        remindersMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> updateReminder(ReminderModel reminder) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        reminders: _sortReminders(_replaceReminder(state.reminders, reminder)),
+        remindersMessage: 'Demo reminder updated locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final updated = await ref
+          .read(remindersServiceProvider)
+          .updateReminder(reminder.id, reminder.toUpdateJson());
+      state = state.copyWith(
+        remindersStatus: FeatureStatus.ready,
+        reminders: _sortReminders(_replaceReminder(state.reminders, updated)),
+        remindersMessage: 'Reminder updated.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        remindersStatus: FeatureStatus.error,
+        remindersMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> setReminderEnabled(String reminderId, bool enabled) async {
+    final target = state.reminders.firstWhere(
+      (ReminderModel item) => item.id == reminderId,
+    );
+    await updateReminder(target.copyWith(enabled: enabled));
+  }
+
+  Future<void> deleteReminder(String reminderId) async {
+    if (state.isDemoMode) {
+      final remaining = state.reminders
+          .where((ReminderModel item) => item.id != reminderId)
+          .toList();
+      state = state.copyWith(
+        reminders: remaining,
+        remindersMessage: remaining.isEmpty
+            ? 'No reminders.'
+            : 'Demo reminder deleted locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      await ref.read(remindersServiceProvider).deleteReminder(reminderId);
+      final remaining = state.reminders
+          .where((ReminderModel item) => item.id != reminderId)
+          .toList();
+      state = state.copyWith(
+        remindersStatus: FeatureStatus.ready,
+        reminders: remaining,
+        remindersMessage: remaining.isEmpty
+            ? 'No reminders.'
+            : 'Reminder deleted.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        remindersStatus: FeatureStatus.error,
+        remindersMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> sendDeviceCommand(
+    String command, {
+    Map<String, dynamic>? params,
+  }) async {
+    if (state.isDemoMode) {
+      state = state.copyWith(globalMessage: 'Demo device accepted "$command".');
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final result = await ref
+          .read(deviceServiceProvider)
+          .sendCommand(
+            command,
+            params: params,
+            clientCommandId: 'flutter_${DateTime.now().millisecondsSinceEpoch}',
+          );
+      state = state.copyWith(
+        globalMessage:
+            'Device command accepted: ${result['command'] ?? command}.',
+      );
+      await refreshRuntime();
+    } on ApiError catch (error) {
+      state = state.copyWith(globalMessage: error.message);
+    }
+  }
+
+  String _sessionTitleFor(String sessionId) {
+    final match = state.sessions.where(
+      (SessionModel item) => item.sessionId == sessionId,
+    );
+    if (match.isEmpty) {
+      return 'Conversation';
+    }
+    final title = match.first.title.trim();
+    return title.isEmpty ? 'Conversation' : title;
+  }
+
+  List<SessionModel> _sortSessions(List<SessionModel> sessions) {
+    final sorted = List<SessionModel>.from(sessions);
+    sorted.sort((SessionModel left, SessionModel right) {
+      if (left.pinned != right.pinned) {
+        return left.pinned ? -1 : 1;
+      }
+      return (right.lastMessageAt ?? '').compareTo(left.lastMessageAt ?? '');
+    });
+    return sorted;
+  }
+
+  List<SessionModel> _touchSession(
+    List<SessionModel> sessions,
+    String sessionId, {
+    required String summary,
+    required String lastMessageAt,
+    bool incrementCount = false,
+  }) {
+    return _sortSessions(
+      sessions.map((SessionModel item) {
+        if (item.sessionId != sessionId) {
+          return item;
+        }
+        return item.copyWith(
+          summary: summary,
+          lastMessageAt: lastMessageAt,
+          messageCount: incrementCount
+              ? item.messageCount + 1
+              : item.messageCount,
+        );
+      }).toList(),
+    );
+  }
+
+  List<TaskModel> _sortTasks(List<TaskModel> tasks) {
+    final sorted = List<TaskModel>.from(tasks);
+    const order = <String, int>{'high': 0, 'medium': 1, 'low': 2};
+    sorted.sort((TaskModel left, TaskModel right) {
+      if (left.completed != right.completed) {
+        return left.completed ? 1 : -1;
+      }
+      return (order[left.priority] ?? 9).compareTo(order[right.priority] ?? 9);
+    });
+    return sorted;
+  }
+
+  List<TaskModel> _replaceTask(List<TaskModel> tasks, TaskModel next) {
+    return tasks
+        .map((TaskModel item) => item.id == next.id ? next : item)
+        .toList();
+  }
+
+  List<EventModel> _sortEvents(List<EventModel> events) {
+    final sorted = List<EventModel>.from(events);
+    sorted.sort(
+      (EventModel left, EventModel right) =>
+          left.startAt.compareTo(right.startAt),
+    );
+    return sorted;
+  }
+
+  List<EventModel> _replaceEvent(List<EventModel> events, EventModel next) {
+    return events
+        .map((EventModel item) => item.id == next.id ? next : item)
+        .toList();
+  }
+
+  List<NotificationModel> _replaceNotification(
+    List<NotificationModel> notifications,
+    NotificationModel next,
+  ) {
+    return notifications
+        .map((NotificationModel item) => item.id == next.id ? next : item)
+        .toList();
+  }
+
+  List<ReminderModel> _sortReminders(List<ReminderModel> reminders) {
+    final sorted = List<ReminderModel>.from(reminders);
+    sorted.sort(
+      (ReminderModel left, ReminderModel right) =>
+          left.updatedAt.compareTo(right.updatedAt),
+    );
+    return sorted.reversed.toList();
+  }
+
+  List<ReminderModel> _replaceReminder(
+    List<ReminderModel> reminders,
+    ReminderModel next,
+  ) {
+    return reminders
+        .map((ReminderModel item) => item.id == next.id ? next : item)
+        .toList();
   }
 
   void _handleRealtimeStatus(RealtimeConnectionStatus status) {
@@ -643,17 +1267,26 @@ class AppController extends StateNotifier<AppState> {
         final raw = event.payload['message'];
         if (raw is Map<String, dynamic>) {
           final sessionId = event.sessionId ?? state.currentSessionId;
-          final updated = _upsertMessage(
-            List<MessageModel>.from(
-              state.messagesBySession[sessionId] ?? const <MessageModel>[],
-            ),
-            MessageModel.fromJson(raw),
+          final nextMessage = MessageModel.fromJson(raw);
+          final existingMessages = List<MessageModel>.from(
+            state.messagesBySession[sessionId] ?? const <MessageModel>[],
           );
+          final alreadyPresent = existingMessages.any(
+            (MessageModel item) => item.id == nextMessage.id,
+          );
+          final updated = _upsertMessage(existingMessages, nextMessage);
           state = state.copyWith(
             messagesBySession: <String, List<MessageModel>>{
               ...state.messagesBySession,
               sessionId: updated,
             },
+            sessions: _touchSession(
+              state.sessions,
+              sessionId,
+              summary: nextMessage.text,
+              lastMessageAt: nextMessage.createdAt,
+              incrementCount: !alreadyPresent,
+            ),
           );
         }
         break;
@@ -684,6 +1317,156 @@ class AppController extends StateNotifier<AppState> {
       case 'session.message.failed':
         state = state.copyWith(globalMessage: 'Assistant response failed.');
         break;
+      case 'task.created':
+      case 'task.updated':
+        final rawTask = event.payload['task'];
+        if (rawTask is Map<String, dynamic>) {
+          final task = TaskModel.fromJson(rawTask);
+          final existing =
+              state.tasks.any((TaskModel item) => item.id == task.id)
+              ? _replaceTask(state.tasks, task)
+              : <TaskModel>[task, ...state.tasks];
+          state = state.copyWith(
+            tasksStatus: FeatureStatus.ready,
+            tasks: _sortTasks(existing),
+            tasksMessage: null,
+          );
+        }
+        break;
+      case 'task.deleted':
+        final rawTask = event.payload['task'];
+        if (rawTask is Map<String, dynamic>) {
+          final taskId =
+              rawTask['task_id']?.toString() ?? rawTask['id']?.toString();
+          if (taskId != null && taskId.isNotEmpty) {
+            final remaining = state.tasks
+                .where((TaskModel item) => item.id != taskId)
+                .toList();
+            state = state.copyWith(
+              tasksStatus: FeatureStatus.ready,
+              tasks: remaining,
+              tasksMessage: remaining.isEmpty ? 'No tasks yet.' : null,
+            );
+          }
+        }
+        break;
+      case 'event.created':
+      case 'event.updated':
+        final rawEvent = event.payload['event'];
+        if (rawEvent is Map<String, dynamic>) {
+          final nextEvent = EventModel.fromJson(rawEvent);
+          final existing =
+              state.events.any((EventModel item) => item.id == nextEvent.id)
+              ? _replaceEvent(state.events, nextEvent)
+              : <EventModel>[nextEvent, ...state.events];
+          state = state.copyWith(
+            eventsStatus: FeatureStatus.ready,
+            events: _sortEvents(existing),
+            eventsMessage: null,
+          );
+        }
+        break;
+      case 'event.deleted':
+        final rawEvent = event.payload['event'];
+        if (rawEvent is Map<String, dynamic>) {
+          final eventId =
+              rawEvent['event_id']?.toString() ?? rawEvent['id']?.toString();
+          if (eventId != null && eventId.isNotEmpty) {
+            final remaining = state.events
+                .where((EventModel item) => item.id != eventId)
+                .toList();
+            state = state.copyWith(
+              eventsStatus: FeatureStatus.ready,
+              events: remaining,
+              eventsMessage: remaining.isEmpty ? 'No upcoming events.' : null,
+            );
+          }
+        }
+        break;
+      case 'notification.updated':
+        final rawNotification = event.payload['notification'];
+        if (rawNotification is Map<String, dynamic>) {
+          final nextNotification = NotificationModel.fromJson(rawNotification);
+          final existing =
+              state.notifications.any(
+                (NotificationModel item) => item.id == nextNotification.id,
+              )
+              ? _replaceNotification(state.notifications, nextNotification)
+              : <NotificationModel>[nextNotification, ...state.notifications];
+          state = state.copyWith(
+            notificationsStatus: FeatureStatus.ready,
+            notifications: existing,
+            notificationsMessage: null,
+          );
+        }
+        break;
+      case 'notification.deleted':
+        final rawNotification = event.payload['notification'];
+        if (rawNotification is Map<String, dynamic>) {
+          final notificationId = rawNotification['notification_id']?.toString();
+          if (notificationId != null && notificationId.isNotEmpty) {
+            final remaining = state.notifications
+                .where((NotificationModel item) => item.id != notificationId)
+                .toList();
+            state = state.copyWith(
+              notificationsStatus: FeatureStatus.ready,
+              notifications: remaining,
+              notificationsMessage: remaining.isEmpty
+                  ? 'No notifications.'
+                  : null,
+            );
+          }
+        }
+        break;
+      case 'reminder.created':
+      case 'reminder.updated':
+        final rawReminder = event.payload['reminder'];
+        if (rawReminder is Map<String, dynamic>) {
+          final nextReminder = ReminderModel.fromJson(rawReminder);
+          final existing =
+              state.reminders.any(
+                (ReminderModel item) => item.id == nextReminder.id,
+              )
+              ? _replaceReminder(state.reminders, nextReminder)
+              : <ReminderModel>[nextReminder, ...state.reminders];
+          state = state.copyWith(
+            remindersStatus: FeatureStatus.ready,
+            reminders: _sortReminders(existing),
+            remindersMessage: null,
+          );
+        }
+        break;
+      case 'reminder.deleted':
+        final rawReminder = event.payload['reminder'];
+        if (rawReminder is Map<String, dynamic>) {
+          final reminderId = rawReminder['reminder_id']?.toString();
+          if (reminderId != null && reminderId.isNotEmpty) {
+            final remaining = state.reminders
+                .where((ReminderModel item) => item.id != reminderId)
+                .toList();
+            state = state.copyWith(
+              remindersStatus: FeatureStatus.ready,
+              reminders: remaining,
+              remindersMessage: remaining.isEmpty ? 'No reminders.' : null,
+            );
+          }
+        }
+        break;
+      case 'settings.updated':
+        state = state.copyWith(
+          settingsStatus: FeatureStatus.ready,
+          settings: AppSettingsModel.fromJson(event.payload),
+          settingsMessage: 'Settings refreshed from backend.',
+        );
+        break;
+      case 'device.command.accepted':
+        final command = event.payload['command']?.toString();
+        state = state.copyWith(
+          globalMessage: command == null || command.isEmpty
+              ? 'Device command accepted.'
+              : 'Device command accepted: $command.',
+        );
+        break;
     }
   }
 
@@ -701,9 +1484,67 @@ final appControllerProvider = StateNotifierProvider<AppController, AppState>((
   return AppController(ref);
 });
 
-final voiceAvailableProvider = Provider<bool>((Ref ref) {
+class VoiceUiState {
+  const VoiceUiState({
+    required this.deviceOnline,
+    required this.desktopBridgeReady,
+    required this.deviceFeedbackReady,
+    required this.backendReported,
+    required this.ready,
+    required this.inputModeLabel,
+    required this.outputModeLabel,
+    required this.primaryDescription,
+    required this.bridgeDescription,
+    this.statusMessage,
+    this.errorMessage,
+  });
+
+  final bool deviceOnline;
+  final bool desktopBridgeReady;
+  final bool deviceFeedbackReady;
+  final bool backendReported;
+  final bool ready;
+  final String inputModeLabel;
+  final String outputModeLabel;
+  final String primaryDescription;
+  final String bridgeDescription;
+  final String? statusMessage;
+  final String? errorMessage;
+}
+
+final voiceUiStateProvider = Provider<VoiceUiState>((Ref ref) {
   final state = ref.watch(appControllerProvider);
-  return state.isDemoMode || state.capabilities.voicePipeline;
+  final voice = state.runtimeState.voice;
+  final deviceOnline = state.runtimeState.device.connected;
+  final bridgeReady = state.isDemoMode || voice.desktopBridgeReady;
+  final deviceFeedbackReady = state.isDemoMode || deviceOnline;
+  final ready = state.isDemoMode || (deviceOnline && bridgeReady);
+
+  return VoiceUiState(
+    deviceOnline: deviceOnline,
+    desktopBridgeReady: bridgeReady,
+    deviceFeedbackReady: deviceFeedbackReady,
+    backendReported: voice.reportedByBackend,
+    ready: ready,
+    inputModeLabel:
+        'Press and hold the device. Audio is captured by the desktop microphone bridge.',
+    outputModeLabel:
+        'Replies currently return as device text and state feedback. App direct recording is not used.',
+    primaryDescription: ready
+        ? 'Press-to-talk is available through the device.'
+        : 'Press-to-talk is waiting for the full handoff path.',
+    bridgeDescription: bridgeReady
+        ? 'Desktop microphone bridge is ready.'
+        : voice.reportedByBackend
+        ? 'Desktop microphone bridge is reported as not ready.'
+        : 'Desktop microphone bridge status has not been reported yet.',
+    statusMessage: voice.statusMessage,
+    errorMessage: voice.lastError,
+  );
+});
+
+final voiceAvailableProvider = Provider<bool>((Ref ref) {
+  return ref.watch(voiceUiStateProvider).ready;
 });
 
 final currentMessagesProvider = Provider<List<MessageModel>>(

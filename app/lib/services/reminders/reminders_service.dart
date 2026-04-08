@@ -29,4 +29,31 @@ class RemindersService {
       },
     );
   }
+
+  Future<ReminderModel> createReminder(ReminderModel reminder) {
+    return _apiClient.post(
+      ApiConstants.remindersPath,
+      body: reminder.toCreateJson(),
+      parser: (dynamic data) => ReminderModel.fromJson(
+        data is Map<String, dynamic> ? data : <String, dynamic>{},
+      ),
+    );
+  }
+
+  Future<ReminderModel> updateReminder(
+    String reminderId,
+    Map<String, dynamic> body,
+  ) {
+    return _apiClient.patch(
+      '${ApiConstants.remindersPath}/$reminderId',
+      body: body,
+      parser: (dynamic data) => ReminderModel.fromJson(
+        data is Map<String, dynamic> ? data : <String, dynamic>{},
+      ),
+    );
+  }
+
+  Future<void> deleteReminder(String reminderId) {
+    return _apiClient.delete('${ApiConstants.remindersPath}/$reminderId');
+  }
 }
