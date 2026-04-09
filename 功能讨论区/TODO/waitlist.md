@@ -60,3 +60,27 @@
 - 影响：这条警告当前不会直接阻断 ASR / TTS 主链路，但会污染启动日志，也可能在后续依赖升级时带来更多兼容问题。
 - 建议动作：后续可单独立项，把服务端虚拟环境迁到 Homebrew / python.org 的较新 Python（自带 OpenSSL 1.1.1+），减少网络库兼容噪音。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-09-01 `app/README.md` 对前端能力描述已落后于实际 UI
+
+- 发现来源：本轮 `app/DESIGN.md` 设计约束调研。
+- 当前状态：`app/README.md` 仍把 tasks/events/notifications/reminders 概括成 placeholders，但当前 `app/lib/screens/tasks/tasks_screen.dart` 与 `app/lib/screens/control_center/control_center_screen.dart` 已经存在完整的增删改、已读切换、启停等交互。
+- 影响：后续如果只读 README，容易低估当前 Flutter 前端已具备的页面能力，也会影响后续设计和文档判断。
+- 建议动作：后续单独立项更新 `app/README.md` 的功能描述，使其与实际 UI 对齐。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-09-02 `/demo` 独立页面与当前 demo 主路径已有脱节
+
+- 发现来源：本轮 `app/DESIGN.md` 设计约束调研。
+- 当前状态：`app/lib/config/routes.dart` 仍保留 `/demo` 路由与 `app/lib/screens/demo_mode/demo_mode_screen.dart`，但真实 demo 入口已经更多通过 `app/lib/screens/connect/connect_screen.dart` 里的 `connectDemo()` 直接进入主壳层。
+- 影响：后续继续扩 UI 时，可能会把一个不再处于主路径的页面误当成需要重点维护的体验入口，增加信息架构噪音。
+- 建议动作：后续单独立项决定 `/demo` 是继续保留为独立说明页，还是收敛到连接页主流程。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-09-03 `SettingsForm` 在 `build()` 中反复创建 controller
+
+- 发现来源：本轮 `app/DESIGN.md` 设计约束调研。
+- 当前状态：`app/lib/widgets/settings/settings_form.dart` 在 `build()` 内多次使用 `TextEditingController(text: ...)`，这不是稳定的输入组件模式。
+- 影响：后续如果设置页继续复杂化，可能出现输入光标、值同步和细小性能问题，也容易误导后续 agent 继续复制这种写法。
+- 建议动作：后续单独立项，将设置表单的 controller 生命周期收回到 stateful 层或更稳定的表单状态管理中。
+- 本轮处理：未处理。
