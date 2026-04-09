@@ -1,4 +1,6 @@
 class AppSettingsModel {
+  static const Object _unset = Object();
+
   const AppSettingsModel({
     required this.serverUrl,
     required this.serverPort,
@@ -47,7 +49,7 @@ class AppSettingsModel {
     String? llmProvider,
     String? llmModel,
     bool? llmApiKeyConfigured,
-    String? llmBaseUrl,
+    Object? llmBaseUrl = _unset,
     String? sttLanguage,
     String? ttsVoice,
     double? ttsSpeed,
@@ -65,7 +67,9 @@ class AppSettingsModel {
       llmProvider: llmProvider ?? this.llmProvider,
       llmModel: llmModel ?? this.llmModel,
       llmApiKeyConfigured: llmApiKeyConfigured ?? this.llmApiKeyConfigured,
-      llmBaseUrl: llmBaseUrl ?? this.llmBaseUrl,
+      llmBaseUrl: identical(llmBaseUrl, _unset)
+          ? this.llmBaseUrl
+          : llmBaseUrl as String?,
       sttProvider: sttProvider,
       sttModel: sttModel,
       sttLanguage: sttLanguage ?? this.sttLanguage,
@@ -93,6 +97,8 @@ class AppSettingsModel {
       ttsVoice: ttsVoice,
       ttsSpeed: ttsSpeed,
       deviceVolume: deviceVolume,
+      ledEnabled: ledEnabled,
+      ledBrightness: ledBrightness,
       ledMode: ledMode,
       ledColor: ledColor,
       wakeWord: wakeWord,
@@ -144,6 +150,8 @@ class AppSettingsUpdate {
     required this.ttsVoice,
     required this.ttsSpeed,
     required this.deviceVolume,
+    required this.ledEnabled,
+    required this.ledBrightness,
     required this.ledMode,
     required this.ledColor,
     required this.wakeWord,
@@ -158,6 +166,8 @@ class AppSettingsUpdate {
   final String ttsVoice;
   final double ttsSpeed;
   final int deviceVolume;
+  final bool ledEnabled;
+  final int ledBrightness;
   final String ledMode;
   final String ledColor;
   final String wakeWord;
@@ -174,6 +184,8 @@ class AppSettingsUpdate {
       'tts_voice': ttsVoice,
       'tts_speed': ttsSpeed,
       'device_volume': deviceVolume,
+      'led_enabled': ledEnabled,
+      'led_brightness': ledBrightness,
       'led_mode': ledMode,
       'led_color': ledColor,
       'wake_word': wakeWord,

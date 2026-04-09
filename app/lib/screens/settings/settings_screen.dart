@@ -20,6 +20,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _apiKeyController.addListener(() {
+      if (mounted) {
+        setState(() {});
+      }
+    });
     Future<void>.microtask(
       () => ref.read(appControllerProvider.notifier).loadSettings(),
     );
@@ -35,6 +40,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(appControllerProvider);
     final settings = _draft ?? state.settings;
+    final hasDraftChanges =
+        _draft != null || _apiKeyController.text.trim().isNotEmpty;
 
     if (settings == null) {
       return Center(
@@ -56,14 +63,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       canEdit:
           state.settingsStatus == FeatureStatus.ready ||
           state.settingsStatus == FeatureStatus.demo,
+      hasDraftChanges: hasDraftChanges,
       onChanged: (AppSettingsModel next) => setState(() => _draft = next),
-      onSave: () => ref
+      onSave: () async {
+        await ref
+            .read(appControllerProvider.notifier)
+            .saveSettings(
+              _draft ?? settings,
+              apiKey: _apiKeyController.text.trim(),
+            );
+        if (mounted) {
+          setState(() {
+            _draft = null;
+            _apiKeyController.clear();
+          });
+        }
+      },
+      onReset: () => setState(() {
+        _draft = null;
+        _apiKeyController.clear();
+      }),
+      onTest: () => ref
           .read(appControllerProvider.notifier)
-          .saveSettings(
-            _draft ?? settings,
+          .testAiConnection(
+            draft: _draft ?? settings,
             apiKey: _apiKeyController.text.trim(),
           ),
-      onTest: () => ref.read(appControllerProvider.notifier).testAiConnection(),
     );
   }
 }

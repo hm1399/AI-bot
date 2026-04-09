@@ -26,4 +26,22 @@ class RuntimeService {
           data is Map<String, dynamic> ? data : <String, dynamic>{},
     );
   }
+
+  Future<TodoSummaryModel> fetchTodoSummary() {
+    return _apiClient.get(
+      ApiConstants.todoSummaryPath,
+      parser: (dynamic data) => TodoSummaryModel.fromJson(
+        data is Map<String, dynamic> ? data : <String, dynamic>{},
+      ),
+    );
+  }
+
+  Future<CalendarSummaryModel> fetchCalendarSummary() {
+    return _apiClient.get(
+      ApiConstants.calendarSummaryPath,
+      parser: (dynamic data) => CalendarSummaryModel.fromJson(
+        data is Map<String, dynamic> ? data : <String, dynamic>{},
+      ),
+    );
+  }
 }

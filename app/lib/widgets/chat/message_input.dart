@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/linear_tokens.dart';
+
 class MessageInput extends StatefulWidget {
   const MessageInput({
     required this.onSend,
@@ -46,45 +48,54 @@ class _MessageInputState extends State<MessageInput> {
 
   @override
   Widget build(BuildContext context) {
+    final chrome = context.linear;
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                minLines: 1,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  hintText: 'Send a backend-driven message',
-                  border: OutlineInputBorder(),
+        padding: const EdgeInsets.only(top: LinearSpacing.md),
+        child: Container(
+          padding: const EdgeInsets.all(LinearSpacing.md),
+          decoration: BoxDecoration(
+            color: chrome.surface,
+            borderRadius: LinearRadius.card,
+            border: Border.all(color: chrome.borderStandard),
+          ),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  minLines: 1,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    hintText: 'Send a backend-driven message',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) => _submit(),
                 ),
-                onSubmitted: (_) => _submit(),
               ),
-            ),
-            const SizedBox(width: 8),
-            IconButton.filledTonal(
-              tooltip: widget.voiceTooltip,
-              onPressed: widget.onVoiceTap,
-              icon: Icon(
-                widget.voiceReady
-                    ? Icons.mic_external_on_outlined
-                    : Icons.info_outline,
+              const SizedBox(width: LinearSpacing.sm),
+              IconButton.filledTonal(
+                tooltip: widget.voiceTooltip,
+                onPressed: widget.onVoiceTap,
+                icon: Icon(
+                  widget.voiceReady
+                      ? Icons.mic_external_on_outlined
+                      : Icons.info_outline,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            IconButton.filled(
-              onPressed: _sending ? null : _submit,
-              icon: _sending
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
-            ),
-          ],
+              const SizedBox(width: LinearSpacing.xs),
+              IconButton.filled(
+                onPressed: _sending ? null : _submit,
+                icon: _sending
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send),
+              ),
+            ],
+          ),
         ),
       ),
     );

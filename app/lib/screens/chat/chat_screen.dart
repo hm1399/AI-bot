@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../models/chat/session_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
+import '../../theme/linear_tokens.dart';
+import '../../widgets/chat/chat_session_panel.dart';
 import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/message_input.dart';
+import '../../widgets/chat/voice_handoff_card.dart';
+import '../../widgets/common/status_pill.dart';
 
 class ChatScreen extends ConsumerWidget {
   const ChatScreen({super.key});
@@ -14,160 +19,82 @@ class ChatScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
-    final messages = state.currentMessages;
     final voice = ref.watch(voiceUiStateProvider);
     final currentSession = state.sessions.where(
       (SessionModel item) => item.sessionId == state.currentSessionId,
     );
     final activeSession = currentSession.isEmpty ? null : currentSession.first;
 
-    return Column(
-      children: <Widget>[
-        Card(
-          margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              children: <Widget>[
-                ListTile(
-                  title: Text(activeSession?.title ?? 'No active conversation'),
-                  subtitle: Text(
-                    activeSession == null
-                        ? 'Create a conversation to start sending app text messages.'
-                        : '${activeSession.summary.isEmpty ? 'Conversation ready.' : activeSession.summary}\n${activeSession.sessionId}',
-                  ),
-                  isThreeLine: activeSession != null,
-                  onTap: () => _showSessionSheet(context, ref, state),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                  child: Row(
-                    children: <Widget>[
-                      Chip(
-                        label: Text(
-                          state.isDemoMode
-                              ? 'Demo'
-                              : state.eventStreamConnected
-                              ? 'Events Live'
-                              : 'Events Reconnecting',
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: 'Refresh conversations',
-                        onPressed: controller.loadSessions,
-                        icon: const Icon(Icons.refresh),
-                      ),
-                      IconButton.filledTonal(
-                        tooltip: 'Create conversation',
-                        onPressed: () => _showCreateSessionDialog(context, ref),
-                        icon: const Icon(Icons.add),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+    Future<void> copySessionId(String sessionId) async {
+      await Clipboard.setData(ClipboardData(text: sessionId));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Session ID copied.')));
+      }
+    }
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final useDesktopShell = constraints.maxWidth >= 1180;
+        final conversationView = _ConversationView(
+          state: state,
+          activeSession: activeSession,
+          voice: voice,
+          onShowSessions: () => _showSessionSheet(context, ref, state),
+          onCopySessionId: copySessionId,
+          onRefreshConversation: () async {
+            await controller.loadMessages();
+            await controller.loadSessions();
+          },
+        );
+
+        if (!useDesktopShell) {
+          return Column(
+            children: <Widget>[
+              Expanded(child: conversationView),
+              MessageInput(
+                onSend: controller.sendMessage,
+                onVoiceTap: controller.triggerVoiceInput,
+                voiceReady: ref.watch(voiceAvailableProvider),
+                voiceTooltip: voice.bridgeDescription,
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          children: <Widget>[
+            SizedBox(
+              width: 320,
+              child: ChatSessionPanel(
+                sessions: state.sessions,
+                currentSessionId: state.currentSessionId,
+                onSelect: controller.selectSession,
+                onCreate: () => _showCreateSessionDialog(context, ref),
+                onRefresh: controller.loadSessions,
+                onCopySessionId: copySessionId,
+              ),
             ),
-          ),
-        ),
-        Card(
-          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  'Voice Handoff',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                _StatusRow(
-                  icon: Icons.sensors,
-                  label: 'Device online',
-                  value: voice.deviceOnline ? 'Ready' : 'Offline',
-                  active: voice.deviceOnline,
-                ),
-                const SizedBox(height: 8),
-                _StatusRow(
-                  icon: Icons.settings_voice_outlined,
-                  label: 'Desktop microphone bridge',
-                  value: voice.desktopBridgeReady ? 'Ready' : 'Waiting',
-                  active: voice.desktopBridgeReady,
-                ),
-                const SizedBox(height: 8),
-                _StatusRow(
-                  icon: Icons.subtitles_outlined,
-                  label: 'Current output mode',
-                  value: 'Device text/status feedback',
-                  active: true,
-                ),
-                const SizedBox(height: 12),
-                Text(voice.primaryDescription),
-                const SizedBox(height: 6),
-                Text(voice.inputModeLabel),
-                const SizedBox(height: 6),
-                Text(voice.outputModeLabel),
-                if (voice.statusMessage != null) ...<Widget>[
-                  const SizedBox(height: 8),
-                  Text(voice.statusMessage!),
-                ],
-                if (voice.errorMessage != null) ...<Widget>[
-                  const SizedBox(height: 8),
-                  Text(
-                    voice.errorMessage!,
-                    style: const TextStyle(color: Color(0xFFB91C1C)),
+            const SizedBox(width: LinearSpacing.md),
+            Expanded(
+              child: Column(
+                children: <Widget>[
+                  Expanded(child: conversationView),
+                  MessageInput(
+                    onSend: controller.sendMessage,
+                    onVoiceTap: controller.triggerVoiceInput,
+                    voiceReady: ref.watch(voiceAvailableProvider),
+                    voiceTooltip: voice.bridgeDescription,
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
-        ),
-        if (state.globalMessage != null)
-          Card(
-            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            color: const Color(0xFFF8FAFC),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(state.globalMessage!),
-            ),
-          ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: () async {
-              await controller.loadMessages();
-              await controller.loadSessions();
-            },
-            child: messages.isEmpty
-                ? ListView(
-                    padding: const EdgeInsets.all(32),
-                    children: const <Widget>[
-                      Text(
-                        'App text messages are sent from this page. Voice interactions still begin with pressing and holding the device, not recording inside the app.',
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    reverse: false,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 16,
-                    ),
-                    itemCount: messages.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      return MessageBubble(message: messages[index]);
-                    },
-                  ),
-          ),
-        ),
-        MessageInput(
-          onSend: controller.sendMessage,
-          onVoiceTap: controller.triggerVoiceInput,
-          voiceReady: ref.watch(voiceAvailableProvider),
-          voiceTooltip: voice.bridgeDescription,
-        ),
-      ],
+            const SizedBox(width: LinearSpacing.md),
+            SizedBox(width: 300, child: VoiceHandoffCard(voice: voice)),
+          ],
+        );
+      },
     );
   }
 
@@ -296,35 +223,144 @@ class ChatScreen extends ConsumerWidget {
   }
 }
 
-class _StatusRow extends StatelessWidget {
-  const _StatusRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.active,
+class _ConversationView extends StatelessWidget {
+  const _ConversationView({
+    required this.state,
+    required this.activeSession,
+    required this.voice,
+    required this.onShowSessions,
+    required this.onCopySessionId,
+    required this.onRefreshConversation,
   });
 
-  final IconData icon;
-  final String label;
-  final String value;
-  final bool active;
+  final AppState state;
+  final SessionModel? activeSession;
+  final VoiceUiState voice;
+  final VoidCallback onShowSessions;
+  final Future<void> Function(String sessionId) onCopySessionId;
+  final Future<void> Function() onRefreshConversation;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final chrome = context.linear;
+    final messageItems = state.currentMessages;
+
+    return Column(
       children: <Widget>[
-        Icon(
-          icon,
-          size: 18,
-          color: active ? const Color(0xFF15803D) : const Color(0xFF64748B),
+        Container(
+          padding: const EdgeInsets.all(LinearSpacing.md),
+          decoration: BoxDecoration(
+            color: chrome.surface,
+            borderRadius: LinearRadius.card,
+            border: Border.all(color: chrome.borderStandard),
+          ),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      activeSession?.title ?? 'No active conversation',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      activeSession == null
+                          ? 'Create a conversation to start sending app text messages.'
+                          : activeSession!.summary.isEmpty
+                          ? 'Conversation ready.'
+                          : activeSession!.summary,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: chrome.textTertiary,
+                      ),
+                    ),
+                    if (activeSession != null) ...<Widget>[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: LinearSpacing.xs,
+                        runSpacing: LinearSpacing.xs,
+                        children: <Widget>[
+                          StatusPill(
+                            label: state.isDemoMode
+                                ? 'Demo'
+                                : state.eventStreamConnected
+                                ? 'Events Live'
+                                : 'Events Reconnecting',
+                            tone: state.isDemoMode
+                                ? StatusPillTone.accent
+                                : state.eventStreamConnected
+                                ? StatusPillTone.success
+                                : StatusPillTone.warning,
+                          ),
+                          StatusPill(
+                            label: '${activeSession!.messageCount} messages',
+                            icon: Icons.chat_bubble_outline,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: LinearSpacing.sm),
+              if (activeSession != null)
+                OutlinedButton.icon(
+                  onPressed: () => onCopySessionId(activeSession!.sessionId),
+                  icon: const Icon(Icons.copy_outlined, size: 16),
+                  label: const Text('Copy ID'),
+                ),
+              const SizedBox(width: LinearSpacing.xs),
+              OutlinedButton.icon(
+                onPressed: onShowSessions,
+                icon: const Icon(Icons.view_sidebar_outlined, size: 16),
+                label: const Text('Sessions'),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(width: 8),
-        Expanded(child: Text(label)),
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: active ? const Color(0xFF15803D) : const Color(0xFF64748B),
+        const SizedBox(height: LinearSpacing.md),
+        if (MediaQuery.sizeOf(context).width < 1180) ...<Widget>[
+          VoiceHandoffCard(voice: voice),
+          const SizedBox(height: LinearSpacing.md),
+        ],
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: chrome.surface,
+              borderRadius: LinearRadius.card,
+              border: Border.all(color: chrome.borderStandard),
+            ),
+            child: RefreshIndicator(
+              onRefresh: onRefreshConversation,
+              child: Column(
+                children: <Widget>[
+                  if (state.messagesLoading)
+                    const LinearProgressIndicator(minHeight: 2),
+                  Expanded(
+                    child: messageItems.isEmpty
+                        ? ListView(
+                            padding: const EdgeInsets.all(LinearSpacing.xl),
+                            children: const <Widget>[
+                              Text(
+                                'App text messages are sent from this page. Voice interactions still begin with pressing and holding the device, not recording inside the app.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(LinearSpacing.md),
+                            itemCount: messageItems.length,
+                            itemBuilder: (BuildContext context, int index) {
+                              return MessageBubble(
+                                message: messageItems[index],
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ],

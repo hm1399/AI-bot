@@ -26,9 +26,10 @@ class SettingsService {
     );
   }
 
-  Future<AiConnectionTestModel> testAiConnection() {
+  Future<AiConnectionTestModel> testAiConnection({AppSettingsUpdate? draft}) {
     return _apiClient.post(
       ApiConstants.settingsTestPath,
+      body: draft?.toJson(),
       parser: (dynamic data) => AiConnectionTestModel.fromJson(
         data is Map<String, dynamic> ? data : <String, dynamic>{},
       ),

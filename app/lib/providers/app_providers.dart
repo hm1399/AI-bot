@@ -263,6 +263,80 @@ class AppController extends StateNotifier<AppState> {
     state = AppState.initial().copyWith(connection: keptConnection);
   }
 
+  Future<void> refreshAll() async {
+    if (!state.isConnected) {
+      state = state.copyWith(globalMessage: 'Connect to the backend first.');
+      return;
+    }
+
+    if (state.isDemoMode) {
+      final sessionId = _pickSessionId(
+        DemoServiceBundle.sessions,
+        state.currentSessionId,
+        state.currentSessionId,
+      );
+      final nextConnection = state.connection.copyWith(
+        currentSessionId: sessionId,
+        latestEventId:
+            DemoServiceBundle.bootstrap.eventStream.resume.latestEventId,
+      );
+      state = state.copyWith(
+        connection: nextConnection,
+        bootstrap: DemoServiceBundle.bootstrap,
+        capabilities: DemoServiceBundle.bootstrap.capabilities,
+        runtimeState: DemoServiceBundle.runtime,
+        sessions: DemoServiceBundle.sessions,
+        messagesBySession: DemoServiceBundle.messagesBySession,
+        settingsStatus: FeatureStatus.demo,
+        settings: DemoServiceBundle.settings,
+        tasksStatus: FeatureStatus.demo,
+        tasks: DemoServiceBundle.tasks,
+        eventsStatus: FeatureStatus.demo,
+        events: DemoServiceBundle.events,
+        notificationsStatus: FeatureStatus.demo,
+        notifications: DemoServiceBundle.notifications,
+        remindersStatus: FeatureStatus.demo,
+        reminders: DemoServiceBundle.reminders,
+        globalMessage: 'Demo workspace refreshed.',
+      );
+      return;
+    }
+
+    try {
+      _apiClient.setConnection(state.connection);
+      final bootstrap = await ref
+          .read(bootstrapServiceProvider)
+          .fetchBootstrap();
+      final sessionId = _pickSessionId(
+        bootstrap.sessions,
+        state.currentSessionId,
+        state.currentSessionId,
+      );
+      final nextConnection = state.connection.copyWith(
+        currentSessionId: sessionId,
+        latestEventId: bootstrap.eventStream.resume.latestEventId,
+      );
+      _apiClient.setConnection(nextConnection);
+      await ref.read(connectServiceProvider).saveConnection(nextConnection);
+      state = state.copyWith(
+        connection: nextConnection,
+        bootstrap: bootstrap,
+        capabilities: bootstrap.capabilities,
+        runtimeState: bootstrap.runtime,
+        sessions: bootstrap.sessions,
+        globalMessage: 'Workspace refreshed.',
+      );
+      await loadMessages();
+      await loadSettings();
+      await loadTasks();
+      await loadEvents();
+      await loadNotifications();
+      await loadReminders();
+    } on ApiError catch (error) {
+      state = state.copyWith(globalMessage: error.message);
+    }
+  }
+
   Future<void> selectSession(String sessionId) async {
     final next = state.connection.copyWith(currentSessionId: sessionId);
     await ref.read(connectServiceProvider).saveConnection(next);
@@ -601,7 +675,10 @@ class AppController extends StateNotifier<AppState> {
     );
   }
 
-  Future<void> testAiConnection() async {
+  Future<void> testAiConnection({
+    AppSettingsModel? draft,
+    String? apiKey,
+  }) async {
     if (state.isDemoMode) {
       state = state.copyWith(
         settingsMessage: 'Demo mode does not call the backend test endpoint.',
@@ -609,7 +686,10 @@ class AppController extends StateNotifier<AppState> {
       return;
     }
     _apiClient.setConnection(state.connection);
-    final result = await ref.read(settingsServiceProvider).testAiConnection();
+    final candidate = (draft ?? state.settings)?.toUpdate(llmApiKey: apiKey);
+    final result = await ref
+        .read(settingsServiceProvider)
+        .testAiConnection(draft: candidate);
     state = state.copyWith(
       settingsMessage: '${result.provider}/${result.model}: ${result.message}',
     );
@@ -966,6 +1046,30 @@ class AppController extends StateNotifier<AppState> {
         notificationsMessage: remaining.isEmpty
             ? 'No notifications.'
             : 'Notification deleted.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        notificationsStatus: FeatureStatus.error,
+        notificationsMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> clearNotifications() async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        notifications: const <NotificationModel>[],
+        notificationsMessage: 'Demo notifications cleared locally.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      await ref.read(notificationsServiceProvider).clearNotifications();
+      state = state.copyWith(
+        notificationsStatus: FeatureStatus.ready,
+        notifications: const <NotificationModel>[],
+        notificationsMessage: 'Notifications cleared.',
       );
     } on ApiError catch (error) {
       state = state.copyWith(
@@ -1549,6 +1653,14 @@ final voiceUiStateProvider = Provider<VoiceUiState>((Ref ref) {
 
 final voiceAvailableProvider = Provider<bool>((Ref ref) {
   return ref.watch(voiceUiStateProvider).ready;
+});
+
+final unreadNotificationsCountProvider = Provider<int>((Ref ref) {
+  return ref
+      .watch(appControllerProvider)
+      .notifications
+      .where((NotificationModel item) => !item.read)
+      .length;
 });
 
 final currentMessagesProvider = Provider<List<MessageModel>>(

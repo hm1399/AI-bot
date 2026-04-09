@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../models/home/runtime_state_model.dart';
+import '../../theme/linear_tokens.dart';
+import '../common/status_pill.dart';
 
 class DeviceCard extends StatelessWidget {
   const DeviceCard({required this.status, super.key});
@@ -9,36 +11,66 @@ class DeviceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Text(
-              'Device Snapshot',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: <Widget>[
-                _MetricChip(label: 'State', value: status.state),
-                _MetricChip(label: 'Battery', value: '${status.battery}%'),
-                _MetricChip(label: 'Wi-Fi', value: '${status.wifiSignal}%'),
-                _MetricChip(
-                  label: 'Charging',
-                  value: status.charging ? 'Yes' : 'No',
+    final chrome = context.linear;
+    return Container(
+      padding: const EdgeInsets.all(LinearSpacing.md),
+      decoration: BoxDecoration(
+        color: chrome.surface,
+        borderRadius: LinearRadius.card,
+        border: Border.all(color: chrome.borderStandard),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Device Snapshot',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-                _MetricChip(
-                  label: 'Connected',
-                  value: status.connected ? 'Yes' : 'No',
-                ),
-              ],
-            ),
-          ],
-        ),
+              ),
+              StatusPill(
+                label: status.connected ? 'Online' : 'Offline',
+                tone: status.connected
+                    ? StatusPillTone.success
+                    : StatusPillTone.danger,
+              ),
+            ],
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          Text(
+            'Live hardware state from the runtime channel.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+          ),
+          const SizedBox(height: LinearSpacing.md),
+          Wrap(
+            spacing: LinearSpacing.sm,
+            runSpacing: LinearSpacing.sm,
+            children: <Widget>[
+              _MetricChip(label: 'State', value: status.state),
+              _MetricChip(
+                label: 'Battery',
+                value: status.battery < 0 ? 'Unknown' : '${status.battery}%',
+              ),
+              _MetricChip(label: 'Wi-Fi', value: '${status.wifiSignal}%'),
+              _MetricChip(
+                label: 'Charging',
+                value: status.charging ? 'Yes' : 'No',
+              ),
+              _MetricChip(
+                label: 'Connected',
+                value: status.connected ? 'Yes' : 'No',
+              ),
+              _MetricChip(
+                label: 'Reconnects',
+                value: '${status.reconnectCount}',
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -52,19 +84,32 @@ class _MetricChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final chrome = context.linear;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      width: 148,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
-        borderRadius: BorderRadius.circular(12),
+        color: chrome.panel,
+        borderRadius: LinearRadius.control,
+        border: Border.all(color: chrome.borderSubtle),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(label, style: Theme.of(context).textTheme.labelSmall),
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: chrome.textTertiary),
+          ),
           const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            value,
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(color: chrome.textPrimary),
+          ),
         ],
       ),
     );

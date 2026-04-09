@@ -6,6 +6,9 @@ class ApiConstants {
   static const String sessionsPath = '$basePath/sessions';
   static const String runtimeStatePath = '$basePath/runtime/state';
   static const String runtimeStopPath = '$basePath/runtime/stop';
+  static const String todoSummaryPath = '$basePath/runtime/todo-summary';
+  static const String calendarSummaryPath =
+      '$basePath/runtime/calendar-summary';
   static const String devicePath = '$basePath/device';
   static const String deviceSpeakPath = '$basePath/device/speak';
   static const String deviceCommandsPath = '$basePath/device/commands';

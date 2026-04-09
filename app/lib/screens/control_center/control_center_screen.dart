@@ -3,7 +3,10 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../models/reminders/reminder_model.dart';
 import '../../providers/app_providers.dart';
-import '../../providers/app_state.dart';
+import '../../theme/linear_tokens.dart';
+import '../../widgets/common/status_pill.dart';
+import '../../widgets/control/notification_panel.dart';
+import '../../widgets/control/reminder_panel.dart';
 
 class ControlCenterScreen extends ConsumerStatefulWidget {
   const ControlCenterScreen({super.key});
@@ -42,6 +45,7 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     final controller = ref.read(appControllerProvider.notifier);
     final settings = state.settings;
     final runtime = state.runtimeState;
+    final chrome = context.linear;
 
     if (settings != null && !_seededFromSettings) {
       _volume = settings.deviceVolume.toDouble();
@@ -51,7 +55,6 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(16),
       children: <Widget>[
         Row(
           children: <Widget>[
@@ -71,246 +74,125 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        Row(
+        const SizedBox(height: LinearSpacing.md),
+        Wrap(
+          spacing: LinearSpacing.sm,
+          runSpacing: LinearSpacing.sm,
           children: <Widget>[
-            Expanded(
-              child: FilledButton.tonal(
-                onPressed: controller.speakTestPhrase,
-                child: const Text('Speak'),
-              ),
+            FilledButton.tonalIcon(
+              onPressed: controller.speakTestPhrase,
+              icon: const Icon(Icons.volume_up_outlined, size: 16),
+              label: const Text('Speak'),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton.tonal(
-                onPressed: controller.refreshRuntime,
-                child: const Text('Sync Runtime'),
-              ),
+            FilledButton.tonalIcon(
+              onPressed: controller.refreshRuntime,
+              icon: const Icon(Icons.sync, size: 16),
+              label: const Text('Sync Runtime'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => controller.sendDeviceCommand('toggle_led'),
+              icon: const Icon(Icons.lightbulb_circle_outlined, size: 16),
+              label: const Text('Toggle LED'),
             ),
           ],
         ),
         if (state.globalMessage != null) ...<Widget>[
-          const SizedBox(height: 16),
-          Card(
-            color: const Color(0xFFF8FAFC),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(state.globalMessage!),
+          const SizedBox(height: LinearSpacing.md),
+          Container(
+            padding: const EdgeInsets.all(LinearSpacing.md),
+            decoration: BoxDecoration(
+              color: chrome.panel,
+              borderRadius: LinearRadius.card,
+              border: Border.all(color: chrome.borderSubtle),
+            ),
+            child: Text(
+              state.globalMessage!,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
             ),
           ),
         ],
-        const SizedBox(height: 16),
-        _SectionCard(
-          title: 'Device Commands',
-          status: runtime.device.connected
-              ? FeatureStatus.ready
-              : FeatureStatus.notReady,
-          message: runtime.device.connected
-              ? 'Device state: ${runtime.device.state}. Commands go to the hardware entry point directly.'
-              : 'Device is offline. Commands will fail until the hardware reconnects.',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text('Volume ${_volume.round()}'),
-              Slider(
-                value: _volume,
-                min: 0,
-                max: 100,
-                divisions: 20,
-                label: _volume.round().toString(),
-                onChanged: (double value) => setState(() => _volume = value),
+        const SizedBox(height: LinearSpacing.md),
+        LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final stacked = constraints.maxWidth < 1040;
+            final devicePanel = _DeviceCommandPanel(
+              runtimeState: runtime.device.state,
+              deviceConnected: runtime.device.connected,
+              bridgeReady: runtime.voice.desktopBridgeReady,
+              settingsLoaded: settings != null,
+              ledEnabled: settings?.ledEnabled ?? true,
+              ledMode: settings?.ledMode ?? 'breathing',
+              volume: _volume,
+              brightness: _brightness,
+              colorController: _colorController,
+              onVolumeChanged: (double value) =>
+                  setState(() => _volume = value),
+              onBrightnessChanged: (double value) =>
+                  setState(() => _brightness = value),
+              onSendVolume: () => controller.sendDeviceCommand(
+                'set_volume',
+                params: <String, dynamic>{'level': _volume.round()},
               ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonal(
-                  onPressed: () => controller.sendDeviceCommand(
-                    'set_volume',
-                    params: <String, dynamic>{'level': _volume.round()},
-                  ),
-                  child: const Text('Send Volume'),
-                ),
+              onSendBrightness: () => controller.sendDeviceCommand(
+                'set_led_brightness',
+                params: <String, dynamic>{'level': _brightness.round()},
               ),
-              const SizedBox(height: 16),
-              Text('LED Brightness ${_brightness.round()}'),
-              Slider(
-                value: _brightness,
-                min: 0,
-                max: 100,
-                divisions: 20,
-                label: _brightness.round().toString(),
-                onChanged: (double value) =>
-                    setState(() => _brightness = value),
+              onSendColor: () => controller.sendDeviceCommand(
+                'set_led_color',
+                params: <String, dynamic>{
+                  'color': _colorController.text.trim(),
+                },
               ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonal(
-                  onPressed: () => controller.sendDeviceCommand(
-                    'set_led_brightness',
-                    params: <String, dynamic>{'level': _brightness.round()},
-                  ),
-                  child: const Text('Send Brightness'),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _colorController,
-                decoration: const InputDecoration(
-                  labelText: 'LED Color',
-                  hintText: '#2563eb',
-                ),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonal(
-                  onPressed: () => controller.sendDeviceCommand(
-                    'set_led_color',
-                    params: <String, dynamic>{
-                      'color': _colorController.text.trim(),
-                    },
-                  ),
-                  child: const Text('Send Color'),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
+              onWake: () => controller.sendDeviceCommand('wake'),
+              onSleep: () => controller.sendDeviceCommand('sleep'),
+              onMute: () => controller.sendDeviceCommand('mute'),
+              onToggleLed: () => controller.sendDeviceCommand('toggle_led'),
+            );
+
+            final notificationPanel = NotificationPanel(
+              items: state.notifications,
+              statusMessage: state.notificationsMessage,
+              onRefresh: controller.loadNotifications,
+              onMarkAllRead: controller.markAllNotificationsRead,
+              onClearAll: controller.clearNotifications,
+              onToggleRead: (item) =>
+                  controller.markNotificationRead(item.id, read: !item.read),
+              onDelete: (item) => controller.deleteNotification(item.id),
+            );
+
+            if (stacked) {
+              return Column(
                 children: <Widget>[
-                  FilledButton.tonal(
-                    onPressed: () => controller.sendDeviceCommand('wake'),
-                    child: const Text('Wake'),
-                  ),
-                  FilledButton.tonal(
-                    onPressed: () => controller.sendDeviceCommand('sleep'),
-                    child: const Text('Sleep'),
-                  ),
-                  FilledButton.tonal(
-                    onPressed: () => controller.sendDeviceCommand('mute'),
-                    child: const Text('Mute'),
-                  ),
+                  devicePanel,
+                  const SizedBox(height: LinearSpacing.md),
+                  notificationPanel,
                 ],
-              ),
-            ],
-          ),
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(flex: 5, child: devicePanel),
+                const SizedBox(width: LinearSpacing.md),
+                Expanded(flex: 4, child: notificationPanel),
+              ],
+            );
+          },
         ),
-        const SizedBox(height: 16),
-        _SectionCard(
-          title: 'Notifications',
-          status: state.notificationsStatus,
-          message: state.notificationsMessage,
-          headerActions: <Widget>[
-            TextButton(
-              onPressed: controller.loadNotifications,
-              child: const Text('Refresh'),
-            ),
-            TextButton(
-              onPressed: controller.markAllNotificationsRead,
-              child: const Text('Mark All Read'),
-            ),
-          ],
-          child: state.notifications.isEmpty
-              ? const Text('No notifications.')
-              : Column(
-                  children: state.notifications
-                      .map(
-                        (item) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(
-                            item.read
-                                ? Icons.mark_email_read_outlined
-                                : Icons.mark_email_unread_outlined,
-                          ),
-                          title: Text(item.title),
-                          subtitle: Text('${item.message}\n${item.createdAt}'),
-                          isThreeLine: true,
-                          trailing: Wrap(
-                            spacing: 4,
-                            children: <Widget>[
-                              IconButton(
-                                tooltip: item.read
-                                    ? 'Mark unread'
-                                    : 'Mark read',
-                                onPressed: () =>
-                                    controller.markNotificationRead(
-                                      item.id,
-                                      read: !item.read,
-                                    ),
-                                icon: Icon(
-                                  item.read
-                                      ? Icons.undo_outlined
-                                      : Icons.done_outline,
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: 'Delete notification',
-                                onPressed: () =>
-                                    controller.deleteNotification(item.id),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-        ),
-        const SizedBox(height: 16),
-        _SectionCard(
-          title: 'Reminders',
-          status: state.remindersStatus,
-          message: state.remindersMessage,
-          headerActions: <Widget>[
-            TextButton(
-              onPressed: controller.loadReminders,
-              child: const Text('Refresh'),
-            ),
-            FilledButton.tonal(
-              onPressed: () => _openReminderEditor(context),
-              child: const Text('Add'),
-            ),
-          ],
-          child: state.reminders.isEmpty
-              ? const Text('No reminders.')
-              : Column(
-                  children: state.reminders
-                      .map(
-                        (item) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(item.title),
-                          subtitle: Text(
-                            '${item.time} · ${item.repeat}\n${item.message}',
-                          ),
-                          isThreeLine: item.message.isNotEmpty,
-                          trailing: Wrap(
-                            spacing: 4,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: <Widget>[
-                              Switch.adaptive(
-                                value: item.enabled,
-                                onChanged: (bool value) => controller
-                                    .setReminderEnabled(item.id, value),
-                              ),
-                              IconButton(
-                                tooltip: 'Edit reminder',
-                                onPressed: () => _openReminderEditor(
-                                  context,
-                                  existing: item,
-                                ),
-                                icon: const Icon(Icons.edit_outlined),
-                              ),
-                              IconButton(
-                                tooltip: 'Delete reminder',
-                                onPressed: () =>
-                                    controller.deleteReminder(item.id),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
+        const SizedBox(height: LinearSpacing.md),
+        ReminderPanel(
+          items: state.reminders,
+          statusMessage: state.remindersMessage,
+          onRefresh: controller.loadReminders,
+          onAdd: () => _openReminderEditor(context),
+          onToggleEnabled: (ReminderModel item, bool enabled) =>
+              controller.setReminderEnabled(item.id, enabled),
+          onEdit: (ReminderModel item) =>
+              _openReminderEditor(context, existing: item),
+          onDelete: (ReminderModel item) => controller.deleteReminder(item.id),
         ),
       ],
     );
@@ -435,49 +317,164 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
   }
 }
 
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.status,
-    required this.message,
-    required this.child,
-    this.headerActions = const <Widget>[],
+class _DeviceCommandPanel extends StatelessWidget {
+  const _DeviceCommandPanel({
+    required this.runtimeState,
+    required this.deviceConnected,
+    required this.bridgeReady,
+    required this.settingsLoaded,
+    required this.ledEnabled,
+    required this.ledMode,
+    required this.volume,
+    required this.brightness,
+    required this.colorController,
+    required this.onVolumeChanged,
+    required this.onBrightnessChanged,
+    required this.onSendVolume,
+    required this.onSendBrightness,
+    required this.onSendColor,
+    required this.onWake,
+    required this.onSleep,
+    required this.onMute,
+    required this.onToggleLed,
   });
 
-  final String title;
-  final FeatureStatus status;
-  final String? message;
-  final Widget child;
-  final List<Widget> headerActions;
+  final String runtimeState;
+  final bool deviceConnected;
+  final bool bridgeReady;
+  final bool settingsLoaded;
+  final bool ledEnabled;
+  final String ledMode;
+  final double volume;
+  final double brightness;
+  final TextEditingController colorController;
+  final ValueChanged<double> onVolumeChanged;
+  final ValueChanged<double> onBrightnessChanged;
+  final Future<void> Function() onSendVolume;
+  final Future<void> Function() onSendBrightness;
+  final Future<void> Function() onSendColor;
+  final Future<void> Function() onWake;
+  final Future<void> Function() onSleep;
+  final Future<void> Function() onMute;
+  final Future<void> Function() onToggleLed;
 
   @override
   Widget build(BuildContext context) {
-    final color = status == FeatureStatus.notReady
-        ? const Color(0xFFFFFBEB)
-        : status == FeatureStatus.error
-        ? const Color(0xFFFEF2F2)
-        : null;
-
-    return Card(
-      color: color,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-            if (headerActions.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 8),
-              Wrap(spacing: 8, runSpacing: 8, children: headerActions),
+    final chrome = context.linear;
+    return Container(
+      padding: const EdgeInsets.all(LinearSpacing.md),
+      decoration: BoxDecoration(
+        color: chrome.surface,
+        borderRadius: LinearRadius.card,
+        border: Border.all(color: chrome.borderStandard),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Device Commands',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: LinearSpacing.xs,
+            runSpacing: LinearSpacing.xs,
+            children: <Widget>[
+              StatusPill(
+                label: deviceConnected ? 'Device Online' : 'Device Offline',
+                tone: deviceConnected
+                    ? StatusPillTone.success
+                    : StatusPillTone.danger,
+              ),
+              StatusPill(
+                label: 'State $runtimeState',
+                tone: StatusPillTone.neutral,
+              ),
+              StatusPill(
+                label: bridgeReady
+                    ? 'Desktop Bridge Ready'
+                    : 'Desktop Bridge Waiting',
+                tone: bridgeReady
+                    ? StatusPillTone.success
+                    : StatusPillTone.warning,
+              ),
+              if (settingsLoaded)
+                StatusPill(
+                  label: ledEnabled ? 'LED $ledMode' : 'LED disabled',
+                  tone: ledEnabled
+                      ? StatusPillTone.accent
+                      : StatusPillTone.neutral,
+                ),
             ],
-            if (message != null) ...<Widget>[
-              const SizedBox(height: 8),
-              Text(message!),
+          ),
+          const SizedBox(height: LinearSpacing.md),
+          Text('Volume ${volume.round()}'),
+          Slider(
+            value: volume,
+            min: 0,
+            max: 100,
+            divisions: 20,
+            label: volume.round().toString(),
+            onChanged: onVolumeChanged,
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonal(
+              onPressed: onSendVolume,
+              child: const Text('Send Volume'),
+            ),
+          ),
+          const SizedBox(height: LinearSpacing.md),
+          Text('LED Brightness ${brightness.round()}'),
+          Slider(
+            value: brightness,
+            min: 0,
+            max: 100,
+            divisions: 20,
+            label: brightness.round().toString(),
+            onChanged: onBrightnessChanged,
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonal(
+              onPressed: onSendBrightness,
+              child: const Text('Send Brightness'),
+            ),
+          ),
+          const SizedBox(height: LinearSpacing.md),
+          TextField(
+            controller: colorController,
+            decoration: const InputDecoration(
+              labelText: 'LED Color',
+              hintText: '#2563eb',
+            ),
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonal(
+              onPressed: onSendColor,
+              child: const Text('Send Color'),
+            ),
+          ),
+          const SizedBox(height: LinearSpacing.md),
+          Wrap(
+            spacing: LinearSpacing.sm,
+            runSpacing: LinearSpacing.sm,
+            children: <Widget>[
+              FilledButton.tonal(onPressed: onWake, child: const Text('Wake')),
+              FilledButton.tonal(
+                onPressed: onSleep,
+                child: const Text('Sleep'),
+              ),
+              FilledButton.tonal(onPressed: onMute, child: const Text('Mute')),
+              FilledButton.tonal(
+                onPressed: onToggleLed,
+                child: const Text('Toggle LED'),
+              ),
             ],
-            const SizedBox(height: 8),
-            child,
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -1,12 +1,61 @@
 import '../chat/session_model.dart';
 import '../home/runtime_state_model.dart';
 
+class DesktopVoiceCapabilitiesModel {
+  const DesktopVoiceCapabilitiesModel({
+    required this.httpPath,
+    required this.wsPath,
+    required this.desktopClientReady,
+    required this.captureSource,
+    required this.deviceFeedbackAvailable,
+    required this.localSpeakerOutput,
+  });
+
+  final String httpPath;
+  final String wsPath;
+  final bool desktopClientReady;
+  final String captureSource;
+  final bool deviceFeedbackAvailable;
+  final bool localSpeakerOutput;
+
+  factory DesktopVoiceCapabilitiesModel.fromJson(Map<String, dynamic> json) {
+    return DesktopVoiceCapabilitiesModel(
+      httpPath: json['http_path']?.toString() ?? '',
+      wsPath: json['ws_path']?.toString() ?? '',
+      desktopClientReady: json['desktop_client_ready'] == true,
+      captureSource: json['capture_source']?.toString() ?? '',
+      deviceFeedbackAvailable: json['device_feedback_available'] == true,
+      localSpeakerOutput: json['local_speaker_output'] == true,
+    );
+  }
+
+  factory DesktopVoiceCapabilitiesModel.empty() {
+    return const DesktopVoiceCapabilitiesModel(
+      httpPath: '',
+      wsPath: '',
+      desktopClientReady: false,
+      captureSource: '',
+      deviceFeedbackAvailable: false,
+      localSpeakerOutput: false,
+    );
+  }
+}
+
 class CapabilitiesModel {
   const CapabilitiesModel({
     required this.chat,
     required this.deviceControl,
+    required this.deviceCommands,
     required this.voicePipeline,
+    required this.desktopVoice,
+    required this.wakeWord,
+    required this.autoListen,
     required this.whatsappBridge,
+    required this.settings,
+    required this.tasks,
+    required this.events,
+    required this.notifications,
+    required this.reminders,
     required this.todoSummary,
     required this.calendarSummary,
     required this.appEvents,
@@ -16,8 +65,17 @@ class CapabilitiesModel {
 
   final bool chat;
   final bool deviceControl;
+  final bool deviceCommands;
   final bool voicePipeline;
+  final DesktopVoiceCapabilitiesModel desktopVoice;
+  final bool wakeWord;
+  final bool autoListen;
   final bool whatsappBridge;
+  final bool settings;
+  final bool tasks;
+  final bool events;
+  final bool notifications;
+  final bool reminders;
   final bool todoSummary;
   final bool calendarSummary;
   final bool appEvents;
@@ -28,8 +86,21 @@ class CapabilitiesModel {
     return CapabilitiesModel(
       chat: json['chat'] == true,
       deviceControl: json['device_control'] == true,
+      deviceCommands: json['device_commands'] == true,
       voicePipeline: json['voice_pipeline'] == true,
+      desktopVoice: DesktopVoiceCapabilitiesModel.fromJson(
+        json['desktop_voice'] is Map<String, dynamic>
+            ? json['desktop_voice'] as Map<String, dynamic>
+            : <String, dynamic>{},
+      ),
+      wakeWord: json['wake_word'] == true,
+      autoListen: json['auto_listen'] == true,
       whatsappBridge: json['whatsapp_bridge'] == true,
+      settings: json['settings'] == true,
+      tasks: json['tasks'] == true,
+      events: json['events'] == true,
+      notifications: json['notifications'] == true,
+      reminders: json['reminders'] == true,
       todoSummary: json['todo_summary'] == true,
       calendarSummary: json['calendar_summary'] == true,
       appEvents: json['app_events'] == true,
@@ -42,8 +113,17 @@ class CapabilitiesModel {
     return const CapabilitiesModel(
       chat: false,
       deviceControl: false,
+      deviceCommands: false,
       voicePipeline: false,
+      desktopVoice: DesktopVoiceCapabilitiesModel.empty(),
+      wakeWord: false,
+      autoListen: false,
       whatsappBridge: false,
+      settings: false,
+      tasks: false,
+      events: false,
+      notifications: false,
+      reminders: false,
       todoSummary: false,
       calendarSummary: false,
       appEvents: false,
