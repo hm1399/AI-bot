@@ -21,6 +21,20 @@ class LinearPalette {
   static const Color borderStandard = Color(0x1FFFFFFF);
   static const Color borderStrong = Color(0xFF34343A);
   static const Color overlay = Color(0xD9000000);
+
+  static const Color lightCanvas = Color(0xFFF7F8FA);
+  static const Color lightPanel = Color(0xFFFFFFFF);
+  static const Color lightSurface = Color(0xFFF2F4F7);
+  static const Color lightSurfaceHover = Color(0xFFE7EAF0);
+  static const Color lightSurfaceElevated = Color(0xFFFCFCFD);
+  static const Color lightTextPrimary = Color(0xFF111318);
+  static const Color lightTextSecondary = Color(0xFF4B5563);
+  static const Color lightTextTertiary = Color(0xFF6B7280);
+  static const Color lightTextQuaternary = Color(0xFF98A2B3);
+  static const Color lightBorderSubtle = Color(0x14070B12);
+  static const Color lightBorderStandard = Color(0x1F070B12);
+  static const Color lightBorderStrong = Color(0xFFD0D5DD);
+  static const Color lightOverlay = Color(0x66070B12);
 }
 
 class LinearSpacing {
@@ -64,6 +78,27 @@ class LinearThemeTokens extends ThemeExtension<LinearThemeTokens> {
     this.borderStandard = LinearPalette.borderStandard,
     this.borderStrong = LinearPalette.borderStrong,
     this.overlay = LinearPalette.overlay,
+  });
+
+  const LinearThemeTokens.light({
+    this.canvas = LinearPalette.lightCanvas,
+    this.panel = LinearPalette.lightPanel,
+    this.surface = LinearPalette.lightSurface,
+    this.surfaceHover = LinearPalette.lightSurfaceHover,
+    this.surfaceElevated = LinearPalette.lightSurfaceElevated,
+    this.textPrimary = LinearPalette.lightTextPrimary,
+    this.textSecondary = LinearPalette.lightTextSecondary,
+    this.textTertiary = LinearPalette.lightTextTertiary,
+    this.textQuaternary = LinearPalette.lightTextQuaternary,
+    this.brand = LinearPalette.brandIndigo,
+    this.accent = LinearPalette.accentViolet,
+    this.success = LinearPalette.success,
+    this.warning = LinearPalette.warning,
+    this.danger = LinearPalette.danger,
+    this.borderSubtle = LinearPalette.lightBorderSubtle,
+    this.borderStandard = LinearPalette.lightBorderStandard,
+    this.borderStrong = LinearPalette.lightBorderStrong,
+    this.overlay = LinearPalette.lightOverlay,
   });
 
   final Color canvas;

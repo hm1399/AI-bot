@@ -4,7 +4,6 @@ import 'linear_tokens.dart';
 
 class LinearTheme {
   static ThemeData dark() {
-    final base = ThemeData(useMaterial3: true, brightness: Brightness.dark);
     final chrome = const LinearThemeTokens();
     final colorScheme =
         const ColorScheme.dark(
@@ -26,6 +25,48 @@ class LinearTheme {
           surfaceTint: Colors.transparent,
         );
 
+    return _buildTheme(
+      brightness: Brightness.dark,
+      chrome: chrome,
+      colorScheme: colorScheme,
+    );
+  }
+
+  static ThemeData light() {
+    final chrome = const LinearThemeTokens.light();
+    final colorScheme =
+        const ColorScheme.light(
+          primary: LinearPalette.brandIndigo,
+          secondary: LinearPalette.accentViolet,
+          surface: LinearPalette.lightSurface,
+          error: LinearPalette.danger,
+        ).copyWith(
+          onPrimary: Colors.white,
+          onSecondary: Colors.white,
+          onSurface: LinearPalette.lightTextPrimary,
+          surfaceContainerLowest: LinearPalette.lightCanvas,
+          surfaceContainerLow: LinearPalette.lightPanel,
+          surfaceContainer: LinearPalette.lightSurface,
+          surfaceContainerHigh: LinearPalette.lightSurfaceElevated,
+          surfaceContainerHighest: LinearPalette.lightSurfaceHover,
+          outline: LinearPalette.lightBorderStrong,
+          outlineVariant: LinearPalette.lightBorderStandard,
+          surfaceTint: Colors.transparent,
+        );
+
+    return _buildTheme(
+      brightness: Brightness.light,
+      chrome: chrome,
+      colorScheme: colorScheme,
+    );
+  }
+
+  static ThemeData _buildTheme({
+    required Brightness brightness,
+    required LinearThemeTokens chrome,
+    required ColorScheme colorScheme,
+  }) {
+    final base = ThemeData(useMaterial3: true, brightness: brightness);
     return base.copyWith(
       colorScheme: colorScheme,
       scaffoldBackgroundColor: chrome.canvas,
@@ -33,8 +74,8 @@ class LinearTheme {
       cardColor: chrome.surface,
       dividerColor: chrome.borderSubtle,
       splashFactory: InkSparkle.splashFactory,
-      extensions: const <ThemeExtension<dynamic>>[LinearThemeTokens()],
-      textTheme: _buildTextTheme(base.textTheme),
+      extensions: <ThemeExtension<dynamic>>[chrome],
+      textTheme: _buildTextTheme(base.textTheme, chrome),
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -47,7 +88,7 @@ class LinearTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: LinearRadius.card,
-          side: const BorderSide(color: LinearPalette.borderStandard),
+          side: BorderSide(color: chrome.borderStandard),
         ),
       ),
       dialogTheme: DialogThemeData(
@@ -56,24 +97,24 @@ class LinearTheme {
         barrierColor: chrome.overlay,
         shape: RoundedRectangleBorder(
           borderRadius: LinearRadius.panel,
-          side: const BorderSide(color: LinearPalette.borderStandard),
+          side: BorderSide(color: chrome.borderStandard),
         ),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: LinearPalette.surface,
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: chrome.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: LinearRadius.panel),
+        shape: const RoundedRectangleBorder(borderRadius: LinearRadius.panel),
       ),
-      listTileTheme: const ListTileThemeData(
-        iconColor: LinearPalette.textSecondary,
-        textColor: LinearPalette.textPrimary,
+      listTileTheme: ListTileThemeData(
+        iconColor: chrome.textSecondary,
+        textColor: chrome.textPrimary,
       ),
-      dividerTheme: const DividerThemeData(
-        color: LinearPalette.borderSubtle,
+      dividerTheme: DividerThemeData(
+        color: chrome.borderSubtle,
         thickness: 1,
         space: 1,
       ),
-      iconTheme: const IconThemeData(color: LinearPalette.textSecondary),
+      iconTheme: IconThemeData(color: chrome.textSecondary),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: chrome.brand,
@@ -95,7 +136,7 @@ class LinearTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: chrome.textPrimary,
-          side: const BorderSide(color: LinearPalette.borderStandard),
+          side: BorderSide(color: chrome.borderStandard),
           padding: const EdgeInsets.symmetric(
             horizontal: LinearSpacing.md,
             vertical: LinearSpacing.sm,
@@ -121,7 +162,7 @@ class LinearTheme {
         disabledColor: chrome.panel,
         selectedColor: chrome.surfaceHover,
         secondarySelectedColor: chrome.surfaceHover,
-        side: const BorderSide(color: LinearPalette.borderStandard),
+        side: BorderSide(color: chrome.borderStandard),
         shape: const StadiumBorder(),
         labelStyle: TextStyle(
           color: chrome.textSecondary,
@@ -150,8 +191,8 @@ class LinearTheme {
           horizontal: LinearSpacing.md,
           vertical: LinearSpacing.sm,
         ),
-        border: _inputBorder(),
-        enabledBorder: _inputBorder(),
+        border: _inputBorder(color: chrome.borderStandard),
+        enabledBorder: _inputBorder(color: chrome.borderStandard),
         focusedBorder: _inputBorder(color: chrome.accent, width: 1.4),
         errorBorder: _inputBorder(color: chrome.danger),
         focusedErrorBorder: _inputBorder(color: chrome.danger, width: 1.4),
@@ -174,7 +215,7 @@ class LinearTheme {
             return chrome.panel;
           }),
           side: WidgetStateProperty.all(
-            const BorderSide(color: LinearPalette.borderStandard),
+            BorderSide(color: chrome.borderStandard),
           ),
           shape: WidgetStateProperty.all(
             const RoundedRectangleBorder(borderRadius: LinearRadius.control),
@@ -218,7 +259,7 @@ class LinearTheme {
     );
   }
 
-  static TextTheme _buildTextTheme(TextTheme base) {
+  static TextTheme _buildTextTheme(TextTheme base, LinearThemeTokens chrome) {
     return base
         .copyWith(
           displayLarge: base.displayLarge?.copyWith(
@@ -282,18 +323,15 @@ class LinearTheme {
           labelSmall: base.labelSmall?.copyWith(
             fontSize: 11,
             height: 1.2,
-            color: LinearPalette.textTertiary,
+            color: chrome.textTertiary,
             fontWeight: FontWeight.w600,
           ),
         )
-        .apply(
-          bodyColor: LinearPalette.textPrimary,
-          displayColor: LinearPalette.textPrimary,
-        );
+        .apply(bodyColor: chrome.textPrimary, displayColor: chrome.textPrimary);
   }
 
   static OutlineInputBorder _inputBorder({
-    Color color = LinearPalette.borderStandard,
+    required Color color,
     double width = 1,
   }) {
     return OutlineInputBorder(

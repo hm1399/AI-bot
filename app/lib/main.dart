@@ -17,9 +17,9 @@ class AiBotApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'AI Bot App',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
+      themeMode: ThemeMode.system,
+      theme: LinearTheme.light(),
       darkTheme: LinearTheme.dark(),
-      theme: LinearTheme.dark(),
       routerConfig: router,
     );
   }
