@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../config/app_config.dart';
@@ -29,11 +30,15 @@ import '../services/realtime/ws_service.dart';
 import '../services/reminders/reminders_service.dart';
 import '../services/settings/settings_service.dart';
 import '../services/storage/auth_storage_service.dart';
+import '../services/storage/theme_preference_service.dart';
 import '../services/tasks/tasks_service.dart';
 import 'app_state.dart';
 
 final storageServiceProvider = Provider<AuthStorageService>(
   (Ref ref) => AuthStorageService(),
+);
+final themePreferenceServiceProvider = Provider<ThemePreferenceService>(
+  (Ref ref) => ThemePreferenceService(),
 );
 final apiClientProvider = Provider<ApiClient>((Ref ref) {
   final client = ApiClient();
@@ -95,7 +100,10 @@ class AppController extends StateNotifier<AppState> {
         .read(wsServiceProvider)
         .status
         .listen(_handleRealtimeStatus);
-    Future<void>.microtask(_restoreSavedConnection);
+    Future<void>.microtask(() async {
+      await _restoreThemeMode();
+      await _restoreSavedConnection();
+    });
   }
 
   final Ref ref;
@@ -103,6 +111,24 @@ class AppController extends StateNotifier<AppState> {
   StreamSubscription<RealtimeConnectionStatus>? _statusSubscription;
 
   ApiClient get _apiClient => ref.read(apiClientProvider);
+
+  Future<void> _restoreThemeMode() async {
+    final saved = await ref
+        .read(themePreferenceServiceProvider)
+        .loadThemeMode();
+    if (saved == null || saved == state.themeMode) {
+      return;
+    }
+    state = state.copyWith(themeMode: saved);
+  }
+
+  Future<void> setThemeMode(ThemeMode themeMode) async {
+    if (themeMode == state.themeMode) {
+      return;
+    }
+    state = state.copyWith(themeMode: themeMode);
+    await ref.read(themePreferenceServiceProvider).saveThemeMode(themeMode);
+  }
 
   Future<void> _restoreSavedConnection() async {
     final saved = await ref.read(connectServiceProvider).loadConnection();
@@ -260,7 +286,10 @@ class AppController extends StateNotifier<AppState> {
     );
     await ref.read(connectServiceProvider).saveConnection(keptConnection);
     _apiClient.clearConnection();
-    state = AppState.initial().copyWith(connection: keptConnection);
+    state = AppState.initial().copyWith(
+      connection: keptConnection,
+      themeMode: state.themeMode,
+    );
   }
 
   Future<void> refreshAll() async {

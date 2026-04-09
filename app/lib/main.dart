@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import 'config/routes.dart';
+import 'providers/app_providers.dart';
 import 'theme/linear_theme.dart';
 
 void main() {
@@ -14,10 +15,13 @@ class AiBotApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final themeMode = ref.watch(
+      appControllerProvider.select((state) => state.themeMode),
+    );
     return MaterialApp.router(
       title: 'AI Bot App',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
       theme: LinearTheme.light(),
       darkTheme: LinearTheme.dark(),
       routerConfig: router,

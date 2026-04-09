@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 import '../models/chat/message_model.dart';
 import '../models/chat/session_model.dart';
 import '../models/connect/bootstrap_model.dart';
@@ -41,6 +43,7 @@ class AppState {
     required this.remindersStatus,
     required this.reminders,
     required this.remindersMessage,
+    required this.themeMode,
     required this.globalMessage,
   });
 
@@ -70,6 +73,7 @@ class AppState {
   final FeatureStatus remindersStatus;
   final List<ReminderModel> reminders;
   final String? remindersMessage;
+  final ThemeMode themeMode;
   final String? globalMessage;
 
   String get currentSessionId => connection.currentSessionId;
@@ -104,6 +108,7 @@ class AppState {
     FeatureStatus? remindersStatus,
     List<ReminderModel>? reminders,
     Object? remindersMessage = _unset,
+    ThemeMode? themeMode,
     Object? globalMessage = _unset,
   }) {
     return AppState(
@@ -147,6 +152,7 @@ class AppState {
       remindersMessage: identical(remindersMessage, _unset)
           ? this.remindersMessage
           : remindersMessage as String?,
+      themeMode: themeMode ?? this.themeMode,
       globalMessage: identical(globalMessage, _unset)
           ? this.globalMessage
           : globalMessage as String?,
@@ -181,6 +187,7 @@ class AppState {
       remindersStatus: FeatureStatus.idle,
       reminders: const <ReminderModel>[],
       remindersMessage: null,
+      themeMode: ThemeMode.dark,
       globalMessage: null,
     );
   }

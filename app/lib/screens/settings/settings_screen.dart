@@ -44,20 +44,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _draft != null || _apiKeyController.text.trim().isNotEmpty;
 
     if (settings == null) {
-      return Center(
-        child: state.settingsStatus == FeatureStatus.loading
-            ? const CircularProgressIndicator()
-            : Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  state.settingsMessage ?? 'Connect to load settings.',
-                ),
-              ),
+      return ListView(
+        padding: const EdgeInsets.all(24),
+        children: <Widget>[
+          ThemeModeSection(
+            themeMode: state.themeMode,
+            onThemeModeChanged: (ThemeMode mode) =>
+                ref.read(appControllerProvider.notifier).setThemeMode(mode),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: state.settingsStatus == FeatureStatus.loading
+                ? const CircularProgressIndicator()
+                : Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      state.settingsMessage ?? 'Connect to load settings.',
+                    ),
+                  ),
+          ),
+        ],
       );
     }
 
     return SettingsForm(
       settings: settings,
+      themeMode: state.themeMode,
       apiKeyController: _apiKeyController,
       statusMessage: state.settingsMessage,
       canEdit:
@@ -65,6 +77,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           state.settingsStatus == FeatureStatus.demo,
       hasDraftChanges: hasDraftChanges,
       onChanged: (AppSettingsModel next) => setState(() => _draft = next),
+      onThemeModeChanged: (ThemeMode mode) =>
+          ref.read(appControllerProvider.notifier).setThemeMode(mode),
       onSave: () async {
         await ref
             .read(appControllerProvider.notifier)

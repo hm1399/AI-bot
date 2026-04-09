@@ -7,8 +7,10 @@ import '../common/status_pill.dart';
 class SettingsForm extends StatefulWidget {
   const SettingsForm({
     required this.settings,
+    required this.themeMode,
     required this.apiKeyController,
     required this.onChanged,
+    required this.onThemeModeChanged,
     required this.onSave,
     required this.onTest,
     required this.onReset,
@@ -19,8 +21,10 @@ class SettingsForm extends StatefulWidget {
   });
 
   final AppSettingsModel settings;
+  final ThemeMode themeMode;
   final TextEditingController apiKeyController;
   final ValueChanged<AppSettingsModel> onChanged;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onSave;
   final Future<void> Function() onTest;
   final VoidCallback onReset;
@@ -133,6 +137,11 @@ class _SettingsFormState extends State<SettingsForm> {
               icon: Icons.edit_note_outlined,
             ),
           ],
+        ),
+        const SizedBox(height: LinearSpacing.md),
+        ThemeModeSection(
+          themeMode: widget.themeMode,
+          onThemeModeChanged: widget.onThemeModeChanged,
         ),
         const SizedBox(height: LinearSpacing.md),
         _Section(
@@ -372,6 +381,47 @@ class _SettingsFormState extends State<SettingsForm> {
           ),
         ],
       ],
+    );
+  }
+}
+
+class ThemeModeSection extends StatelessWidget {
+  const ThemeModeSection({
+    required this.themeMode,
+    required this.onThemeModeChanged,
+    super.key,
+  });
+
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      title: 'Appearance',
+      description:
+          'This changes the interface on this device only. It does not use backend Save Settings.',
+      child: SegmentedButton<ThemeMode>(
+        showSelectedIcon: false,
+        segments: const <ButtonSegment<ThemeMode>>[
+          ButtonSegment<ThemeMode>(
+            value: ThemeMode.dark,
+            icon: Icon(Icons.dark_mode_outlined),
+            label: Text('Dark'),
+          ),
+          ButtonSegment<ThemeMode>(
+            value: ThemeMode.light,
+            icon: Icon(Icons.light_mode_outlined),
+            label: Text('Light'),
+          ),
+        ],
+        selected: <ThemeMode>{themeMode},
+        onSelectionChanged: (Set<ThemeMode> selection) {
+          if (selection.isNotEmpty) {
+            onThemeModeChanged(selection.first);
+          }
+        },
+      ),
     );
   }
 }
