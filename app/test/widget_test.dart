@@ -7,6 +7,9 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: AiBotApp()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Connect to AI-Bot'), findsOneWidget);
+    expect(find.text('AI Bot Workspace'), findsOneWidget);
+    expect(find.text('Connect the operator console.'), findsOneWidget);
+    expect(find.text('Try Demo Mode'), findsOneWidget);
+    expect(find.text('Validate Connection'), findsOneWidget);
   });
 }

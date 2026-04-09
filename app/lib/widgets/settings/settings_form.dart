@@ -299,7 +299,7 @@ class _SettingsFormState extends State<SettingsForm> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(LinearSpacing.md),
                 decoration: BoxDecoration(
-                  color: chrome.warning.withOpacity(0.08),
+                  color: chrome.warning.withValues(alpha: 0.08),
                   borderRadius: LinearRadius.card,
                   border: Border.all(color: chrome.borderStandard),
                 ),

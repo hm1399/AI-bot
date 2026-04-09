@@ -120,7 +120,7 @@ class AppScaffold extends ConsumerWidget {
                                 end: Alignment.bottomCenter,
                                 colors: <Color>[
                                   context.linear.canvas,
-                                  context.linear.panel.withOpacity(0.48),
+                                  context.linear.panel.withValues(alpha: 0.48),
                                 ],
                               ),
                             ),

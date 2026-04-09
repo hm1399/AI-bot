@@ -267,30 +267,6 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     ];
   }
 
-  String _buildTaskSubtitle(TaskModel task) {
-    final description = task.description?.trim();
-    final due = task.dueAt?.trim();
-    final pieces = <String>[
-      'Priority ${task.priority}',
-      task.completed ? 'Completed' : 'Open',
-      if (due != null && due.isNotEmpty) 'Due $due',
-      if (description != null && description.isNotEmpty) description,
-    ];
-    return pieces.join('\n');
-  }
-
-  String _buildEventSubtitle(EventModel event) {
-    final description = event.description?.trim();
-    final location = event.location?.trim();
-    final pieces = <String>[
-      'Start ${event.startAt}',
-      'End ${event.endAt}',
-      if (location != null && location.isNotEmpty) 'Location $location',
-      if (description != null && description.isNotEmpty) description,
-    ];
-    return pieces.join('\n');
-  }
-
   Future<void> _openTaskEditor(
     BuildContext context, {
     TaskModel? existing,
@@ -556,9 +532,9 @@ class _StatusPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final chrome = context.linear;
     final color = status == FeatureStatus.notReady
-        ? chrome.warning.withOpacity(0.08)
+        ? chrome.warning.withValues(alpha: 0.08)
         : status == FeatureStatus.error
-        ? chrome.danger.withOpacity(0.08)
+        ? chrome.danger.withValues(alpha: 0.08)
         : chrome.panel;
     return Container(
       padding: const EdgeInsets.all(LinearSpacing.md),

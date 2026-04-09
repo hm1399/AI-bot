@@ -195,6 +195,6 @@
 - Verify: `app/lib/screens/settings/settings_screen.dart`
 
 - [ ] Step 1: 按页面回归现有功能保全矩阵，确认没有任何已有按钮、路由、状态提示被删掉。
-- [ ] Step 2: 在用户确认允许验证后，再执行 `flutter analyze`、必要的 `flutter test` 和桌面端手动 smoke flow。
+- [x] Step 2: 在用户确认允许验证后，再执行 `flutter analyze`、必要的 `flutter test` 和桌面端手动 smoke flow。
 - [ ] Step 3: 手动核对连接页、demo、五页切换、聊天发消息、任务增删改、控制命令、设置保存与测试连接的完整路径。
 - [ ] Step 4: 如实现中发现 README 或其他文档口径与新 UI 明显不一致，再单独征求用户是否补文档，不在本轮擅自扩任务。

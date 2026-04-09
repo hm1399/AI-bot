@@ -110,7 +110,7 @@ class CapabilitiesModel {
   }
 
   factory CapabilitiesModel.empty() {
-    return const CapabilitiesModel(
+    return CapabilitiesModel(
       chat: false,
       deviceControl: false,
       deviceCommands: false,

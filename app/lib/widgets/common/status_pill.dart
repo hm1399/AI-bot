@@ -20,16 +20,22 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final chrome = context.linear;
     final colors = switch (tone) {
-      StatusPillTone.accent => (chrome.accent.withOpacity(0.18), chrome.accent),
+      StatusPillTone.accent => (
+        chrome.accent.withValues(alpha: 0.18),
+        chrome.accent,
+      ),
       StatusPillTone.success => (
-        chrome.success.withOpacity(0.18),
+        chrome.success.withValues(alpha: 0.18),
         chrome.success,
       ),
       StatusPillTone.warning => (
-        chrome.warning.withOpacity(0.18),
+        chrome.warning.withValues(alpha: 0.18),
         chrome.warning,
       ),
-      StatusPillTone.danger => (chrome.danger.withOpacity(0.18), chrome.danger),
+      StatusPillTone.danger => (
+        chrome.danger.withValues(alpha: 0.18),
+        chrome.danger,
+      ),
       StatusPillTone.neutral => (chrome.panel, chrome.textSecondary),
     };
 
@@ -44,7 +50,7 @@ class StatusPill extends StatelessWidget {
         border: Border.all(
           color: tone == StatusPillTone.neutral
               ? chrome.borderStandard
-              : colors.$2.withOpacity(0.36),
+              : colors.$2.withValues(alpha: 0.36),
         ),
       ),
       child: Row(
