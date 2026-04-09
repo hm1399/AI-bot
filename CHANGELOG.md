@@ -1152,6 +1152,36 @@
 
 ---
 
+## 2026-04-09 - app Linear 风格重构与主题能力补齐
+
+### 设计文档与实施计划补齐
+
+- 新增 `app/DESIGN.md`，将 app 前端视觉方向收敛为面向 Flutter 的 Linear 风格控制台设计说明
+- 新增并整理 `功能讨论区/TODO/2026-04-09-app-DESIGN-md-Linear风格制作计划.md`
+- 新增并整理 `功能讨论区/TODO/2026-04-09-app-Linear风格UI优化实施计划.md`
+
+### Flutter app Linear 风格 UI 重构
+
+- 将 app 主体主题替换为基于 Linear token 的深色主题体系，统一卡片、输入框、导航、弹窗和状态色语义
+- 重构主壳层为桌面侧边栏 + 移动端底部 dock 的响应式结构，并补上全局 `Disconnect`、`Refresh All` 等入口
+- 重排 Connect / Home / Chat / Tasks / Control Center / Settings 六个核心页面，保持现有功能按钮不减少，只在真实能力范围内补充高价值入口
+- 首页补齐运行态总览、摘要卡片和快速操作；聊天页改成更接近工作区的双栏布局；任务和控制中心改成更高密度的控制台式排版
+- 设置页改为稳定草稿态编辑，不再在构建过程中临时重建表单控制器
+
+### 验证与收口
+
+- 补做 `flutter analyze` 与 `flutter test` 验证，修正 UI 重构后遗留的构造、弃用 API 和旧 smoke test 断言
+- 当轮验证结果为：`flutter analyze` 通过，`flutter test` 通过
+
+### 主题能力补齐
+
+- 新增 Linear 风格浅色主题，实现深浅两套视觉 token 与共享主题构建逻辑
+- app 入口改为根据当前前端主题状态切换深浅色，而不是固定深色
+- 设置页新增本地 `Appearance` 区块，支持手动切换 `Dark / Light`
+- 主题偏好改为前端本地持久化保存，不进入后端 `Save Settings` 链路，也不受后端配置草稿重置影响
+
+---
+
 ## 当前待办更新
 
 - [x] IO8 飞线至 IO21 — 已完成，I2S 通信正常

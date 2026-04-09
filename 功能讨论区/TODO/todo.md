@@ -1,3 +1,4 @@
+功能讨论区/TODO/2026-04-09-CHANGELOG补充app主题与Linear重构记录.md
 功能讨论区/TODO/2026-04-09-app-设置页手动主题切换实施计划.md
 功能讨论区/TODO/2026-04-09-app-浅色模式补充实施计划.md
 功能讨论区/TODO/2026-04-09-app-Linear风格UI优化实施计划.md
