@@ -1182,6 +1182,71 @@
 
 ---
 
+## 2026-04-09 - P1 智能待办 / 提醒 / 日历工作台落地
+
+### planning 后端派生层落地
+
+- 在现有 `JsonCollectionStore + AppRuntimeService` 之上补齐 planning 派生层，不推翻原有 task / event / reminder / notification 四类资源
+- 新增 `server/services/planning/`，落地：
+  - `planning_bundle_service.py`
+  - `planning_projection_service.py`
+  - `planning_summary_service.py`
+- 统一引入 `bundle_id`、`created_via`、`source_channel`、`source_session_id`、`source_message_id`、`linked_*` 等 planning 元数据，允许一次语音/文本创建出的多类资源共享同一组来源信息
+- 在后端新增 `GET /api/app/v1/planning/overview`、`/planning/timeline`、`/planning/conflicts` 三个 planning 查询接口
+- `todo_summary` 与 `calendar_summary` 改为由 planning 数据自动派生，并继续兼容写回 `runtime/todo_summary.json` 与 `runtime/calendar_summary.json`
+- `bootstrap` / `runtime state` / `capabilities` 同步补齐 planning 能力声明，Flutter 端可显式判断 overview / timeline / conflicts 是否可用
+
+### reminder 调度与联动增强
+
+- `ReminderScheduler` 补齐并稳定使用 reminder 运行时字段：
+  - `next_trigger_at`
+  - `last_triggered_at`
+  - `last_error`
+  - `snoozed_until`
+  - `completed_at`
+  - `status`
+- reminder 触发后不再只创建 notification，还会先更新 reminder 自身状态，再统一刷新 planning 与 summary
+- reminder、notification、summary、planning 的事件广播顺序做了收口，降低前端收到旧状态或脏数据的概率
+
+### Agent planning tool 与前端工作台打通
+
+- 新增 `server/nanobot/agent/tools/planning.py`，并在 `AgentLoop + bootstrap` 中正式注册 planning tool
+- 当前 planning tool 已支持：
+  - `create_task`
+  - `create_event`
+  - `create_reminder`
+  - `complete_task`
+  - `snooze_reminder`
+  - `list_today`
+- planning tool 返回结构化结果，包含 `bundle_id`、资源 ID、规范化时间、冲突信息与是否需要二次确认，并会保存在 assistant 消息 metadata 中
+- Flutter 端新增 planning model / service / provider 状态，`AppController` 正式接入：
+  - `loadPlanningOverview()`
+  - `loadPlanningTimeline()`
+  - `loadPlanningConflicts()`
+  - `refreshPlanningWorkbench()`
+- `/app/tasks` 从原来的 task/event 二选一列表升级为 planning workbench，统一展示今日概览、任务、时间线、提醒与冲突
+- `/app/chat` 与 `message_bubble` 现在可以把结构化 planning 结果直接显示出来，不再只是自然语言“创建成功”
+- `/app/home` 新增 planning highlights；`/app/control` 明确保留为 reminders/notifications 的兼容入口，而不是第二套 planning 逻辑
+- 前端 realtime 事件处理补齐 `notification.created`、`reminder.triggered`、`planning.changed`，并修正 `system.hello.resume.should_refetch_bootstrap` 时的完整刷新路径
+
+### 测试与文档同步
+
+- 新增或扩充：
+  - `server/tests/test_planning_projection_service.py`
+  - `server/tests/test_reminder_scheduler.py`
+  - `server/tests/test_agent_loop.py`
+  - `server/tests/test_app_api_services.py`
+  - `server/tests/test_app_runtime.py`
+- 修正 `test_agent_loop.py` 的 workspace 隔离问题，避免历史 session 污染单测结果
+- 本轮验证结果：
+  - `python3 -m unittest server.tests.test_reminder_scheduler server.tests.test_agent_loop server.tests.test_app_api_services server.tests.test_planning_projection_service server.tests.test_app_runtime` 通过，共 `38` 项
+  - `dart analyze` 通过
+  - `flutter test test/widget_test.dart` 通过
+- 同步更新 `功能讨论区/TODO/2026-04-08-P1智能待办提醒日历实施计划-macos-app.md`，按实际完成情况勾选本轮已落地项
+- 同步更新 `功能讨论区/TODO/waitlist.md`，记录 `app_runtime.py` 热点膨胀、`JsonCollectionStore` 并发风险、reminder `repeat` 契约不一致等后续问题
+
+---
+
 ## 当前待办更新
 
 - [x] IO8 飞线至 IO21 — 已完成，I2S 通信正常
