@@ -61,6 +61,10 @@ class CapabilitiesModel {
     required this.appEvents,
     required this.eventReplay,
     required this.appAuthEnabled,
+    this.planning = false,
+    this.planningOverview = false,
+    this.planningTimeline = false,
+    this.planningConflicts = false,
   });
 
   final bool chat;
@@ -81,8 +85,13 @@ class CapabilitiesModel {
   final bool appEvents;
   final bool eventReplay;
   final bool appAuthEnabled;
+  final bool planning;
+  final bool planningOverview;
+  final bool planningTimeline;
+  final bool planningConflicts;
 
   factory CapabilitiesModel.fromJson(Map<String, dynamic> json) {
+    final planning = _asMap(json['planning']);
     return CapabilitiesModel(
       chat: json['chat'] == true,
       deviceControl: json['device_control'] == true,
@@ -106,6 +115,23 @@ class CapabilitiesModel {
       appEvents: json['app_events'] == true,
       eventReplay: json['event_replay'] == true,
       appAuthEnabled: json['app_auth_enabled'] == true,
+      planning:
+          _readBool(json, const <String>['planning']) || planning.isNotEmpty,
+      planningOverview:
+          _readBool(json, const <String>['planning_overview']) ||
+          _readBool(planning, const <String>['overview', 'overview_enabled']) ||
+          planning['overview_path'] != null,
+      planningTimeline:
+          _readBool(json, const <String>['planning_timeline']) ||
+          _readBool(planning, const <String>['timeline', 'timeline_enabled']) ||
+          planning['timeline_path'] != null,
+      planningConflicts:
+          _readBool(json, const <String>['planning_conflicts']) ||
+          _readBool(planning, const <String>[
+            'conflicts',
+            'conflicts_enabled',
+          ]) ||
+          planning['conflicts_path'] != null,
     );
   }
 
@@ -129,6 +155,10 @@ class CapabilitiesModel {
       appEvents: false,
       eventReplay: false,
       appAuthEnabled: false,
+      planning: false,
+      planningOverview: false,
+      planningTimeline: false,
+      planningConflicts: false,
     );
   }
 }
@@ -186,6 +216,7 @@ class BootstrapModel {
     required this.runtime,
     required this.sessions,
     required this.eventStream,
+    this.planning = const <String, dynamic>{},
   });
 
   final String serverVersion;
@@ -193,6 +224,7 @@ class BootstrapModel {
   final RuntimeStateModel runtime;
   final List<SessionModel> sessions;
   final EventStreamModel eventStream;
+  final Map<String, dynamic> planning;
 
   factory BootstrapModel.fromJson(Map<String, dynamic> json) {
     final rawSessions = json['sessions'] is List
@@ -223,6 +255,56 @@ class BootstrapModel {
             ? json['event_stream'] as Map<String, dynamic>
             : <String, dynamic>{},
       ),
+      planning: _extractBootstrapPlanning(json),
     );
   }
+}
+
+Map<String, dynamic> _extractBootstrapPlanning(Map<String, dynamic> json) {
+  final planning = <String, dynamic>{};
+  final planningPayload = _asMap(json['planning']);
+  if (planningPayload.isNotEmpty) {
+    planning.addAll(planningPayload);
+  }
+
+  final planningRoutes = _asMap(json['planning_routes']);
+  if (planningRoutes.isNotEmpty) {
+    planning['routes'] = planningRoutes;
+  }
+
+  for (final key in const <String>[
+    'planning_overview_path',
+    'planning_timeline_path',
+    'planning_conflicts_path',
+  ]) {
+    if (json.containsKey(key)) {
+      planning[key] = json[key];
+    }
+  }
+
+  return planning;
+}
+
+Map<String, dynamic> _asMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return Map<String, dynamic>.from(value);
+  }
+  return <String, dynamic>{};
+}
+
+bool _readBool(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is bool) {
+      return value;
+    }
+    final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == 'true') {
+      return true;
+    }
+    if (normalized == 'false') {
+      return false;
+    }
+  }
+  return false;
 }

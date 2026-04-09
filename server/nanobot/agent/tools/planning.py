@@ -1,0 +1,577 @@
+"""Planning tool for tasks, events, and reminders."""
+
+from __future__ import annotations
+
+import json
+from contextvars import ContextVar
+from copy import deepcopy
+from datetime import date, datetime, timedelta
+from typing import Any, Protocol
+from uuid import uuid4
+
+from nanobot.agent.tools.base import Tool
+
+
+class PlanningBackend(Protocol):
+    """Injected planning facade used by the planning tool."""
+
+    async def list_tasks(
+        self,
+        *,
+        completed: bool | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    async def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    async def update_task(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    async def list_events(self, *, limit: int | None = None) -> dict[str, Any]:
+        ...
+
+    async def create_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    async def create_reminder(self, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    async def update_reminder(self, reminder_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    async def list_reminders(self, *, limit: int | None = None) -> dict[str, Any]:
+        ...
+
+
+class PlanningTool(Tool):
+    """Tool for lightweight planning actions backed by injected services."""
+
+    _SUPPORTED_ACTIONS = (
+        "create_task",
+        "create_event",
+        "create_reminder",
+        "complete_task",
+        "snooze_reminder",
+        "list_today",
+    )
+    _SUPPORTED_PRIORITIES = {"high", "medium", "low"}
+    _SUPPORTED_REPEATS = {"daily", "once", "weekdays", "weekends"}
+
+    def __init__(self, backend: PlanningBackend):
+        self._backend = backend
+        self._turn_results_var: ContextVar[list[dict[str, Any]]] = ContextVar(
+            "planning_turn_results",
+            default=[],
+        )
+
+    def start_turn(self) -> None:
+        """Reset per-turn structured tool results."""
+        self._turn_results_var.set([])
+
+    def consume_turn_results(self) -> list[dict[str, Any]]:
+        """Return and clear structured results for the current turn."""
+        results = deepcopy(self._turn_results_var.get())
+        self._turn_results_var.set([])
+        return results
+
+    @property
+    def name(self) -> str:
+        return "planning"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Manage lightweight planning data. Actions: create_task, create_event, "
+            "create_reminder, complete_task, snooze_reminder, list_today."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": list(self._SUPPORTED_ACTIONS),
+                    "description": "Planning action to execute.",
+                },
+                "title": {"type": "string", "description": "Resource title."},
+                "description": {"type": "string", "description": "Optional task/event description."},
+                "priority": {
+                    "type": "string",
+                    "enum": sorted(self._SUPPORTED_PRIORITIES),
+                    "description": "Task priority.",
+                },
+                "due_at": {
+                    "type": "string",
+                    "description": "ISO datetime for task due time.",
+                },
+                "start_at": {
+                    "type": "string",
+                    "description": "ISO datetime when an event starts.",
+                },
+                "end_at": {
+                    "type": "string",
+                    "description": "ISO datetime when an event ends.",
+                },
+                "location": {"type": "string", "description": "Optional event location."},
+                "time": {
+                    "type": "string",
+                    "description": "Reminder time as ISO datetime or HH:MM[:SS].",
+                },
+                "message": {"type": "string", "description": "Optional reminder message."},
+                "repeat": {
+                    "type": "string",
+                    "description": "Reminder repeat cadence.",
+                },
+                "task_id": {"type": "string", "description": "Task id for updates."},
+                "reminder_id": {"type": "string", "description": "Reminder id for updates."},
+                "until": {
+                    "type": "string",
+                    "description": "ISO datetime to snooze a reminder until.",
+                },
+                "minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Alternative snooze duration in minutes.",
+                },
+                "date": {
+                    "type": "string",
+                    "description": "Target day for list_today, formatted as YYYY-MM-DD.",
+                },
+            },
+            "required": ["action"],
+        }
+
+    async def execute(self, action: str, **kwargs: Any) -> str:
+        bundle_id = f"planning_{uuid4().hex}"
+        try:
+            if action == "create_task":
+                result = await self._create_task(bundle_id=bundle_id, **kwargs)
+            elif action == "create_event":
+                result = await self._create_event(bundle_id=bundle_id, **kwargs)
+            elif action == "create_reminder":
+                result = await self._create_reminder(bundle_id=bundle_id, **kwargs)
+            elif action == "complete_task":
+                result = await self._complete_task(bundle_id=bundle_id, **kwargs)
+            elif action == "snooze_reminder":
+                result = await self._snooze_reminder(bundle_id=bundle_id, **kwargs)
+            elif action == "list_today":
+                result = await self._list_today(bundle_id=bundle_id, **kwargs)
+            else:
+                return f"Error: unsupported action '{action}'"
+        except KeyError as exc:
+            target = str(exc.args[0]) if exc.args else "resource"
+            return f"Error: {target} not found"
+        except ValueError as exc:
+            return f"Error: {exc}"
+
+        turn_results = list(self._turn_results_var.get())
+        turn_results.append(deepcopy(result))
+        self._turn_results_var.set(turn_results)
+        return json.dumps(result, ensure_ascii=False)
+
+    async def _create_task(
+        self,
+        *,
+        bundle_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        priority: str | None = None,
+        due_at: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        clean_title = self._require_text(title, "title")
+        clean_priority = self._normalize_priority(priority)
+        normalized_due_at = self._normalize_datetime(due_at, "due_at") if due_at else None
+        task = await self._backend.create_task(
+            {
+                "title": clean_title,
+                "description": self._clean_optional_text(description),
+                "priority": clean_priority,
+                "due_at": normalized_due_at,
+            }
+        )
+        return self._result_payload(
+            bundle_id=bundle_id,
+            action="create_task",
+            resource_ids={"task_id": task["task_id"]},
+            normalized_times={"due_at": task.get("due_at") or normalized_due_at},
+            result={"task": task},
+            message=f"Created task '{task.get('title') or clean_title}'.",
+        )
+
+    async def _create_event(
+        self,
+        *,
+        bundle_id: str,
+        title: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
+        description: str | None = None,
+        location: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        clean_title = self._require_text(title, "title")
+        normalized_start_at = self._normalize_datetime(start_at, "start_at")
+        normalized_end_at = self._normalize_datetime(end_at, "end_at")
+        start_dt = self._parse_iso_datetime(normalized_start_at, "start_at")
+        end_dt = self._parse_iso_datetime(normalized_end_at, "end_at")
+        if end_dt <= start_dt:
+            raise ValueError("end_at must be after start_at")
+
+        conflicts = await self._detect_event_conflicts(start_dt, end_dt)
+        event = await self._backend.create_event(
+            {
+                "title": clean_title,
+                "start_at": normalized_start_at,
+                "end_at": normalized_end_at,
+                "description": self._clean_optional_text(description),
+                "location": self._clean_optional_text(location),
+            }
+        )
+        return self._result_payload(
+            bundle_id=bundle_id,
+            action="create_event",
+            resource_ids={"event_id": event["event_id"]},
+            normalized_times={
+                "start_at": event.get("start_at") or normalized_start_at,
+                "end_at": event.get("end_at") or normalized_end_at,
+            },
+            conflicts=conflicts,
+            confirmation_needed=bool(conflicts),
+            result={"event": event},
+            message=f"Created event '{event.get('title') or clean_title}'.",
+        )
+
+    async def _create_reminder(
+        self,
+        *,
+        bundle_id: str,
+        title: str | None = None,
+        time: str | None = None,
+        message: str | None = None,
+        repeat: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        clean_title = self._require_text(title, "title")
+        normalized_time = self._normalize_reminder_time(time)
+        normalized_repeat = self._normalize_repeat(repeat)
+        reminder = await self._backend.create_reminder(
+            {
+                "title": clean_title,
+                "time": normalized_time,
+                "message": self._clean_optional_text(message),
+                "repeat": normalized_repeat,
+                "enabled": True,
+            }
+        )
+        return self._result_payload(
+            bundle_id=bundle_id,
+            action="create_reminder",
+            resource_ids={"reminder_id": reminder["reminder_id"]},
+            normalized_times={
+                "time": reminder.get("time") or normalized_time,
+                "next_trigger_at": reminder.get("next_trigger_at"),
+            },
+            result={"reminder": reminder},
+            message=f"Created reminder '{reminder.get('title') or clean_title}'.",
+        )
+
+    async def _complete_task(
+        self,
+        *,
+        bundle_id: str,
+        task_id: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        clean_task_id = self._require_text(task_id, "task_id")
+        task = await self._backend.update_task(clean_task_id, {"completed": True})
+        return self._result_payload(
+            bundle_id=bundle_id,
+            action="complete_task",
+            resource_ids={"task_id": task["task_id"]},
+            normalized_times={"due_at": task.get("due_at")},
+            result={"task": task},
+            message=f"Completed task '{task.get('title') or clean_task_id}'.",
+        )
+
+    async def _snooze_reminder(
+        self,
+        *,
+        bundle_id: str,
+        reminder_id: str | None = None,
+        until: str | None = None,
+        minutes: int | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        clean_reminder_id = self._require_text(reminder_id, "reminder_id")
+        reminder = await self._get_reminder(clean_reminder_id)
+        normalized_time = self._resolve_snooze_time(reminder, until=until, minutes=minutes)
+        updated = await self._backend.update_reminder(
+            clean_reminder_id,
+            {
+                "time": normalized_time,
+                "repeat": "once",
+                "enabled": True,
+            },
+        )
+        return self._result_payload(
+            bundle_id=bundle_id,
+            action="snooze_reminder",
+            resource_ids={"reminder_id": updated["reminder_id"]},
+            normalized_times={
+                "time": updated.get("time") or normalized_time,
+                "next_trigger_at": updated.get("next_trigger_at"),
+            },
+            result={"reminder": updated},
+            message=f"Snoozed reminder '{updated.get('title') or clean_reminder_id}'.",
+        )
+
+    async def _list_today(
+        self,
+        *,
+        bundle_id: str,
+        date: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        target_day = self._normalize_date(date)
+        tasks_result = await self._backend.list_tasks(completed=False, limit=200)
+        events_result = await self._backend.list_events(limit=200)
+        reminders_result = await self._backend.list_reminders(limit=200)
+
+        tasks = [
+            task for task in tasks_result.get("items", [])
+            if self._matches_day(task.get("due_at"), target_day)
+        ]
+        events = [
+            event for event in events_result.get("items", [])
+            if self._event_matches_day(event, target_day)
+        ]
+        reminders = [
+            reminder for reminder in reminders_result.get("items", [])
+            if self._reminder_matches_day(reminder, target_day)
+        ]
+
+        return self._result_payload(
+            bundle_id=bundle_id,
+            action="list_today",
+            resource_ids={
+                "task_ids": [task["task_id"] for task in tasks],
+                "event_ids": [event["event_id"] for event in events],
+                "reminder_ids": [reminder["reminder_id"] for reminder in reminders],
+            },
+            normalized_times={"date": target_day.isoformat()},
+            result={
+                "date": target_day.isoformat(),
+                "tasks": tasks,
+                "events": events,
+                "reminders": reminders,
+            },
+            message=f"Listed planning items for {target_day.isoformat()}.",
+        )
+
+    async def _detect_event_conflicts(
+        self,
+        start_dt: datetime,
+        end_dt: datetime,
+    ) -> list[dict[str, Any]]:
+        result = await self._backend.list_events(limit=200)
+        conflicts: list[dict[str, Any]] = []
+        for event in result.get("items", []):
+            try:
+                existing_start = self._parse_iso_datetime(event.get("start_at"), "start_at")
+                existing_end = self._parse_iso_datetime(event.get("end_at"), "end_at")
+            except ValueError:
+                continue
+            if start_dt < existing_end and end_dt > existing_start:
+                conflicts.append(
+                    {
+                        "kind": "event_overlap",
+                        "event_id": event.get("event_id"),
+                        "title": event.get("title"),
+                        "start_at": event.get("start_at"),
+                        "end_at": event.get("end_at"),
+                    }
+                )
+        return conflicts
+
+    async def _get_reminder(self, reminder_id: str) -> dict[str, Any]:
+        result = await self._backend.list_reminders(limit=200)
+        for reminder in result.get("items", []):
+            if reminder.get("reminder_id") == reminder_id:
+                return reminder
+        raise KeyError(reminder_id)
+
+    def _resolve_snooze_time(
+        self,
+        reminder: dict[str, Any],
+        *,
+        until: str | None,
+        minutes: int | None,
+    ) -> str:
+        if until:
+            return self._normalize_datetime(until, "until")
+        if minutes is None or minutes < 1:
+            raise ValueError("provide either until or minutes for snooze_reminder")
+
+        base_value = reminder.get("next_trigger_at") or reminder.get("time")
+        if isinstance(base_value, str) and "T" in base_value:
+            base_dt = self._parse_iso_datetime(base_value, "time")
+        else:
+            base_dt = datetime.now().astimezone()
+        return (base_dt + timedelta(minutes=minutes)).isoformat()
+
+    @staticmethod
+    def _result_payload(
+        *,
+        bundle_id: str,
+        action: str,
+        resource_ids: dict[str, Any],
+        normalized_times: dict[str, Any],
+        result: dict[str, Any],
+        message: str,
+        conflicts: list[dict[str, Any]] | None = None,
+        confirmation_needed: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "bundle_id": bundle_id,
+            "action": action,
+            "resource_ids": resource_ids,
+            "normalized_times": normalized_times,
+            "conflicts": conflicts or [],
+            "confirmation_needed": confirmation_needed,
+            "result": result,
+            "message": message,
+        }
+
+    @staticmethod
+    def _require_text(value: Any, field: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field} is required")
+        return value.strip()
+
+    @staticmethod
+    def _clean_optional_text(value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("text fields must be strings")
+        cleaned = value.strip()
+        return cleaned or None
+
+    def _normalize_priority(self, value: Any) -> str:
+        if value is None:
+            return "medium"
+        clean = self._require_text(value, "priority").lower()
+        if clean not in self._SUPPORTED_PRIORITIES:
+            raise ValueError("priority must be one of: high, medium, low")
+        return clean
+
+    def _normalize_repeat(self, value: Any) -> str:
+        if value is None:
+            return "daily"
+        clean = self._require_text(value, "repeat").lower()
+        if clean not in self._SUPPORTED_REPEATS:
+            raise ValueError("repeat must be one of: daily, once, weekdays, weekends")
+        return clean
+
+    @staticmethod
+    def _normalize_datetime(value: Any, field: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field} is required")
+        return PlanningTool._parse_iso_datetime(value.strip(), field).isoformat()
+
+    @staticmethod
+    def _normalize_reminder_time(value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("time is required")
+        clean = value.strip()
+        if "T" in clean:
+            return PlanningTool._parse_iso_datetime(clean, "time").isoformat()
+        return PlanningTool._normalize_clock_time(clean)
+
+    @staticmethod
+    def _normalize_clock_time(value: str) -> str:
+        parts = value.split(":")
+        if len(parts) not in (2, 3):
+            raise ValueError("time must be ISO datetime or HH:MM[:SS]")
+        try:
+            hour = int(parts[0])
+            minute = int(parts[1])
+            second = int(parts[2]) if len(parts) == 3 else 0
+        except ValueError as exc:
+            raise ValueError("time must be ISO datetime or HH:MM[:SS]") from exc
+        if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+            raise ValueError("time must be ISO datetime or HH:MM[:SS]")
+        return f"{hour:02d}:{minute:02d}:{second:02d}"
+
+    @staticmethod
+    def _parse_iso_datetime(value: Any, field: str) -> datetime:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field} is required")
+        clean = value.strip()
+        if clean.endswith("Z"):
+            clean = clean[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(clean)
+        except ValueError as exc:
+            raise ValueError(f"{field} must be a valid ISO datetime") from exc
+
+    @staticmethod
+    def _normalize_date(value: str | None) -> date:
+        if value is None:
+            return datetime.now().astimezone().date()
+        try:
+            return date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("date must be YYYY-MM-DD") from exc
+
+    @staticmethod
+    def _matches_day(value: Any, target_day: date) -> bool:
+        if not isinstance(value, str) or not value.strip():
+            return False
+        if "T" not in value:
+            return False
+        try:
+            return PlanningTool._parse_iso_datetime(value, "date").date() == target_day
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _event_matches_day(event: dict[str, Any], target_day: date) -> bool:
+        try:
+            start_dt = PlanningTool._parse_iso_datetime(event.get("start_at"), "start_at")
+            end_dt = PlanningTool._parse_iso_datetime(event.get("end_at"), "end_at")
+        except ValueError:
+            return False
+        return start_dt.date() <= target_day <= end_dt.date()
+
+    @staticmethod
+    def _reminder_matches_day(reminder: dict[str, Any], target_day: date) -> bool:
+        if not bool(reminder.get("enabled", True)):
+            return False
+
+        next_trigger_at = reminder.get("next_trigger_at")
+        if isinstance(next_trigger_at, str) and "T" in next_trigger_at:
+            try:
+                return PlanningTool._parse_iso_datetime(next_trigger_at, "next_trigger_at").date() == target_day
+            except ValueError:
+                return False
+
+        raw_time = reminder.get("time")
+        if isinstance(raw_time, str) and "T" in raw_time:
+            try:
+                return PlanningTool._parse_iso_datetime(raw_time, "time").date() == target_day
+            except ValueError:
+                return False
+
+        repeat = str(reminder.get("repeat") or "daily").strip().lower()
+        if repeat == "weekdays":
+            return target_day.weekday() < 5
+        if repeat == "weekends":
+            return target_day.weekday() >= 5
+        return True

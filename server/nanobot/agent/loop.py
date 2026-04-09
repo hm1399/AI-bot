@@ -7,6 +7,7 @@ import json
 import re
 import weakref
 from contextlib import AsyncExitStack
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -18,6 +19,7 @@ from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
+from nanobot.agent.tools.planning import PlanningTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
@@ -30,6 +32,7 @@ from nanobot.session.manager import Session, SessionManager
 if TYPE_CHECKING:
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig
     from nanobot.cron.service import CronService
+    from nanobot.agent.tools.planning import PlanningBackend
 
 
 class AgentLoop:
@@ -65,6 +68,7 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        planning_backend: PlanningBackend | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -82,6 +86,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.planning_backend = planning_backend
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -130,6 +135,8 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+        if self.planning_backend is not None:
+            self.tools.register(PlanningTool(self.planning_backend))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -168,6 +175,45 @@ class AgentLoop:
                         tool.set_context(channel, chat_id, message_id, task_id)
                     else:
                         tool.set_context(channel, chat_id)
+
+    def _start_turn_tools(self) -> None:
+        """Reset any tool-local per-turn state before an agent turn."""
+        for tool_name in self.tools.tool_names:
+            tool = self.tools.get(tool_name)
+            start_turn = getattr(tool, "start_turn", None)
+            if callable(start_turn):
+                start_turn()
+
+    def _collect_turn_tool_results(self) -> dict[str, list[dict[str, Any]]]:
+        """Collect structured per-turn tool metadata for outbound/session persistence."""
+        results: dict[str, list[dict[str, Any]]] = {}
+        for tool_name in self.tools.tool_names:
+            tool = self.tools.get(tool_name)
+            consume = getattr(tool, "consume_turn_results", None)
+            if not callable(consume):
+                continue
+            payload = consume()
+            if payload:
+                results[tool_name] = payload
+        return results
+
+    @staticmethod
+    def _merge_outbound_metadata(
+        metadata: dict[str, Any] | None,
+        tool_results: dict[str, list[dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
+        merged = dict(metadata or {})
+        if not tool_results:
+            return merged
+
+        existing = merged.get("tool_results")
+        combined: dict[str, Any] = {}
+        if isinstance(existing, dict):
+            combined.update(deepcopy(existing))
+        for tool_name, payload in tool_results.items():
+            combined[tool_name] = deepcopy(payload)
+        merged["tool_results"] = combined
+        return merged
 
     async def _notify_task_observer(self, method_name: str, **kwargs: Any) -> None:
         """Safely notify the optional task observer."""
@@ -430,6 +476,7 @@ class AgentLoop:
                 msg.metadata.get("message_id"),
                 msg.metadata.get("task_id"),
             )
+            self._start_turn_tools()
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
@@ -437,10 +484,21 @@ class AgentLoop:
                 metadata=msg.metadata,
             )
             final_content, _, all_msgs = await self._run_agent_loop(messages)
-            self._save_turn(session, all_msgs, 1 + len(history), msg_metadata=msg.metadata)
+            tool_results = self._collect_turn_tool_results()
+            self._save_turn(
+                session,
+                all_msgs,
+                1 + len(history),
+                msg_metadata=msg.metadata,
+                assistant_tool_results=tool_results,
+            )
             self.sessions.save(session)
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=final_content or "Background task completed.",
+                metadata=self._merge_outbound_metadata(msg.metadata, tool_results),
+            )
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
@@ -505,9 +563,7 @@ class AgentLoop:
             msg.metadata.get("message_id"),
             msg.metadata.get("task_id"),
         )
-        if message_tool := self.tools.get("message"):
-            if isinstance(message_tool, MessageTool):
-                message_tool.start_turn()
+        self._start_turn_tools()
 
         history = session.get_history(max_messages=self.memory_window)
         initial_messages = self.context.build_messages(
@@ -532,7 +588,14 @@ class AgentLoop:
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
 
-        self._save_turn(session, all_msgs, 1 + len(history), msg_metadata=msg.metadata)
+        tool_results = self._collect_turn_tool_results()
+        self._save_turn(
+            session,
+            all_msgs,
+            1 + len(history),
+            msg_metadata=msg.metadata,
+            assistant_tool_results=tool_results,
+        )
         self.sessions.save(session)
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt.sent_in_turn:
@@ -542,7 +605,7 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
         return OutboundMessage(
             channel=msg.channel, chat_id=msg.chat_id, content=final_content,
-            metadata=msg.metadata or {},
+            metadata=self._merge_outbound_metadata(msg.metadata, tool_results),
         )
 
     def _save_turn(
@@ -552,6 +615,7 @@ class AgentLoop:
         skip: int,
         *,
         msg_metadata: dict[str, Any] | None = None,
+        assistant_tool_results: dict[str, list[dict[str, Any]]] | None = None,
     ) -> None:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
@@ -562,6 +626,7 @@ class AgentLoop:
         client_message_id = msg_metadata.get("client_message_id")
         user_id_assigned = False
         assistant_id_assigned = False
+        assistant_tool_results_assigned = False
         for m in messages[skip:]:
             entry = dict(m)
             role, content = entry.get("role"), entry.get("content")
@@ -609,6 +674,9 @@ class AgentLoop:
                 if task_id:
                     entry.setdefault("task_id", task_id)
                 assistant_id_assigned = True
+                if assistant_tool_results and not assistant_tool_results_assigned:
+                    entry["tool_results"] = deepcopy(assistant_tool_results)
+                    assistant_tool_results_assigned = True
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
         session.updated_at = datetime.now()

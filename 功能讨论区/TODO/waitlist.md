@@ -84,3 +84,27 @@
 - 影响：后续如果设置页继续复杂化，可能出现输入光标、值同步和细小性能问题，也容易误导后续 agent 继续复制这种写法。
 - 建议动作：后续单独立项，将设置表单的 controller 生命周期收回到 stateful 层或更稳定的表单状态管理中。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-09-04 `server/services/app_runtime.py` 已成为后端单点热点
+
+- 发现来源：本轮 `P1 智能待办 / 提醒 / 日历` 前后端调研。
+- 当前状态：`server/services/app_runtime.py` 同时承担 app API 路由、任务事件观察、WebSocket replay、runtime summary、device bridge、reminder observer 等职责。
+- 影响：后续只要做 planning route、summary 自动派生、scheduler 联动或 agent 回显，几乎都会落到这个单文件，极易形成并发修改冲突和回归热点。
+- 建议动作：后续单独立项，把 planning 查询、summary 派生、realtime event 组装进一步下沉到独立 service，减少 `AppRuntimeService` 继续膨胀。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-09-05 `JsonCollectionStore` 仍是整文件读写且缺少进程内锁
+
+- 发现来源：本轮 `P1 智能待办 / 提醒 / 日历` 后端存储链路调研。
+- 当前状态：`server/services/app_api/json_store.py` 对集合资源的 `create/update/delete/clear` 都是整文件读取后再整文件写回，目前没有显式进程内锁或更细粒度并发保护。
+- 影响：在当前数据量很小时问题不大，但后续如果 planning 资源种类和联动写入继续增加，容易出现性能抖动、并发覆盖与跨资源一致性风险。
+- 建议动作：后续单独立项评估是否给 JSON store 增加最小锁保护、批量写接口，或在合适时机迁移到更稳的持久层。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-09-06 reminder `repeat` 的校验与调度口径不一致
+
+- 发现来源：本轮 `P1 智能待办 / 提醒 / 日历` reminder 调度调研。
+- 当前状态：`server/services/app_api/resource_service.py` 对 reminder `repeat` 只要求“非空字符串”，但 `server/services/reminder_scheduler.py` 对未知值会静默降级成 `daily`。
+- 影响：前端、agent 或未来脚本一旦写入拼错的 `repeat` 值，后端不会在创建阶段报错，却会在运行阶段按 `daily` 执行，容易造成口径偏差和误触发。
+- 建议动作：后续单独立项统一 `repeat` 的允许枚举、错误返回和前端/agent 侧契约，避免“创建成功但语义被静默改写”。
+- 本轮处理：未处理。

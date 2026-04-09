@@ -10,9 +10,7 @@ class RuntimeService {
   Future<RuntimeStateModel> fetchRuntimeState() {
     return _apiClient.get(
       ApiConstants.runtimeStatePath,
-      parser: (dynamic data) => RuntimeStateModel.fromJson(
-        data is Map<String, dynamic> ? data : <String, dynamic>{},
-      ),
+      parser: (dynamic data) => RuntimeStateModel.fromJson(_coerceMap(data)),
     );
   }
 
@@ -22,26 +20,28 @@ class RuntimeService {
       body: <String, dynamic>{
         if (taskId != null && taskId.trim().isNotEmpty) 'task_id': taskId,
       },
-      parser: (dynamic data) =>
-          data is Map<String, dynamic> ? data : <String, dynamic>{},
+      parser: (dynamic data) => _coerceMap(data),
     );
   }
 
   Future<TodoSummaryModel> fetchTodoSummary() {
     return _apiClient.get(
       ApiConstants.todoSummaryPath,
-      parser: (dynamic data) => TodoSummaryModel.fromJson(
-        data is Map<String, dynamic> ? data : <String, dynamic>{},
-      ),
+      parser: (dynamic data) => TodoSummaryModel.fromJson(_coerceMap(data)),
     );
   }
 
   Future<CalendarSummaryModel> fetchCalendarSummary() {
     return _apiClient.get(
       ApiConstants.calendarSummaryPath,
-      parser: (dynamic data) => CalendarSummaryModel.fromJson(
-        data is Map<String, dynamic> ? data : <String, dynamic>{},
-      ),
+      parser: (dynamic data) => CalendarSummaryModel.fromJson(_coerceMap(data)),
     );
   }
+}
+
+Map<String, dynamic> _coerceMap(dynamic data) {
+  if (data is Map<String, dynamic>) {
+    return data;
+  }
+  return <String, dynamic>{};
 }

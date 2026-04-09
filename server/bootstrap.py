@@ -26,6 +26,7 @@ from services.app_runtime import AppRuntimeService
 if TYPE_CHECKING:
     from channels.device_channel import DeviceChannel
     from nanobot.channels.whatsapp import WhatsAppChannel
+    from nanobot.agent.tools.planning import PlanningBackend
     from services.desktop_voice_service import DesktopVoiceService
 
 
@@ -59,6 +60,78 @@ class RuntimeComponents:
     device_config: dict[str, Any]
 
 
+class AppPlanningBackend:
+    """Default planning facade used by AgentLoop when no shared runtime is injected."""
+
+    def __init__(
+        self,
+        resources: Any,
+        reminder_scheduler: Any | None = None,
+        *,
+        runtime_service: Any | None = None,
+    ) -> None:
+        self.resources = resources
+        self.reminder_scheduler = reminder_scheduler
+        self.runtime_service = runtime_service
+
+    async def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        if self.runtime_service is None:
+            return
+        await self.runtime_service.refresh_planning_state()
+        await self.runtime_service._broadcast_event(  # noqa: SLF001
+            event_type,
+            payload=payload,
+            scope="global",
+        )
+
+    async def list_tasks(
+        self,
+        *,
+        completed: bool | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        return self.resources.list_tasks(completed=completed, limit=limit)
+
+    async def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
+        task = self.resources.create_task(payload)
+        await self._emit("task.created", {"task": task})
+        return task
+
+    async def update_task(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        task = self.resources.update_task(task_id, payload)
+        await self._emit("task.updated", {"task": task})
+        return task
+
+    async def list_events(self, *, limit: int | None = None) -> dict[str, Any]:
+        return self.resources.list_events(limit=limit)
+
+    async def create_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        event = self.resources.create_event(payload)
+        await self._emit("event.created", {"event": event})
+        return event
+
+    async def create_reminder(self, payload: dict[str, Any]) -> dict[str, Any]:
+        reminder = self.resources.create_reminder(payload)
+        if self.reminder_scheduler is None:
+            await self._emit("reminder.created", {"reminder": reminder})
+            return reminder
+        reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
+        await self._emit("reminder.created", {"reminder": reminder})
+        return reminder
+
+    async def update_reminder(self, reminder_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        reminder = self.resources.update_reminder(reminder_id, payload)
+        if self.reminder_scheduler is None:
+            await self._emit("reminder.updated", {"reminder": reminder})
+            return reminder
+        reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
+        await self._emit("reminder.updated", {"reminder": reminder})
+        return reminder
+
+    async def list_reminders(self, *, limit: int | None = None) -> dict[str, Any]:
+        return self.resources.list_reminders(limit=limit)
+
+
 def setup_logging() -> None:
     """配置 loguru: 控制台 INFO + 文件 DEBUG。"""
     logger.remove()
@@ -89,7 +162,22 @@ def load_runtime_config() -> tuple[dict[str, Any], dict[str, Any]]:
     return cfg, get_server_config(cfg)
 
 
-def create_agent(cfg: dict[str, Any]) -> tuple[MessageBus, AgentLoop]:
+def _create_default_planning_backend() -> AppPlanningBackend:
+    """Build a standalone planning facade for the agent bootstrap path."""
+    from services.app_api.resource_service import AppResourceService
+    from services.reminder_scheduler import ReminderScheduler
+
+    runtime_dir = WORKSPACE_DIR / "runtime"
+    resources = AppResourceService(runtime_dir)
+    reminder_scheduler = ReminderScheduler(resources)
+    return AppPlanningBackend(resources, reminder_scheduler)
+
+
+def create_agent(
+    cfg: dict[str, Any],
+    *,
+    planning_backend: PlanningBackend | None = None,
+) -> tuple[MessageBus, AgentLoop]:
     """根据配置创建 MessageBus 和 AgentLoop。"""
     nanobot_cfg = cfg.get("nanobot", {})
     api_key = nanobot_cfg.get("api_key", "")
@@ -104,6 +192,7 @@ def create_agent(cfg: dict[str, Any]) -> tuple[MessageBus, AgentLoop]:
         request_timeout_seconds=get_provider_timeout_seconds(cfg),
     )
     session_manager = SessionManager(WORKSPACE_DIR)
+    resolved_planning_backend = planning_backend or _create_default_planning_backend()
 
     agent = AgentLoop(
         bus=bus,
@@ -115,6 +204,7 @@ def create_agent(cfg: dict[str, Any]) -> tuple[MessageBus, AgentLoop]:
         max_tokens=nanobot_cfg.get("max_tokens", 8192),
         memory_window=nanobot_cfg.get("memory_window", 50),
         session_manager=session_manager,
+        planning_backend=resolved_planning_backend,
     )
     return bus, agent
 
@@ -213,8 +303,17 @@ def create_http_app(
         version=VERSION,
         start_time=start_time,
     )
+    from nanobot.agent.tools.planning import PlanningTool
+
+    shared_planning_backend = AppPlanningBackend(
+        app_runtime.resources,
+        app_runtime.reminder_scheduler,
+        runtime_service=app_runtime,
+    )
     bus.add_observer(app_runtime)
     agent.task_observer = app_runtime
+    agent.planning_backend = shared_planning_backend
+    agent.tools.register(PlanningTool(shared_planning_backend))
     device_channel.set_event_observer(app_runtime)
     device_channel.set_desktop_voice_bridge(desktop_voice_service)
     desktop_voice_service.set_event_observer(app_runtime)

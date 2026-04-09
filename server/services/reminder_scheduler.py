@@ -19,6 +19,10 @@ _SUPPORTED_REPEATS = {
     _REPEAT_WEEKDAYS,
     _REPEAT_WEEKENDS,
 }
+_STATUS_COMPLETED = "completed"
+_STATUS_SCHEDULED = "scheduled"
+_STATUS_SNOOZED = "snoozed"
+_STATUS_TRIGGERED = "triggered"
 
 
 class ReminderScheduler:
@@ -75,6 +79,51 @@ class ReminderScheduler:
             if item is None:
                 return None
             return await self._sync_reminder_unlocked(item, now=self.now_provider())
+
+    async def snooze_reminder(
+        self,
+        reminder_id: str,
+        *,
+        snoozed_until: str | None = None,
+        delay_minutes: int = 10,
+    ) -> dict[str, Any] | None:
+        async with self._lock:
+            item = self.resources.reminder_store.get(reminder_id)
+            if item is None:
+                return None
+            now = self.now_provider()
+            target = self._parse_iso_datetime(snoozed_until)
+            if target is None:
+                target = now + timedelta(minutes=max(delay_minutes, 1))
+            updated = self.resources.reminder_store.update(
+                reminder_id,
+                {
+                    "enabled": True,
+                    "completed_at": None,
+                    "snoozed_until": self._format_dt(target),
+                    "status": _STATUS_SNOOZED,
+                },
+            )
+            if updated is None:
+                return None
+            return await self._sync_reminder_unlocked(updated, now=now)
+
+    async def complete_reminder(self, reminder_id: str) -> dict[str, Any] | None:
+        async with self._lock:
+            item = self.resources.reminder_store.get(reminder_id)
+            if item is None:
+                return None
+            return self.resources.reminder_store.update(
+                reminder_id,
+                {
+                    "enabled": False,
+                    "completed_at": self._format_dt(self.now_provider()),
+                    "snoozed_until": None,
+                    "next_trigger_at": None,
+                    "last_error": None,
+                    "status": _STATUS_COMPLETED,
+                },
+            )
 
     async def _run_loop(self) -> None:
         while True:
@@ -139,13 +188,17 @@ class ReminderScheduler:
         patch = {
             "last_triggered_at": self._format_dt(now),
             "last_error": None,
+            "snoozed_until": None,
+            "completed_at": None,
         }
         next_dt = self._compute_next_trigger(reminder, now=now, after_trigger=True)
         if next_dt is None:
             patch["enabled"] = False
             patch["next_trigger_at"] = None
+            patch["status"] = _STATUS_TRIGGERED
         else:
             patch["next_trigger_at"] = self._format_dt(next_dt)
+            patch["status"] = _STATUS_SCHEDULED
 
         updated = self.resources.reminder_store.update(reminder_id, patch) or reminder
         await self._notify_event_observer(
@@ -156,10 +209,34 @@ class ReminderScheduler:
 
     def _build_schedule_patch(self, reminder: dict[str, Any], *, now: datetime) -> dict[str, Any]:
         patch: dict[str, Any] = {}
+        if reminder.get("completed_at") is not None:
+            if reminder.get("enabled", True):
+                patch["enabled"] = False
+            if reminder.get("next_trigger_at") is not None:
+                patch["next_trigger_at"] = None
+            if reminder.get("snoozed_until") is not None:
+                patch["snoozed_until"] = None
+            if reminder.get("last_error") is not None:
+                patch["last_error"] = None
+            if reminder.get("status") != _STATUS_COMPLETED:
+                patch["status"] = _STATUS_COMPLETED
+            return patch
+
         enabled = bool(reminder.get("enabled", True))
         if not enabled:
             if reminder.get("next_trigger_at") is not None:
                 patch["next_trigger_at"] = None
+            if reminder.get("last_error") is not None:
+                patch["last_error"] = None
+            return patch
+
+        snoozed_until = self._parse_iso_datetime(reminder.get("snoozed_until"))
+        if snoozed_until is not None:
+            next_trigger_at = self._format_dt(snoozed_until)
+            if reminder.get("next_trigger_at") != next_trigger_at:
+                patch["next_trigger_at"] = next_trigger_at
+            if reminder.get("status") != _STATUS_SNOOZED:
+                patch["status"] = _STATUS_SNOOZED
             if reminder.get("last_error") is not None:
                 patch["last_error"] = None
             return patch
@@ -175,6 +252,8 @@ class ReminderScheduler:
         next_trigger_at = self._format_dt(next_dt) if next_dt else None
         if reminder.get("next_trigger_at") != next_trigger_at:
             patch["next_trigger_at"] = next_trigger_at
+        if reminder.get("status") != _STATUS_SCHEDULED:
+            patch["status"] = _STATUS_SCHEDULED
         if reminder.get("last_error") is not None:
             patch["last_error"] = None
         return patch

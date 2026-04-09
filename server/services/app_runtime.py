@@ -23,6 +23,11 @@ from services.app_api import (
     ResourceValidationError,
     SettingsService,
 )
+from services.planning import (
+    PlanningBundleService,
+    PlanningProjectionService,
+    PlanningSummaryService,
+)
 from services.reminder_scheduler import ReminderScheduler
 
 
@@ -76,6 +81,9 @@ class AppRuntimeService:
         )
         self.settings = SettingsService(self.cfg, self._runtime_dir)
         self.resources = AppResourceService(self._runtime_dir)
+        self.planning_bundle_service = PlanningBundleService()
+        self.planning_projection_service = PlanningProjectionService()
+        self.planning_summary_service = PlanningSummaryService()
         self.reminder_scheduler = ReminderScheduler(
             self.resources,
             event_observer=self,
@@ -109,6 +117,9 @@ class AppRuntimeService:
         app.router.add_post("/api/app/v1/reminders", self.handle_create_reminder)
         app.router.add_patch("/api/app/v1/reminders/{reminder_id}", self.handle_patch_reminder)
         app.router.add_delete("/api/app/v1/reminders/{reminder_id}", self.handle_delete_reminder)
+        app.router.add_get("/api/app/v1/planning/overview", self.handle_planning_overview)
+        app.router.add_get("/api/app/v1/planning/timeline", self.handle_planning_timeline)
+        app.router.add_get("/api/app/v1/planning/conflicts", self.handle_planning_conflicts)
         app.router.add_get("/api/app/v1/runtime/state", self.handle_runtime_state)
         app.router.add_post("/api/app/v1/runtime/stop", self.handle_runtime_stop)
         app.router.add_get("/api/app/v1/runtime/todo-summary", self.handle_todo_summary)
@@ -123,6 +134,7 @@ class AppRuntimeService:
 
     async def start_background_tasks(self) -> None:
         await self.reminder_scheduler.start()
+        await self.refresh_planning_state()
 
     async def stop_background_tasks(self) -> None:
         await self.reminder_scheduler.stop()
@@ -432,6 +444,11 @@ class AppRuntimeService:
             scope="global",
         )
         await self._broadcast_event(
+            "notification.created",
+            payload={"notification": notification},
+            scope="global",
+        )
+        await self._broadcast_event(
             "reminder.triggered",
             payload={
                 "reminder": reminder,
@@ -439,11 +456,7 @@ class AppRuntimeService:
             },
             scope="global",
         )
-        await self._broadcast_event(
-            "notification.created",
-            payload={"notification": notification},
-            scope="global",
-        )
+        await self.refresh_planning_state()
 
     async def handle_bootstrap(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -453,6 +466,7 @@ class AppRuntimeService:
         return self._ok({
             "server_version": self.version,
             "capabilities": self._capabilities(),
+            "planning": self._planning_bootstrap(),
             "runtime": await self.get_runtime_state(),
             "sessions": self._list_app_sessions(limit=20),
             "event_stream": {
@@ -644,6 +658,7 @@ class AppRuntimeService:
             task = self.resources.create_task(payload)
         except ResourceValidationError as exc:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        await self.refresh_planning_state()
         await self._broadcast_event("task.created", payload={"task": task}, scope="global")
         return self._ok(task, status=201)
 
@@ -659,6 +674,7 @@ class AppRuntimeService:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "task does not exist", status=404)
+        await self.refresh_planning_state()
         await self._broadcast_event("task.updated", payload={"task": task}, scope="global")
         return self._ok(task)
 
@@ -669,6 +685,7 @@ class AppRuntimeService:
             task = self.resources.delete_task(request.match_info["task_id"])
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "task does not exist", status=404)
+        await self.refresh_planning_state()
         await self._broadcast_event("task.deleted", payload={"task": task}, scope="global")
         return self._ok({"deleted": True, "task_id": task["task_id"]})
 
@@ -690,6 +707,7 @@ class AppRuntimeService:
             event = self.resources.create_event(payload)
         except ResourceValidationError as exc:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        await self.refresh_planning_state()
         await self._broadcast_event("event.created", payload={"event": event}, scope="global")
         return self._ok(event, status=201)
 
@@ -705,6 +723,7 @@ class AppRuntimeService:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "event does not exist", status=404)
+        await self.refresh_planning_state()
         await self._broadcast_event("event.updated", payload={"event": event}, scope="global")
         return self._ok(event)
 
@@ -715,6 +734,7 @@ class AppRuntimeService:
             event = self.resources.delete_event(request.match_info["event_id"])
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "event does not exist", status=404)
+        await self.refresh_planning_state()
         await self._broadcast_event("event.deleted", payload={"event": event}, scope="global")
         return self._ok({"deleted": True, "event_id": event["event_id"]})
 
@@ -738,6 +758,7 @@ class AppRuntimeService:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "notification does not exist", status=404)
+        await self.refresh_planning_state()
         await self._broadcast_event(
             "notification.updated",
             payload={"notification": notification},
@@ -755,6 +776,7 @@ class AppRuntimeService:
                 payload={"notification": item},
                 scope="global",
             )
+        await self.refresh_planning_state()
         return self._ok(summary)
 
     async def handle_delete_notification(self, request: web.Request) -> web.Response:
@@ -764,6 +786,7 @@ class AppRuntimeService:
             notification = self.resources.delete_notification(request.match_info["notification_id"])
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "notification does not exist", status=404)
+        await self.refresh_planning_state()
         await self._broadcast_event(
             "notification.deleted",
             payload={"notification": notification},
@@ -781,6 +804,7 @@ class AppRuntimeService:
                 payload={"notification": item},
                 scope="global",
             )
+        await self.refresh_planning_state()
         return self._ok({"deleted_count": summary["deleted_count"]})
 
     async def handle_list_reminders(self, request: web.Request) -> web.Response:
@@ -801,6 +825,7 @@ class AppRuntimeService:
         except ResourceValidationError as exc:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
         reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
+        await self.refresh_planning_state()
         await self._broadcast_event("reminder.created", payload={"reminder": reminder}, scope="global")
         return self._ok(reminder, status=201)
 
@@ -817,6 +842,7 @@ class AppRuntimeService:
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "reminder does not exist", status=404)
         reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
+        await self.refresh_planning_state()
         await self._broadcast_event("reminder.updated", payload={"reminder": reminder}, scope="global")
         return self._ok(reminder)
 
@@ -828,8 +854,24 @@ class AppRuntimeService:
         except ResourceNotFoundError as exc:
             return self._error(exc.args[0], "reminder does not exist", status=404)
         await self.reminder_scheduler.sync_all()
+        await self.refresh_planning_state()
         await self._broadcast_event("reminder.deleted", payload={"reminder": reminder}, scope="global")
         return self._ok({"deleted": True, "reminder_id": reminder["reminder_id"]})
+
+    async def handle_planning_overview(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self.get_planning_overview())
+
+    async def handle_planning_timeline(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok({"items": self.get_planning_timeline()})
+
+    async def handle_planning_conflicts(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok({"items": self.get_planning_conflicts()})
 
     async def handle_runtime_state(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -1015,6 +1057,7 @@ class AppRuntimeService:
             "reminders": {
                 "scheduler_running": self.reminder_scheduler.is_running(),
             },
+            "planning": self._planning_runtime_state(),
             "todo_summary": self.get_todo_summary(),
             "calendar_summary": self.get_calendar_summary(),
         }
@@ -1026,6 +1069,18 @@ class AppRuntimeService:
     def get_calendar_summary(self) -> dict[str, Any]:
         """返回当前日历摘要快照。"""
         return dict(self._calendar_summary)
+
+    def get_planning_overview(self) -> dict[str, Any]:
+        planning = self._planning_snapshot()
+        return dict(planning["overview"])
+
+    def get_planning_timeline(self) -> list[dict[str, Any]]:
+        planning = self._planning_snapshot()
+        return [dict(item) for item in planning["timeline"]]
+
+    def get_planning_conflicts(self) -> list[dict[str, Any]]:
+        planning = self._planning_snapshot()
+        return [dict(item) for item in planning["conflicts"]]
 
     async def set_todo_summary(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         """更新 Todo 摘要，并在变更时广播事件。"""
@@ -1064,6 +1119,21 @@ class AppRuntimeService:
                 scope="global",
             )
         return dict(updated), None
+
+    async def refresh_planning_state(self) -> None:
+        changed_events = await self._refresh_summary_files_from_resources()
+        for event_type, payload in changed_events:
+            await self._broadcast_event(event_type, payload=payload, scope="global")
+        overview = self.get_planning_overview()
+        await self._broadcast_event(
+            "planning.changed",
+            payload={
+                "updated_at": self._now_iso(),
+                "counts": overview.get("counts", {}),
+                "highlights": overview.get("highlights", {}),
+            },
+            scope="global",
+        )
 
     async def _finalize_task(
         self,
@@ -1465,7 +1535,60 @@ class AppRuntimeService:
         ):
             if entry.get(key) is not None:
                 metadata[key] = entry[key]
+        if entry.get("tool_results") is not None:
+            metadata["tool_results"] = entry["tool_results"]
         return metadata
+
+    def _planning_inputs(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "tasks": self.resources.task_store.list_items(),
+            "events": self.resources.event_store.list_items(),
+            "reminders": self.resources.reminder_store.list_items(),
+            "notifications": self.resources.notification_store.list_items(),
+        }
+
+    def _planning_snapshot(self) -> dict[str, Any]:
+        inputs = self._planning_inputs()
+        overview = self.planning_projection_service.build_overview(**inputs)
+        timeline = self.planning_projection_service.build_timeline(
+            tasks=inputs["tasks"],
+            events=inputs["events"],
+            reminders=inputs["reminders"],
+        )
+        conflicts = self.planning_projection_service.build_conflicts(
+            tasks=inputs["tasks"],
+            events=inputs["events"],
+            reminders=inputs["reminders"],
+        )
+        return {
+            "overview": overview,
+            "timeline": timeline,
+            "conflicts": conflicts,
+        }
+
+    async def _refresh_summary_files_from_resources(self) -> list[tuple[str, dict[str, Any]]]:
+        inputs = self._planning_inputs()
+        derived = self.planning_summary_service.derive_all(
+            tasks=inputs["tasks"],
+            events=inputs["events"],
+            reminders=inputs["reminders"],
+        )
+
+        changed_events: list[tuple[str, dict[str, Any]]] = []
+        async with self._lock:
+            todo_summary = derived["todo_summary"]
+            if todo_summary != self._todo_summary:
+                self._todo_summary = dict(todo_summary)
+                self._save_summary_file(self._todo_summary_path, self._todo_summary)
+                changed_events.append(("todo.summary.changed", dict(self._todo_summary)))
+
+            calendar_summary = derived["calendar_summary"]
+            if calendar_summary != self._calendar_summary:
+                self._calendar_summary = dict(calendar_summary)
+                self._save_summary_file(self._calendar_summary_path, self._calendar_summary)
+                changed_events.append(("calendar.summary.changed", dict(self._calendar_summary)))
+
+        return changed_events
 
     @staticmethod
     def _default_todo_summary() -> dict[str, Any]:
@@ -1681,6 +1804,29 @@ class AppRuntimeService:
             },
         }
 
+    def _planning_runtime_state(self) -> dict[str, Any]:
+        overview = self.get_planning_overview()
+        counts = overview.get("counts", {})
+        return {
+            "available": True,
+            "overview_ready": True,
+            "timeline_ready": True,
+            "conflicts_ready": True,
+            "conflict_count": int(counts.get("conflict_count", 0) or 0),
+            "generated_at": overview.get("generated_at"),
+        }
+
+    @staticmethod
+    def _planning_bootstrap() -> dict[str, Any]:
+        return {
+            "overview": True,
+            "timeline": True,
+            "conflicts": True,
+            "overview_path": "/api/app/v1/planning/overview",
+            "timeline_path": "/api/app/v1/planning/timeline",
+            "conflicts_path": "/api/app/v1/planning/conflicts",
+        }
+
     def _capabilities(self) -> dict[str, Any]:
         desktop = self._desktop_voice_runtime()
         return {
@@ -1704,6 +1850,10 @@ class AppRuntimeService:
             "events": True,
             "notifications": True,
             "reminders": True,
+            "planning": True,
+            "planning_overview": True,
+            "planning_timeline": True,
+            "planning_conflicts": True,
             "todo_summary": True,
             "calendar_summary": True,
             "app_events": True,
@@ -1736,6 +1886,7 @@ class AppRuntimeService:
             "interaction_surface": metadata.get("interaction_surface"),
             "capture_source": metadata.get("capture_source"),
             "source_channel": metadata.get("source_channel"),
+            "tool_results": metadata.get("tool_results"),
         }
         return {key: value for key, value in payload.items() if value is not None}
 

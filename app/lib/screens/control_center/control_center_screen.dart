@@ -30,6 +30,7 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
       await ref.read(appControllerProvider.notifier).loadNotifications();
       await ref.read(appControllerProvider.notifier).loadReminders();
       await ref.read(appControllerProvider.notifier).loadSettings();
+      await ref.read(appControllerProvider.notifier).refreshPlanningWorkbench();
     });
   }
 
@@ -46,6 +47,10 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     final settings = state.settings;
     final runtime = state.runtimeState;
     final chrome = context.linear;
+    final planning = _ControlCenterPlanningSnapshot.fromSources(
+      state: state,
+      controller: controller,
+    );
 
     if (settings != null && !_seededFromSettings) {
       _volume = settings.deviceVolume.toDouble();
@@ -69,6 +74,7 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
                 await controller.refreshRuntime();
                 await controller.loadNotifications();
                 await controller.loadReminders();
+                await controller.refreshPlanningWorkbench();
               },
               icon: const Icon(Icons.refresh),
             ),
@@ -79,6 +85,11 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
           spacing: LinearSpacing.sm,
           runSpacing: LinearSpacing.sm,
           children: <Widget>[
+            const StatusPill(
+              label: 'Compatibility Entry',
+              tone: StatusPillTone.accent,
+              icon: Icons.swap_horiz_outlined,
+            ),
             FilledButton.tonalIcon(
               onPressed: controller.speakTestPhrase,
               icon: const Icon(Icons.volume_up_outlined, size: 16),
@@ -96,6 +107,8 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
             ),
           ],
         ),
+        const SizedBox(height: LinearSpacing.md),
+        _CompatibilityPlanningCard(snapshot: planning),
         if (state.globalMessage != null) ...<Widget>[
           const SizedBox(height: LinearSpacing.md),
           Container(
@@ -478,4 +491,205 @@ class _DeviceCommandPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CompatibilityPlanningCard extends StatelessWidget {
+  const _CompatibilityPlanningCard({required this.snapshot});
+
+  final _ControlCenterPlanningSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = context.linear;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(LinearSpacing.md),
+      decoration: BoxDecoration(
+        color: chrome.surface,
+        borderRadius: LinearRadius.card,
+        border: Border.all(color: chrome.borderStandard),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Planning Compatibility',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Control Center keeps notifications, reminders, and device/runtime actions available. The primary planning workbench now lives in Tasks.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+          ),
+          const SizedBox(height: LinearSpacing.md),
+          Wrap(
+            spacing: LinearSpacing.xs,
+            runSpacing: LinearSpacing.xs,
+            children: <Widget>[
+              Chip(label: Text('${snapshot.activeReminders} active reminders')),
+              Chip(label: Text('${snapshot.conflictCount} conflicts')),
+              Chip(label: Text(snapshot.nextTimelineLabel)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ControlCenterPlanningSnapshot {
+  const _ControlCenterPlanningSnapshot({
+    required this.activeReminders,
+    required this.conflictCount,
+    required this.nextTimelineLabel,
+  });
+
+  final int activeReminders;
+  final int conflictCount;
+  final String nextTimelineLabel;
+
+  factory _ControlCenterPlanningSnapshot.fromSources({
+    required Object state,
+    required Object controller,
+  }) {
+    final overview = _coerceStringMap(
+      _readPlanningProperty(
+        state: state,
+        controller: controller,
+        name: 'planningOverview',
+      ),
+    );
+    final timeline = _coerceList(
+      _readPlanningProperty(
+        state: state,
+        controller: controller,
+        name: 'planningTimeline',
+      ),
+    );
+    final conflicts = _coerceList(
+      _readPlanningProperty(
+        state: state,
+        controller: controller,
+        name: 'planningConflicts',
+      ),
+    );
+    final dynamic dynamicState = state;
+    final reminders = (dynamicState.reminders as List<dynamic>)
+        .whereType<ReminderModel>()
+        .where((ReminderModel item) => item.enabled)
+        .length;
+
+    return _ControlCenterPlanningSnapshot(
+      activeReminders:
+          _lookupInt(overview, <String>[
+            'active_reminders',
+            'activeReminderCount',
+          ]) ??
+          reminders,
+      conflictCount:
+          _lookupInt(overview, <String>['conflict_count', 'conflictCount']) ??
+          conflicts.length,
+      nextTimelineLabel:
+          _lookupString(overview, <String>[
+            'next_item_title',
+            'nextItemTitle',
+            'next_event_title',
+            'nextEventTitle',
+          ]) ??
+          _deriveTimelineLabel(timeline) ??
+          'Open Tasks for the full workbench view',
+    );
+  }
+}
+
+Object? _readPlanningProperty({
+  required Object state,
+  required Object controller,
+  required String name,
+}) {
+  Object? readFrom(Object target) {
+    try {
+      final dynamic dynamicTarget = target;
+      switch (name) {
+        case 'planningOverview':
+          return dynamicTarget.planningOverview;
+        case 'planningTimeline':
+          return dynamicTarget.planningTimeline;
+        case 'planningConflicts':
+          return dynamicTarget.planningConflicts;
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  return readFrom(state) ?? readFrom(controller);
+}
+
+Map<String, dynamic> _coerceStringMap(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map<String, dynamic>(
+      (Object? key, Object? item) => MapEntry(key.toString(), item),
+    );
+  }
+  return <String, dynamic>{};
+}
+
+List<Object?> _coerceList(Object? value) {
+  if (value is List<Object?>) {
+    return value;
+  }
+  if (value is List) {
+    return value.cast<Object?>();
+  }
+  return const <Object?>[];
+}
+
+String? _lookupString(Map<String, dynamic> map, List<String> keys) {
+  for (final key in keys) {
+    final value = map[key];
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+    if (value is num || value is bool) {
+      return value.toString();
+    }
+  }
+  return null;
+}
+
+int? _lookupInt(Map<String, dynamic> map, List<String> keys) {
+  for (final key in keys) {
+    final value = map[key];
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      final parsed = int.tryParse(value);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+String? _deriveTimelineLabel(List<Object?> timeline) {
+  for (final item in timeline) {
+    final map = _coerceStringMap(item);
+    final label = _lookupString(map, <String>['title', 'summary', 'label']);
+    if (label != null && label.isNotEmpty) {
+      return label;
+    }
+  }
+  return null;
 }

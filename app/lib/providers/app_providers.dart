@@ -12,6 +12,9 @@ import '../models/connect/bootstrap_model.dart';
 import '../models/connect/connection_config_model.dart';
 import '../models/events/event_model.dart';
 import '../models/notifications/notification_model.dart';
+import '../models/planning/planning_conflict_model.dart';
+import '../models/planning/planning_overview_model.dart';
+import '../models/planning/planning_timeline_item_model.dart';
 import '../models/reminders/reminder_model.dart';
 import '../models/settings/settings_model.dart';
 import '../models/tasks/task_model.dart';
@@ -25,6 +28,7 @@ import '../services/events/events_service.dart';
 import '../services/home/device_service.dart';
 import '../services/home/runtime_service.dart';
 import '../services/notifications/notifications_service.dart';
+import '../services/planning/planning_service.dart';
 import '../services/realtime/ws_reconnect_service.dart';
 import '../services/realtime/ws_service.dart';
 import '../services/reminders/reminders_service.dart';
@@ -88,6 +92,9 @@ final notificationsServiceProvider = Provider<NotificationsService>(
 );
 final remindersServiceProvider = Provider<RemindersService>(
   (Ref ref) => RemindersService(ref.read(apiClientProvider)),
+);
+final planningServiceProvider = Provider<PlanningService>(
+  (Ref ref) => PlanningService(ref.read(apiClientProvider)),
 );
 
 class AppController extends StateNotifier<AppState> {
@@ -212,6 +219,7 @@ class AppController extends StateNotifier<AppState> {
         globalMessage: silent ? null : 'Connected to AI-bot backend.',
       );
       await loadMessages();
+      await refreshPlanningWorkbench();
     } catch (error) {
       ref.read(wsReconnectServiceProvider).disconnect();
       _apiClient.clearConnection();
@@ -274,6 +282,18 @@ class AppController extends StateNotifier<AppState> {
       notifications: DemoServiceBundle.notifications,
       remindersStatus: FeatureStatus.demo,
       reminders: DemoServiceBundle.reminders,
+      planningOverviewStatus: FeatureStatus.demo,
+      planningOverview: null,
+      planningOverviewMessage:
+          'Demo planning is derived from local sample data.',
+      planningTimelineStatus: FeatureStatus.demo,
+      planningTimeline: const <PlanningTimelineItemModel>[],
+      planningTimelineMessage:
+          'Demo planning is derived from local sample data.',
+      planningConflictsStatus: FeatureStatus.demo,
+      planningConflicts: const <PlanningConflictModel>[],
+      planningConflictsMessage:
+          'Demo planning is derived from local sample data.',
       globalMessage: 'Demo mode activated.',
     );
   }
@@ -326,6 +346,18 @@ class AppController extends StateNotifier<AppState> {
         notifications: DemoServiceBundle.notifications,
         remindersStatus: FeatureStatus.demo,
         reminders: DemoServiceBundle.reminders,
+        planningOverviewStatus: FeatureStatus.demo,
+        planningOverview: null,
+        planningOverviewMessage:
+            'Demo planning is derived from local sample data.',
+        planningTimelineStatus: FeatureStatus.demo,
+        planningTimeline: const <PlanningTimelineItemModel>[],
+        planningTimelineMessage:
+            'Demo planning is derived from local sample data.',
+        planningConflictsStatus: FeatureStatus.demo,
+        planningConflicts: const <PlanningConflictModel>[],
+        planningConflictsMessage:
+            'Demo planning is derived from local sample data.',
         globalMessage: 'Demo workspace refreshed.',
       );
       return;
@@ -361,6 +393,7 @@ class AppController extends StateNotifier<AppState> {
       await loadEvents();
       await loadNotifications();
       await loadReminders();
+      await refreshPlanningWorkbench();
     } on ApiError catch (error) {
       state = state.copyWith(globalMessage: error.message);
     }
@@ -603,6 +636,141 @@ class AppController extends StateNotifier<AppState> {
     state = state.copyWith(runtimeState: runtime);
   }
 
+  Future<void> loadPlanningOverview() async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        planningOverviewStatus: FeatureStatus.demo,
+        planningOverview: null,
+        planningOverviewMessage:
+            'Demo planning is derived from local sample data.',
+      );
+      return;
+    }
+    if (!_planningAvailable()) {
+      state = state.copyWith(
+        planningOverviewStatus: FeatureStatus.notReady,
+        planningOverview: null,
+        planningOverviewMessage: _planningUnavailableMessage,
+      );
+      return;
+    }
+
+    state = state.copyWith(planningOverviewStatus: FeatureStatus.loading);
+    _apiClient.setConnection(state.connection);
+    try {
+      final overview = await ref.read(planningServiceProvider).fetchOverview();
+      state = state.copyWith(
+        planningOverviewStatus: FeatureStatus.ready,
+        planningOverview: overview,
+        planningOverviewMessage: null,
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        planningOverviewStatus: error.isBackendNotReady
+            ? FeatureStatus.notReady
+            : FeatureStatus.error,
+        planningOverviewMessage: error.isBackendNotReady
+            ? AppConfig.backendNotReadyMessage
+            : error.message,
+      );
+    }
+  }
+
+  Future<void> loadPlanningTimeline() async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        planningTimelineStatus: FeatureStatus.demo,
+        planningTimeline: const <PlanningTimelineItemModel>[],
+        planningTimelineMessage:
+            'Demo planning is derived from local sample data.',
+      );
+      return;
+    }
+    if (!_planningAvailable()) {
+      state = state.copyWith(
+        planningTimelineStatus: FeatureStatus.notReady,
+        planningTimeline: const <PlanningTimelineItemModel>[],
+        planningTimelineMessage: _planningUnavailableMessage,
+      );
+      return;
+    }
+
+    state = state.copyWith(planningTimelineStatus: FeatureStatus.loading);
+    _apiClient.setConnection(state.connection);
+    try {
+      final timeline = await ref.read(planningServiceProvider).fetchTimeline();
+      state = state.copyWith(
+        planningTimelineStatus: FeatureStatus.ready,
+        planningTimeline: timeline,
+        planningTimelineMessage: timeline.isEmpty
+            ? 'No planning items are scheduled yet.'
+            : null,
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        planningTimelineStatus: error.isBackendNotReady
+            ? FeatureStatus.notReady
+            : FeatureStatus.error,
+        planningTimelineMessage: error.isBackendNotReady
+            ? AppConfig.backendNotReadyMessage
+            : error.message,
+      );
+    }
+  }
+
+  Future<void> loadPlanningConflicts() async {
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        planningConflictsStatus: FeatureStatus.demo,
+        planningConflicts: const <PlanningConflictModel>[],
+        planningConflictsMessage:
+            'Demo planning is derived from local sample data.',
+      );
+      return;
+    }
+    if (!_planningAvailable()) {
+      state = state.copyWith(
+        planningConflictsStatus: FeatureStatus.notReady,
+        planningConflicts: const <PlanningConflictModel>[],
+        planningConflictsMessage: _planningUnavailableMessage,
+      );
+      return;
+    }
+
+    state = state.copyWith(planningConflictsStatus: FeatureStatus.loading);
+    _apiClient.setConnection(state.connection);
+    try {
+      final conflicts = await ref
+          .read(planningServiceProvider)
+          .fetchConflicts();
+      state = state.copyWith(
+        planningConflictsStatus: FeatureStatus.ready,
+        planningConflicts: conflicts,
+        planningConflictsMessage: conflicts.isEmpty
+            ? 'No conflicts detected right now.'
+            : null,
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        planningConflictsStatus: error.isBackendNotReady
+            ? FeatureStatus.notReady
+            : FeatureStatus.error,
+        planningConflictsMessage: error.isBackendNotReady
+            ? AppConfig.backendNotReadyMessage
+            : error.message,
+      );
+    }
+  }
+
+  Future<void> refreshPlanningWorkbench() async {
+    if (!state.isConnected) {
+      return;
+    }
+    await loadPlanningOverview();
+    await loadPlanningTimeline();
+    await loadPlanningConflicts();
+  }
+
   Future<void> stopCurrentTask() async {
     if (state.runtimeState.currentTask == null) {
       state = state.copyWith(globalMessage: 'No running task to stop.');
@@ -771,6 +939,7 @@ class AppController extends StateNotifier<AppState> {
         tasks: _sortTasks(<TaskModel>[created, ...state.tasks]),
         tasksMessage: 'Task created.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         tasksStatus: FeatureStatus.error,
@@ -797,6 +966,7 @@ class AppController extends StateNotifier<AppState> {
         tasks: _sortTasks(_replaceTask(state.tasks, updated)),
         tasksMessage: 'Task updated.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         tasksStatus: FeatureStatus.error,
@@ -826,6 +996,7 @@ class AppController extends StateNotifier<AppState> {
         tasks: remaining,
         tasksMessage: remaining.isEmpty ? 'No tasks yet.' : 'Task deleted.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         tasksStatus: FeatureStatus.error,
@@ -880,6 +1051,7 @@ class AppController extends StateNotifier<AppState> {
         events: _sortEvents(<EventModel>[created, ...state.events]),
         eventsMessage: 'Event created.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         eventsStatus: FeatureStatus.error,
@@ -906,6 +1078,7 @@ class AppController extends StateNotifier<AppState> {
         events: _sortEvents(_replaceEvent(state.events, updated)),
         eventsMessage: 'Event updated.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         eventsStatus: FeatureStatus.error,
@@ -937,6 +1110,7 @@ class AppController extends StateNotifier<AppState> {
             ? 'No upcoming events.'
             : 'Event deleted.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         eventsStatus: FeatureStatus.error,
@@ -1012,6 +1186,7 @@ class AppController extends StateNotifier<AppState> {
             ? 'Notification marked read.'
             : 'Notification marked unread.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         notificationsStatus: FeatureStatus.error,
@@ -1040,6 +1215,7 @@ class AppController extends StateNotifier<AppState> {
             .toList(),
         notificationsMessage: 'All notifications marked read.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         notificationsStatus: FeatureStatus.error,
@@ -1076,6 +1252,7 @@ class AppController extends StateNotifier<AppState> {
             ? 'No notifications.'
             : 'Notification deleted.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         notificationsStatus: FeatureStatus.error,
@@ -1100,6 +1277,7 @@ class AppController extends StateNotifier<AppState> {
         notifications: const <NotificationModel>[],
         notificationsMessage: 'Notifications cleared.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         notificationsStatus: FeatureStatus.error,
@@ -1159,6 +1337,7 @@ class AppController extends StateNotifier<AppState> {
         reminders: _sortReminders(<ReminderModel>[created, ...state.reminders]),
         remindersMessage: 'Reminder created.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         remindersStatus: FeatureStatus.error,
@@ -1185,6 +1364,7 @@ class AppController extends StateNotifier<AppState> {
         reminders: _sortReminders(_replaceReminder(state.reminders, updated)),
         remindersMessage: 'Reminder updated.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         remindersStatus: FeatureStatus.error,
@@ -1226,6 +1406,7 @@ class AppController extends StateNotifier<AppState> {
             ? 'No reminders.'
             : 'Reminder deleted.',
       );
+      unawaited(refreshPlanningWorkbench());
     } on ApiError catch (error) {
       state = state.copyWith(
         remindersStatus: FeatureStatus.error,
@@ -1260,6 +1441,19 @@ class AppController extends StateNotifier<AppState> {
       state = state.copyWith(globalMessage: error.message);
     }
   }
+
+  bool _planningAvailable() {
+    final bootstrapPlanning =
+        state.bootstrap?.planning ?? const <String, dynamic>{};
+    return state.capabilities.planning ||
+        state.capabilities.planningOverview ||
+        state.capabilities.planningTimeline ||
+        state.capabilities.planningConflicts ||
+        bootstrapPlanning.isNotEmpty;
+  }
+
+  static const String _planningUnavailableMessage =
+      'Planning workbench is not available on this backend.';
 
   String _sessionTitleFor(String sessionId) {
     final match = state.sessions.where(
@@ -1387,7 +1581,7 @@ class AppController extends StateNotifier<AppState> {
         final resume = event.payload['resume'];
         if (resume is Map<String, dynamic> &&
             resume['should_refetch_bootstrap'] == true) {
-          unawaited(refreshRuntime());
+          unawaited(refreshAll());
         }
         break;
       case 'runtime.task.current_changed':
@@ -1398,6 +1592,9 @@ class AppController extends StateNotifier<AppState> {
       case 'todo.summary.changed':
       case 'calendar.summary.changed':
         unawaited(refreshRuntime());
+        break;
+      case 'planning.changed':
+        unawaited(refreshPlanningWorkbench());
         break;
       case 'session.message.created':
       case 'session.message.completed':
@@ -1468,6 +1665,7 @@ class AppController extends StateNotifier<AppState> {
             tasks: _sortTasks(existing),
             tasksMessage: null,
           );
+          unawaited(refreshPlanningWorkbench());
         }
         break;
       case 'task.deleted':
@@ -1484,6 +1682,7 @@ class AppController extends StateNotifier<AppState> {
               tasks: remaining,
               tasksMessage: remaining.isEmpty ? 'No tasks yet.' : null,
             );
+            unawaited(refreshPlanningWorkbench());
           }
         }
         break;
@@ -1501,6 +1700,7 @@ class AppController extends StateNotifier<AppState> {
             events: _sortEvents(existing),
             eventsMessage: null,
           );
+          unawaited(refreshPlanningWorkbench());
         }
         break;
       case 'event.deleted':
@@ -1517,9 +1717,11 @@ class AppController extends StateNotifier<AppState> {
               events: remaining,
               eventsMessage: remaining.isEmpty ? 'No upcoming events.' : null,
             );
+            unawaited(refreshPlanningWorkbench());
           }
         }
         break;
+      case 'notification.created':
       case 'notification.updated':
         final rawNotification = event.payload['notification'];
         if (rawNotification is Map<String, dynamic>) {
@@ -1535,6 +1737,7 @@ class AppController extends StateNotifier<AppState> {
             notifications: existing,
             notificationsMessage: null,
           );
+          unawaited(refreshPlanningWorkbench());
         }
         break;
       case 'notification.deleted':
@@ -1552,11 +1755,13 @@ class AppController extends StateNotifier<AppState> {
                   ? 'No notifications.'
                   : null,
             );
+            unawaited(refreshPlanningWorkbench());
           }
         }
         break;
       case 'reminder.created':
       case 'reminder.updated':
+      case 'reminder.triggered':
         final rawReminder = event.payload['reminder'];
         if (rawReminder is Map<String, dynamic>) {
           final nextReminder = ReminderModel.fromJson(rawReminder);
@@ -1572,6 +1777,22 @@ class AppController extends StateNotifier<AppState> {
             remindersMessage: null,
           );
         }
+        final rawNotification = event.payload['notification'];
+        if (rawNotification is Map<String, dynamic>) {
+          final nextNotification = NotificationModel.fromJson(rawNotification);
+          final existing =
+              state.notifications.any(
+                (NotificationModel item) => item.id == nextNotification.id,
+              )
+              ? _replaceNotification(state.notifications, nextNotification)
+              : <NotificationModel>[nextNotification, ...state.notifications];
+          state = state.copyWith(
+            notificationsStatus: FeatureStatus.ready,
+            notifications: existing,
+            notificationsMessage: null,
+          );
+        }
+        unawaited(refreshPlanningWorkbench());
         break;
       case 'reminder.deleted':
         final rawReminder = event.payload['reminder'];
@@ -1586,6 +1807,7 @@ class AppController extends StateNotifier<AppState> {
               reminders: remaining,
               remindersMessage: remaining.isEmpty ? 'No reminders.' : null,
             );
+            unawaited(refreshPlanningWorkbench());
           }
         }
         break;
@@ -1690,6 +1912,22 @@ final unreadNotificationsCountProvider = Provider<int>((Ref ref) {
       .notifications
       .where((NotificationModel item) => !item.read)
       .length;
+});
+
+final planningOverviewProvider = Provider<PlanningOverviewModel?>((Ref ref) {
+  return ref.watch(appControllerProvider).planningOverview;
+});
+
+final planningTimelineProvider = Provider<List<PlanningTimelineItemModel>>((
+  Ref ref,
+) {
+  return ref.watch(appControllerProvider).planningTimeline;
+});
+
+final planningConflictsProvider = Provider<List<PlanningConflictModel>>((
+  Ref ref,
+) {
+  return ref.watch(appControllerProvider).planningConflicts;
 });
 
 final currentMessagesProvider = Provider<List<MessageModel>>(

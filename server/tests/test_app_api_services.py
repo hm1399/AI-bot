@@ -69,6 +69,118 @@ class ResourceServiceTests(unittest.TestCase):
             summary = service.list_notifications()
             self.assertEqual(summary["unread_count"], 2)
 
+    def test_resources_accept_optional_planning_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = AppResourceService(Path(tmpdir))
+
+            task = service.create_task(
+                {
+                    "title": "Review proposal",
+                    "priority": "high",
+                    "bundle_id": "bundle_plan_001",
+                    "created_via": "chat",
+                    "source_channel": "app",
+                    "source_message_id": "msg_001",
+                    "source_session_id": "session_001",
+                }
+            )
+            self.assertEqual(task["bundle_id"], "bundle_plan_001")
+            self.assertEqual(task["created_via"], "chat")
+            self.assertEqual(task["source_channel"], "app")
+            self.assertEqual(task["source_message_id"], "msg_001")
+            self.assertEqual(task["source_session_id"], "session_001")
+
+            event = service.create_event(
+                {
+                    "title": "Team review",
+                    "start_at": "2026-04-10T09:00:00+08:00",
+                    "end_at": "2026-04-10T10:00:00+08:00",
+                    "bundle_id": "bundle_plan_001",
+                    "created_via": "voice",
+                    "linked_task_id": task["task_id"],
+                }
+            )
+            self.assertEqual(event["bundle_id"], "bundle_plan_001")
+            self.assertEqual(event["created_via"], "voice")
+            self.assertEqual(event["linked_task_id"], task["task_id"])
+
+            reminder = service.create_reminder(
+                {
+                    "title": "Join call",
+                    "time": "2026-04-10T08:50:00+08:00",
+                    "repeat": "once",
+                    "bundle_id": "bundle_plan_001",
+                    "linked_task_id": task["task_id"],
+                    "linked_event_id": event["event_id"],
+                    "next_trigger_at": "2026-04-10T08:50:00+08:00",
+                    "last_triggered_at": None,
+                    "last_error": None,
+                    "snoozed_until": "2026-04-10T08:55:00+08:00",
+                    "completed_at": None,
+                    "status": "scheduled",
+                }
+            )
+            self.assertEqual(reminder["bundle_id"], "bundle_plan_001")
+            self.assertEqual(reminder["linked_task_id"], task["task_id"])
+            self.assertEqual(reminder["linked_event_id"], event["event_id"])
+            self.assertEqual(reminder["next_trigger_at"], "2026-04-10T08:50:00+08:00")
+            self.assertEqual(reminder["snoozed_until"], "2026-04-10T08:55:00+08:00")
+            self.assertEqual(reminder["status"], "scheduled")
+
+            updated = service.update_reminder(
+                reminder["reminder_id"],
+                {
+                    "linked_task_id": None,
+                    "snoozed_until": None,
+                    "status": "completed",
+                    "completed_at": "2026-04-10T09:15:00+08:00",
+                },
+            )
+            self.assertIsNone(updated["linked_task_id"])
+            self.assertIsNone(updated["snoozed_until"])
+            self.assertEqual(updated["status"], "completed")
+            self.assertEqual(updated["completed_at"], "2026-04-10T09:15:00+08:00")
+
+    def test_notification_normalization_preserves_metadata_and_origin_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = AppResourceService(Path(tmpdir))
+            metadata = {
+                "scheduled_for": "2026-04-10T08:50:00+08:00",
+                "custom": {"channel": "desktop"},
+            }
+
+            notification = service.create_notification(
+                {
+                    "type": "reminder_due",
+                    "priority": "high",
+                    "title": "Join call",
+                    "message": "Call starts in 10 minutes",
+                    "metadata": metadata,
+                    "bundle_id": "bundle_plan_001",
+                    "created_via": "scheduler",
+                    "source_channel": "app",
+                    "source_message_id": "msg_001",
+                    "source_session_id": "session_001",
+                    "linked_task_id": "task_001",
+                    "linked_event_id": "event_001",
+                    "linked_reminder_id": "rem_001",
+                }
+            )
+
+            metadata["custom"]["channel"] = "mutated"
+            self.assertEqual(notification["metadata"]["custom"]["channel"], "desktop")
+            self.assertEqual(notification["metadata"]["bundle_id"], "bundle_plan_001")
+            self.assertEqual(notification["metadata"]["created_via"], "scheduler")
+            self.assertEqual(notification["metadata"]["source_channel"], "app")
+            self.assertEqual(notification["metadata"]["source_message_id"], "msg_001")
+            self.assertEqual(notification["metadata"]["source_session_id"], "session_001")
+            self.assertEqual(notification["metadata"]["linked_task_id"], "task_001")
+            self.assertEqual(notification["metadata"]["linked_event_id"], "event_001")
+            self.assertEqual(notification["metadata"]["linked_reminder_id"], "rem_001")
+            self.assertEqual(notification["metadata"]["task_id"], "task_001")
+            self.assertEqual(notification["metadata"]["event_id"], "event_001")
+            self.assertEqual(notification["metadata"]["reminder_id"], "rem_001")
+
 
 class SettingsServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_masks_secret_and_reports_configured_flag(self) -> None:

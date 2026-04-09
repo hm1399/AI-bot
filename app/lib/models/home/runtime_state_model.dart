@@ -308,6 +308,109 @@ class CalendarSummaryModel {
   }
 }
 
+class ReminderRuntimeStateModel {
+  const ReminderRuntimeStateModel({
+    this.reportedByBackend = false,
+    this.schedulerRunning = false,
+    this.nextTriggerAt,
+    this.lastTriggeredAt,
+    this.lastError,
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final bool reportedByBackend;
+  final bool schedulerRunning;
+  final String? nextTriggerAt;
+  final String? lastTriggeredAt;
+  final String? lastError;
+  final Map<String, dynamic> metadata;
+
+  factory ReminderRuntimeStateModel.fromParentJson(Map<String, dynamic> json) {
+    final payload = _extractNestedRuntimePayload(json, const <String>[
+      'reminders',
+      'reminder_runtime',
+    ]);
+    if (payload.isEmpty) {
+      return const ReminderRuntimeStateModel();
+    }
+    return ReminderRuntimeStateModel.fromJson(payload);
+  }
+
+  factory ReminderRuntimeStateModel.fromJson(Map<String, dynamic> json) {
+    return ReminderRuntimeStateModel(
+      reportedByBackend: true,
+      schedulerRunning: _runtimeReadBool(json, const <String>[
+        'scheduler_running',
+        'running',
+      ]),
+      nextTriggerAt: _runtimeReadNullableString(json, const <String>[
+        'next_trigger_at',
+        'next_due_at',
+      ]),
+      lastTriggeredAt: _runtimeReadNullableString(json, const <String>[
+        'last_triggered_at',
+      ]),
+      lastError: _runtimeReadNullableString(json, const <String>['last_error']),
+      metadata: Map<String, dynamic>.from(json),
+    );
+  }
+}
+
+class PlanningRuntimeStateModel {
+  const PlanningRuntimeStateModel({
+    this.reportedByBackend = false,
+    this.available = false,
+    this.overviewReady = false,
+    this.timelineReady = false,
+    this.conflictsReady = false,
+    this.conflictCount = 0,
+    this.generatedAt,
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final bool reportedByBackend;
+  final bool available;
+  final bool overviewReady;
+  final bool timelineReady;
+  final bool conflictsReady;
+  final int conflictCount;
+  final String? generatedAt;
+  final Map<String, dynamic> metadata;
+
+  factory PlanningRuntimeStateModel.fromParentJson(Map<String, dynamic> json) {
+    final payload = _extractNestedRuntimePayload(json, const <String>[
+      'planning',
+      'planning_runtime',
+    ]);
+    if (payload.isEmpty) {
+      return const PlanningRuntimeStateModel();
+    }
+    return PlanningRuntimeStateModel.fromJson(payload);
+  }
+
+  factory PlanningRuntimeStateModel.fromJson(Map<String, dynamic> json) {
+    return PlanningRuntimeStateModel(
+      reportedByBackend: true,
+      available:
+          _runtimeReadBool(json, const <String>['available', 'enabled']) ||
+          json.isNotEmpty,
+      overviewReady: _runtimeReadBool(json, const <String>['overview_ready']),
+      timelineReady: _runtimeReadBool(json, const <String>['timeline_ready']),
+      conflictsReady: _runtimeReadBool(json, const <String>['conflicts_ready']),
+      conflictCount: _runtimeReadInt(json, const <String>[
+        'conflict_count',
+        'pending_conflicts',
+      ]),
+      generatedAt: _runtimeReadNullableString(json, const <String>[
+        'generated_at',
+        'updated_at',
+        'last_updated_at',
+      ]),
+      metadata: Map<String, dynamic>.from(json),
+    );
+  }
+}
+
 class RuntimeStateModel {
   const RuntimeStateModel({
     required this.currentTask,
@@ -316,6 +419,8 @@ class RuntimeStateModel {
     required this.voice,
     required this.todoSummary,
     required this.calendarSummary,
+    this.reminders = const ReminderRuntimeStateModel(),
+    this.planning = const PlanningRuntimeStateModel(),
   });
 
   final RuntimeTaskModel? currentTask;
@@ -324,6 +429,8 @@ class RuntimeStateModel {
   final VoiceStatusModel voice;
   final TodoSummaryModel todoSummary;
   final CalendarSummaryModel calendarSummary;
+  final ReminderRuntimeStateModel reminders;
+  final PlanningRuntimeStateModel planning;
 
   RuntimeStateModel copyWithCurrentTask(RuntimeTaskModel? currentTask) {
     return RuntimeStateModel(
@@ -333,6 +440,8 @@ class RuntimeStateModel {
       voice: voice,
       todoSummary: todoSummary,
       calendarSummary: calendarSummary,
+      reminders: reminders,
+      planning: planning,
     );
   }
 
@@ -369,6 +478,8 @@ class RuntimeStateModel {
             ? json['calendar_summary'] as Map<String, dynamic>
             : <String, dynamic>{},
       ),
+      reminders: ReminderRuntimeStateModel.fromParentJson(json),
+      planning: PlanningRuntimeStateModel.fromParentJson(json),
     );
   }
 
@@ -380,6 +491,65 @@ class RuntimeStateModel {
       voice: VoiceStatusModel.empty(),
       todoSummary: TodoSummaryModel.empty(),
       calendarSummary: CalendarSummaryModel.empty(),
+      reminders: const ReminderRuntimeStateModel(),
+      planning: const PlanningRuntimeStateModel(),
     );
   }
+}
+
+Map<String, dynamic> _extractNestedRuntimePayload(
+  Map<String, dynamic> json,
+  List<String> keys,
+) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(value);
+    }
+  }
+  return <String, dynamic>{};
+}
+
+bool _runtimeReadBool(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is bool) {
+      return value;
+    }
+    final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == 'true') {
+      return true;
+    }
+    if (normalized == 'false') {
+      return false;
+    }
+  }
+  return false;
+}
+
+int _runtimeReadInt(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is int) {
+      return value;
+    }
+    final parsed = int.tryParse(value?.toString() ?? '');
+    if (parsed != null) {
+      return parsed;
+    }
+  }
+  return 0;
+}
+
+String? _runtimeReadNullableString(
+  Map<String, dynamic> json,
+  List<String> keys,
+) {
+  for (final key in keys) {
+    final value = json[key]?.toString().trim();
+    if (value != null && value.isNotEmpty) {
+      return value;
+    }
+  }
+  return null;
 }

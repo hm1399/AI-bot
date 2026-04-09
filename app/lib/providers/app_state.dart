@@ -7,6 +7,9 @@ import '../models/connect/connection_config_model.dart';
 import '../models/events/event_model.dart';
 import '../models/home/runtime_state_model.dart';
 import '../models/notifications/notification_model.dart';
+import '../models/planning/planning_conflict_model.dart';
+import '../models/planning/planning_overview_model.dart';
+import '../models/planning/planning_timeline_item_model.dart';
 import '../models/reminders/reminder_model.dart';
 import '../models/settings/settings_model.dart';
 import '../models/tasks/task_model.dart';
@@ -43,6 +46,15 @@ class AppState {
     required this.remindersStatus,
     required this.reminders,
     required this.remindersMessage,
+    required this.planningOverviewStatus,
+    required this.planningOverview,
+    required this.planningOverviewMessage,
+    required this.planningTimelineStatus,
+    required this.planningTimeline,
+    required this.planningTimelineMessage,
+    required this.planningConflictsStatus,
+    required this.planningConflicts,
+    required this.planningConflictsMessage,
     required this.themeMode,
     required this.globalMessage,
   });
@@ -73,6 +85,15 @@ class AppState {
   final FeatureStatus remindersStatus;
   final List<ReminderModel> reminders;
   final String? remindersMessage;
+  final FeatureStatus planningOverviewStatus;
+  final PlanningOverviewModel? planningOverview;
+  final String? planningOverviewMessage;
+  final FeatureStatus planningTimelineStatus;
+  final List<PlanningTimelineItemModel> planningTimeline;
+  final String? planningTimelineMessage;
+  final FeatureStatus planningConflictsStatus;
+  final List<PlanningConflictModel> planningConflicts;
+  final String? planningConflictsMessage;
   final ThemeMode themeMode;
   final String? globalMessage;
 
@@ -108,6 +129,15 @@ class AppState {
     FeatureStatus? remindersStatus,
     List<ReminderModel>? reminders,
     Object? remindersMessage = _unset,
+    FeatureStatus? planningOverviewStatus,
+    Object? planningOverview = _unset,
+    Object? planningOverviewMessage = _unset,
+    FeatureStatus? planningTimelineStatus,
+    List<PlanningTimelineItemModel>? planningTimeline,
+    Object? planningTimelineMessage = _unset,
+    FeatureStatus? planningConflictsStatus,
+    List<PlanningConflictModel>? planningConflicts,
+    Object? planningConflictsMessage = _unset,
     ThemeMode? themeMode,
     Object? globalMessage = _unset,
   }) {
@@ -152,6 +182,26 @@ class AppState {
       remindersMessage: identical(remindersMessage, _unset)
           ? this.remindersMessage
           : remindersMessage as String?,
+      planningOverviewStatus:
+          planningOverviewStatus ?? this.planningOverviewStatus,
+      planningOverview: identical(planningOverview, _unset)
+          ? this.planningOverview
+          : planningOverview as PlanningOverviewModel?,
+      planningOverviewMessage: identical(planningOverviewMessage, _unset)
+          ? this.planningOverviewMessage
+          : planningOverviewMessage as String?,
+      planningTimelineStatus:
+          planningTimelineStatus ?? this.planningTimelineStatus,
+      planningTimeline: planningTimeline ?? this.planningTimeline,
+      planningTimelineMessage: identical(planningTimelineMessage, _unset)
+          ? this.planningTimelineMessage
+          : planningTimelineMessage as String?,
+      planningConflictsStatus:
+          planningConflictsStatus ?? this.planningConflictsStatus,
+      planningConflicts: planningConflicts ?? this.planningConflicts,
+      planningConflictsMessage: identical(planningConflictsMessage, _unset)
+          ? this.planningConflictsMessage
+          : planningConflictsMessage as String?,
       themeMode: themeMode ?? this.themeMode,
       globalMessage: identical(globalMessage, _unset)
           ? this.globalMessage
@@ -187,6 +237,15 @@ class AppState {
       remindersStatus: FeatureStatus.idle,
       reminders: const <ReminderModel>[],
       remindersMessage: null,
+      planningOverviewStatus: FeatureStatus.idle,
+      planningOverview: null,
+      planningOverviewMessage: null,
+      planningTimelineStatus: FeatureStatus.idle,
+      planningTimeline: const <PlanningTimelineItemModel>[],
+      planningTimelineMessage: null,
+      planningConflictsStatus: FeatureStatus.idle,
+      planningConflicts: const <PlanningConflictModel>[],
+      planningConflictsMessage: null,
       themeMode: ThemeMode.dark,
       globalMessage: null,
     );

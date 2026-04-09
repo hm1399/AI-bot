@@ -134,6 +134,13 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payload["data"]["capabilities"]["settings"])
         self.assertTrue(payload["data"]["capabilities"]["tasks"])
         self.assertTrue(payload["data"]["capabilities"]["notifications"])
+        self.assertTrue(payload["data"]["capabilities"]["planning"])
+        self.assertTrue(payload["data"]["capabilities"]["planning_overview"])
+        self.assertEqual(
+            payload["data"]["planning"]["overview_path"],
+            "/api/app/v1/planning/overview",
+        )
+        self.assertTrue(payload["data"]["runtime"]["planning"]["available"])
 
     async def test_post_message_enqueues_app_task(self) -> None:
         response = await self.service.handle_post_message(FakeRequest(
@@ -155,6 +162,14 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(runtime["current_task"])
         self.assertEqual(len(runtime["task_queue"]), 1)
         self.assertEqual(runtime["task_queue"][0]["task_id"], task_id)
+
+    async def test_runtime_state_exposes_planning_runtime_flags(self) -> None:
+        runtime = await self.service.get_runtime_state()
+        self.assertIn("planning", runtime)
+        self.assertTrue(runtime["planning"]["available"])
+        self.assertTrue(runtime["planning"]["overview_ready"])
+        self.assertTrue(runtime["planning"]["timeline_ready"])
+        self.assertTrue(runtime["planning"]["conflicts_ready"])
 
     async def test_get_messages_supports_before_after_pagination(self) -> None:
         session = self.sessions.get_or_create("app:main")
@@ -281,6 +296,48 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(ws.sent[-1]["event_type"], "calendar.summary.changed")
         self.assertEqual(ws.sent[-1]["payload"]["next_event_title"], "晚间例会")
+
+    async def test_creating_task_auto_recalculates_todo_summary(self) -> None:
+        response = await self.service.handle_create_task(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "title": "Review proposal",
+                "priority": "high",
+                "due_at": "2099-04-09T11:00:00+08:00",
+            },
+        ))
+        self.assertEqual(response.status, 201)
+
+        runtime = await self.service.get_runtime_state()
+        self.assertTrue(runtime["todo_summary"]["enabled"])
+        self.assertEqual(runtime["todo_summary"]["pending_count"], 1)
+        self.assertEqual(runtime["todo_summary"]["overdue_count"], 0)
+        self.assertEqual(
+            runtime["todo_summary"]["next_due_at"],
+            "2099-04-09T11:00:00+08:00",
+        )
+
+    async def test_creating_event_auto_recalculates_calendar_summary(self) -> None:
+        response = await self.service.handle_create_event(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "title": "Team Standup",
+                "start_at": "2099-04-09T09:30:00+08:00",
+                "end_at": "2099-04-09T10:00:00+08:00",
+            },
+        ))
+        self.assertEqual(response.status, 201)
+
+        runtime = await self.service.get_runtime_state()
+        self.assertTrue(runtime["calendar_summary"]["enabled"])
+        self.assertEqual(
+            runtime["calendar_summary"]["next_event_at"],
+            "2099-04-09T09:30:00+08:00",
+        )
+        self.assertEqual(
+            runtime["calendar_summary"]["next_event_title"],
+            "Team Standup",
+        )
 
     async def test_event_stream_model_receives_queue_progress_and_completion(self) -> None:
         ws = FakeWebSocket()

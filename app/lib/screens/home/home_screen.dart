@@ -21,6 +21,10 @@ class HomeScreen extends ConsumerWidget {
         .where((item) => !item.read)
         .length;
     final chrome = context.linear;
+    final planning = _HomePlanningSnapshot.fromSources(
+      state: state,
+      controller: controller,
+    );
 
     return RefreshIndicator(
       onRefresh: controller.refreshAll,
@@ -177,6 +181,8 @@ class HomeScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: LinearSpacing.lg),
+          _PlanningHighlightsPanel(snapshot: planning),
+          const SizedBox(height: LinearSpacing.lg),
           LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
               final stacked = constraints.maxWidth < 980;
@@ -309,4 +315,292 @@ class _SummaryRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PlanningHighlightsPanel extends StatelessWidget {
+  const _PlanningHighlightsPanel({required this.snapshot});
+
+  final _HomePlanningSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = context.linear;
+    return Container(
+      padding: const EdgeInsets.all(LinearSpacing.md),
+      decoration: BoxDecoration(
+        color: chrome.surface,
+        borderRadius: LinearRadius.card,
+        border: Border.all(color: chrome.borderStandard),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Planning Highlights',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            snapshot.todaySummary,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+          ),
+          const SizedBox(height: LinearSpacing.md),
+          _SummaryRow(
+            title: 'Next Timeline Item',
+            value: snapshot.nextTimelineSummary,
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          _SummaryRow(
+            title: 'Reminders & Conflicts',
+            value:
+                '${snapshot.activeReminders} active reminders · ${snapshot.conflictCount} conflicts flagged',
+          ),
+          if (snapshot.highlights.isNotEmpty) ...<Widget>[
+            const SizedBox(height: LinearSpacing.md),
+            Wrap(
+              spacing: LinearSpacing.xs,
+              runSpacing: LinearSpacing.xs,
+              children: snapshot.highlights
+                  .map(
+                    (String item) => Chip(
+                      label: Text(item),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HomePlanningSnapshot {
+  const _HomePlanningSnapshot({
+    required this.todaySummary,
+    required this.nextTimelineSummary,
+    required this.activeReminders,
+    required this.conflictCount,
+    required this.highlights,
+  });
+
+  final String todaySummary;
+  final String nextTimelineSummary;
+  final int activeReminders;
+  final int conflictCount;
+  final List<String> highlights;
+
+  factory _HomePlanningSnapshot.fromSources({
+    required AppState state,
+    required Object controller,
+  }) {
+    final overview = _coerceStringMap(
+      _readPlanningProperty(
+        state: state,
+        controller: controller,
+        name: 'planningOverview',
+      ),
+    );
+    final timeline = _coerceList(
+      _readPlanningProperty(
+        state: state,
+        controller: controller,
+        name: 'planningTimeline',
+      ),
+    );
+    final conflicts = _coerceList(
+      _readPlanningProperty(
+        state: state,
+        controller: controller,
+        name: 'planningConflicts',
+      ),
+    );
+    final openTasks = state.tasks.where((item) => !item.completed).length;
+    final dueToday = state.tasks.where((task) {
+      if (task.completed || task.dueAt == null) {
+        return false;
+      }
+      final dueAt = DateTime.tryParse(task.dueAt!);
+      final now = DateTime.now();
+      return dueAt != null &&
+          dueAt.year == now.year &&
+          dueAt.month == now.month &&
+          dueAt.day == now.day;
+    }).length;
+    final activeReminders =
+        _lookupInt(overview, <String>[
+          'active_reminders',
+          'activeReminderCount',
+        ]) ??
+        state.reminders.where((item) => item.enabled).length;
+    final conflictCount =
+        _lookupInt(overview, <String>['conflict_count', 'conflictCount']) ??
+        conflicts.length;
+    final nextLabel =
+        _lookupString(overview, <String>[
+          'next_item_title',
+          'nextItemTitle',
+          'next_event_title',
+          'nextEventTitle',
+        ]) ??
+        _deriveNextTimelineLabel(timeline, state);
+    final nextTime =
+        _lookupString(overview, <String>[
+          'next_item_time',
+          'nextItemTime',
+          'next_event_time',
+          'nextEventTime',
+        ]) ??
+        _deriveNextTimelineTime(timeline, state);
+    final highlights = _coerceList(overview['highlights'])
+        .map((Object? item) => item?.toString().trim() ?? '')
+        .where((String item) => item.isNotEmpty)
+        .take(4)
+        .toList();
+
+    if (highlights.isEmpty) {
+      highlights.add('Open tasks: $openTasks');
+      highlights.add('Due today: $dueToday');
+      if (nextLabel.isNotEmpty) {
+        highlights.add('Next: $nextLabel');
+      }
+    }
+
+    return _HomePlanningSnapshot(
+      todaySummary:
+          _lookupString(overview, <String>[
+            'today_summary',
+            'todaySummary',
+            'summary',
+            'headline',
+          ]) ??
+          'Derived summary: $openTasks open tasks, $dueToday due today, $activeReminders active reminders.',
+      nextTimelineSummary: nextTime == null || nextTime.isEmpty
+          ? nextLabel
+          : '$nextLabel · $nextTime',
+      activeReminders: activeReminders,
+      conflictCount: conflictCount,
+      highlights: highlights,
+    );
+  }
+}
+
+Object? _readPlanningProperty({
+  required AppState state,
+  required Object controller,
+  required String name,
+}) {
+  Object? readFrom(Object target) {
+    try {
+      final dynamic dynamicTarget = target;
+      switch (name) {
+        case 'planningOverview':
+          return dynamicTarget.planningOverview;
+        case 'planningTimeline':
+          return dynamicTarget.planningTimeline;
+        case 'planningConflicts':
+          return dynamicTarget.planningConflicts;
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  return readFrom(state) ?? readFrom(controller);
+}
+
+Map<String, dynamic> _coerceStringMap(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map<String, dynamic>(
+      (Object? key, Object? item) => MapEntry(key.toString(), item),
+    );
+  }
+  return <String, dynamic>{};
+}
+
+List<Object?> _coerceList(Object? value) {
+  if (value is List<Object?>) {
+    return value;
+  }
+  if (value is List) {
+    return value.cast<Object?>();
+  }
+  return const <Object?>[];
+}
+
+String? _lookupString(Map<String, dynamic> map, List<String> keys) {
+  for (final key in keys) {
+    final value = map[key];
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+    if (value is num || value is bool) {
+      return value.toString();
+    }
+  }
+  return null;
+}
+
+int? _lookupInt(Map<String, dynamic> map, List<String> keys) {
+  for (final key in keys) {
+    final value = map[key];
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      final parsed = int.tryParse(value);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+String _deriveNextTimelineLabel(List<Object?> timeline, AppState state) {
+  for (final item in timeline) {
+    final map = _coerceStringMap(item);
+    final label = _lookupString(map, <String>['title', 'summary', 'label']);
+    if (label != null && label.isNotEmpty) {
+      return label;
+    }
+  }
+  final upcomingEvents = state.events.toList()
+    ..sort((a, b) => a.startAt.compareTo(b.startAt));
+  return upcomingEvents.isEmpty
+      ? 'No timeline items yet.'
+      : upcomingEvents.first.title;
+}
+
+String? _deriveNextTimelineTime(List<Object?> timeline, AppState state) {
+  for (final item in timeline) {
+    final map = _coerceStringMap(item);
+    final time = _lookupString(map, <String>[
+      'time_label',
+      'timeLabel',
+      'display_time',
+      'displayTime',
+      'normalized_time',
+      'normalizedTime',
+      'scheduled_for',
+      'scheduledFor',
+    ]);
+    if (time != null && time.isNotEmpty) {
+      return time;
+    }
+  }
+  if (state.events.isEmpty) {
+    return null;
+  }
+  return state.events.first.startAt;
 }

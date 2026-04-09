@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../models/chat/message_model.dart';
 import '../../models/chat/session_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
@@ -244,6 +245,7 @@ class _ConversationView extends StatelessWidget {
   Widget build(BuildContext context) {
     final chrome = context.linear;
     final messageItems = state.currentMessages;
+    final latestStructuredMessage = _latestStructuredMessage(messageItems);
 
     return Column(
       children: <Widget>[
@@ -275,6 +277,13 @@ class _ConversationView extends StatelessWidget {
                         color: chrome.textTertiary,
                       ),
                     ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Send natural language instructions here. Structured planning results, normalized times, conflicts, and confirmation requests render inline.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: chrome.textQuaternary,
+                      ),
+                    ),
                     if (activeSession != null) ...<Widget>[
                       const SizedBox(height: 8),
                       Wrap(
@@ -296,6 +305,15 @@ class _ConversationView extends StatelessWidget {
                           StatusPill(
                             label: '${activeSession!.messageCount} messages',
                             icon: Icons.chat_bubble_outline,
+                          ),
+                          StatusPill(
+                            label: latestStructuredMessage == null
+                                ? 'Text to plan'
+                                : 'Structured result ready',
+                            tone: latestStructuredMessage == null
+                                ? StatusPillTone.accent
+                                : StatusPillTone.success,
+                            icon: Icons.account_tree_outlined,
                           ),
                         ],
                       ),
@@ -337,13 +355,25 @@ class _ConversationView extends StatelessWidget {
                 children: <Widget>[
                   if (state.messagesLoading)
                     const LinearProgressIndicator(minHeight: 2),
+                  if (latestStructuredMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        LinearSpacing.md,
+                        LinearSpacing.md,
+                        LinearSpacing.md,
+                        0,
+                      ),
+                      child: _StructuredResultPreview(
+                        message: latestStructuredMessage,
+                      ),
+                    ),
                   Expanded(
                     child: messageItems.isEmpty
                         ? ListView(
                             padding: const EdgeInsets.all(LinearSpacing.xl),
                             children: const <Widget>[
                               Text(
-                                'App text messages are sent from this page. Voice interactions still begin with pressing and holding the device, not recording inside the app.',
+                                'App text messages are sent from this page. Planning bundles and structured results will appear inline once the assistant returns metadata. Voice interactions still begin with pressing and holding the device, not recording inside the app.',
                                 textAlign: TextAlign.center,
                               ),
                             ],
@@ -364,6 +394,88 @@ class _ConversationView extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+MessageModel? _latestStructuredMessage(List<MessageModel> messages) {
+  for (final message in messages.reversed) {
+    if (message.role == 'assistant' && message.hasPlanningMetadata) {
+      return message;
+    }
+  }
+  return null;
+}
+
+class _StructuredResultPreview extends StatelessWidget {
+  const _StructuredResultPreview({required this.message});
+
+  final MessageModel message;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = context.linear;
+    final metadata = message.planningMetadata;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(LinearSpacing.md),
+      decoration: BoxDecoration(
+        color: chrome.panel,
+        borderRadius: LinearRadius.card,
+        border: Border.all(
+          color: metadata.requiresUserConfirmation
+              ? chrome.warning
+              : chrome.borderStandard,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Latest Structured Result',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              if (metadata.bundleId?.isNotEmpty == true)
+                Chip(label: Text('Bundle ${metadata.bundleId}')),
+            ],
+          ),
+          if (message.text.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              message.text,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+            ),
+          ],
+          const SizedBox(height: LinearSpacing.sm),
+          Wrap(
+            spacing: LinearSpacing.xs,
+            runSpacing: LinearSpacing.xs,
+            children: <Widget>[
+              if (metadata.resourceType?.isNotEmpty == true)
+                Chip(label: Text(metadata.resourceType!)),
+              if (metadata.resourceIds.isNotEmpty)
+                Chip(label: Text('${metadata.resourceIds.length} resources')),
+              if (metadata.normalizedTime?.isNotEmpty == true)
+                Chip(label: Text(metadata.normalizedTime!)),
+              if (metadata.conflicts.isNotEmpty)
+                Chip(label: Text('${metadata.conflicts.length} conflicts')),
+              if (metadata.requiresUserConfirmation)
+                Chip(
+                  label: Text(
+                    metadata.confirmationLabel ?? 'Awaiting user confirmation',
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

@@ -20,5 +20,9 @@ class ApiConstants {
   static const String notificationsReadAllPath =
       '$basePath/notifications/read-all';
   static const String remindersPath = '$basePath/reminders';
+  static const String planningPath = '$basePath/planning';
+  static const String planningOverviewPath = '$planningPath/overview';
+  static const String planningTimelinePath = '$planningPath/timeline';
+  static const String planningConflictsPath = '$planningPath/conflicts';
   static const String wsEventsPath = '/ws/app/v1/events';
 }

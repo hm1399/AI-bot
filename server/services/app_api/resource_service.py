@@ -7,6 +7,31 @@ from typing import Any
 from .json_store import JsonCollectionStore
 
 
+PLANNING_METADATA_FIELDS = (
+    "bundle_id",
+    "created_via",
+    "source_channel",
+    "source_message_id",
+    "source_session_id",
+    "linked_task_id",
+    "linked_event_id",
+    "linked_reminder_id",
+)
+REMINDER_RUNTIME_FIELDS = (
+    "next_trigger_at",
+    "last_triggered_at",
+    "last_error",
+    "snoozed_until",
+    "completed_at",
+    "status",
+)
+NOTIFICATION_ORIGIN_ALIASES = {
+    "linked_task_id": "task_id",
+    "linked_event_id": "event_id",
+    "linked_reminder_id": "reminder_id",
+}
+
+
 class ResourceValidationError(ValueError):
     pass
 
@@ -171,6 +196,7 @@ class AppResourceService:
             normalized["due_at"] = self._optional_string(payload.get("due_at"), "due_at")
         elif not partial:
             normalized["due_at"] = None
+        normalized.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
         return normalized
 
     def _normalize_event_payload(self, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
@@ -189,6 +215,7 @@ class AppResourceService:
             normalized["location"] = self._optional_string(payload.get("location"), "location")
         elif not partial:
             normalized["location"] = None
+        normalized.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
         return normalized
 
     def _normalize_notification_payload(self, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
@@ -207,7 +234,13 @@ class AppResourceService:
         metadata = payload.get("metadata", {})
         if not isinstance(metadata, dict):
             raise ResourceValidationError("metadata must be an object")
-        normalized["metadata"] = deepcopy(metadata)
+        merged_metadata = deepcopy(metadata)
+        merged_metadata.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
+        for linked_key, origin_key in NOTIFICATION_ORIGIN_ALIASES.items():
+            origin_id = merged_metadata.get(linked_key)
+            if origin_id is not None and merged_metadata.get(origin_key) is None:
+                merged_metadata[origin_key] = origin_id
+        normalized["metadata"] = merged_metadata
         return normalized
 
     def _normalize_reminder_payload(self, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
@@ -228,6 +261,8 @@ class AppResourceService:
             normalized["enabled"] = self._require_bool(payload.get("enabled"), "enabled")
         elif not partial:
             normalized["enabled"] = True
+        normalized.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
+        normalized.update(self._normalize_optional_fields(payload, REMINDER_RUNTIME_FIELDS))
         return normalized
 
     @staticmethod
@@ -254,6 +289,18 @@ class AppResourceService:
         if not isinstance(value, bool):
             raise ResourceValidationError(f"{field} must be a boolean")
         return value
+
+    @classmethod
+    def _normalize_optional_fields(
+        cls,
+        payload: dict[str, Any],
+        fields: tuple[str, ...],
+    ) -> dict[str, str | None]:
+        normalized: dict[str, str | None] = {}
+        for field in fields:
+            if field in payload:
+                normalized[field] = cls._optional_string(payload.get(field), field)
+        return normalized
 
     @staticmethod
     def _enum_string(value: Any, field: str, allowed: set[str]) -> str:

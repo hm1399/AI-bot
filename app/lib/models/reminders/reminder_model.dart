@@ -8,6 +8,25 @@ class ReminderModel {
     required this.enabled,
     required this.createdAt,
     required this.updatedAt,
+    this.bundleId,
+    this.createdVia,
+    this.sourceChannel,
+    this.sourceSessionId,
+    this.sourceMessageId,
+    this.linkedTaskId,
+    this.linkedEventId,
+    this.linkedReminderId,
+    this.normalizedTime,
+    this.normalizedTimes = const <String, dynamic>{},
+    this.conflictSummaries = const <String>[],
+    this.nextTriggerAt,
+    this.lastTriggeredAt,
+    this.lastError,
+    this.snoozedUntil,
+    this.completedAt,
+    this.status,
+    this.planningMetadata = const <String, dynamic>{},
+    this.runtimeMetadata = const <String, dynamic>{},
   });
 
   final String id;
@@ -18,6 +37,25 @@ class ReminderModel {
   final bool enabled;
   final String createdAt;
   final String updatedAt;
+  final String? bundleId;
+  final String? createdVia;
+  final String? sourceChannel;
+  final String? sourceSessionId;
+  final String? sourceMessageId;
+  final String? linkedTaskId;
+  final String? linkedEventId;
+  final String? linkedReminderId;
+  final String? normalizedTime;
+  final Map<String, dynamic> normalizedTimes;
+  final List<String> conflictSummaries;
+  final String? nextTriggerAt;
+  final String? lastTriggeredAt;
+  final String? lastError;
+  final String? snoozedUntil;
+  final String? completedAt;
+  final String? status;
+  final Map<String, dynamic> planningMetadata;
+  final Map<String, dynamic> runtimeMetadata;
 
   ReminderModel copyWith({
     String? title,
@@ -35,12 +73,33 @@ class ReminderModel {
       enabled: enabled ?? this.enabled,
       createdAt: createdAt,
       updatedAt: DateTime.now().toIso8601String(),
+      bundleId: bundleId,
+      createdVia: createdVia,
+      sourceChannel: sourceChannel,
+      sourceSessionId: sourceSessionId,
+      sourceMessageId: sourceMessageId,
+      linkedTaskId: linkedTaskId,
+      linkedEventId: linkedEventId,
+      linkedReminderId: linkedReminderId,
+      normalizedTime: normalizedTime,
+      normalizedTimes: normalizedTimes,
+      conflictSummaries: conflictSummaries,
+      nextTriggerAt: nextTriggerAt,
+      lastTriggeredAt: lastTriggeredAt,
+      lastError: lastError,
+      snoozedUntil: snoozedUntil,
+      completedAt: completedAt,
+      status: status,
+      planningMetadata: planningMetadata,
+      runtimeMetadata: runtimeMetadata,
     );
   }
 
   factory ReminderModel.fromJson(Map<String, dynamic> json) {
+    final planningMetadata = _extractPlanningMetadata(json);
+    final runtimeMetadata = _extractRuntimeMetadata(json);
     return ReminderModel(
-      id: json['reminder_id']?.toString() ?? '',
+      id: json['reminder_id']?.toString() ?? json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
       message: json['message']?.toString() ?? '',
       time: json['time']?.toString() ?? '',
@@ -50,6 +109,53 @@ class ReminderModel {
           json['created_at']?.toString() ?? DateTime.now().toIso8601String(),
       updatedAt:
           json['updated_at']?.toString() ?? DateTime.now().toIso8601String(),
+      bundleId: _readNullableString(planningMetadata, const <String>[
+        'bundle_id',
+      ]),
+      createdVia: _readNullableString(planningMetadata, const <String>[
+        'created_via',
+      ]),
+      sourceChannel: _readNullableString(planningMetadata, const <String>[
+        'source_channel',
+      ]),
+      sourceSessionId: _readNullableString(planningMetadata, const <String>[
+        'source_session_id',
+      ]),
+      sourceMessageId: _readNullableString(planningMetadata, const <String>[
+        'source_message_id',
+      ]),
+      linkedTaskId: _readNullableString(planningMetadata, const <String>[
+        'linked_task_id',
+      ]),
+      linkedEventId: _readNullableString(planningMetadata, const <String>[
+        'linked_event_id',
+      ]),
+      linkedReminderId: _readNullableString(planningMetadata, const <String>[
+        'linked_reminder_id',
+      ]),
+      normalizedTime: _readNullableString(planningMetadata, const <String>[
+        'normalized_time',
+      ]),
+      normalizedTimes: _asMap(planningMetadata['normalized_times']),
+      conflictSummaries: _readConflictSummaries(planningMetadata),
+      nextTriggerAt: _readNullableString(runtimeMetadata, const <String>[
+        'next_trigger_at',
+      ]),
+      lastTriggeredAt: _readNullableString(runtimeMetadata, const <String>[
+        'last_triggered_at',
+      ]),
+      lastError: _readNullableString(runtimeMetadata, const <String>[
+        'last_error',
+      ]),
+      snoozedUntil: _readNullableString(runtimeMetadata, const <String>[
+        'snoozed_until',
+      ]),
+      completedAt: _readNullableString(runtimeMetadata, const <String>[
+        'completed_at',
+      ]),
+      status: _readNullableString(runtimeMetadata, const <String>['status']),
+      planningMetadata: planningMetadata,
+      runtimeMetadata: runtimeMetadata,
     );
   }
 
@@ -60,8 +166,109 @@ class ReminderModel {
       'time': time,
       'repeat': repeat,
       'enabled': enabled,
+      if (bundleId != null) 'bundle_id': bundleId,
+      if (createdVia != null) 'created_via': createdVia,
+      if (sourceChannel != null) 'source_channel': sourceChannel,
+      if (sourceSessionId != null) 'source_session_id': sourceSessionId,
+      if (sourceMessageId != null) 'source_message_id': sourceMessageId,
+      if (linkedTaskId != null) 'linked_task_id': linkedTaskId,
+      if (linkedEventId != null) 'linked_event_id': linkedEventId,
+      if (linkedReminderId != null) 'linked_reminder_id': linkedReminderId,
+      if (normalizedTime != null) 'normalized_time': normalizedTime,
+      if (normalizedTimes.isNotEmpty) 'normalized_times': normalizedTimes,
     };
   }
 
   Map<String, dynamic> toUpdateJson() => toCreateJson();
+}
+
+Map<String, dynamic> _extractPlanningMetadata(Map<String, dynamic> json) {
+  final metadata = <String, dynamic>{};
+  for (final source in <Map<String, dynamic>>[
+    _asMap(json['planning']),
+    _asMap(json['planning_metadata']),
+  ]) {
+    if (source.isNotEmpty) {
+      metadata.addAll(source);
+    }
+  }
+
+  for (final key in const <String>[
+    'bundle_id',
+    'created_via',
+    'source_channel',
+    'source_session_id',
+    'source_message_id',
+    'linked_task_id',
+    'linked_event_id',
+    'linked_reminder_id',
+    'normalized_time',
+    'normalized_times',
+    'conflict_summary',
+    'conflict_summaries',
+  ]) {
+    if (!metadata.containsKey(key) && json.containsKey(key)) {
+      metadata[key] = json[key];
+    }
+  }
+
+  return metadata;
+}
+
+Map<String, dynamic> _extractRuntimeMetadata(Map<String, dynamic> json) {
+  final runtime = <String, dynamic>{};
+  final runtimePayload = _asMap(json['runtime']);
+  if (runtimePayload.isNotEmpty) {
+    runtime.addAll(runtimePayload);
+  }
+
+  for (final key in const <String>[
+    'next_trigger_at',
+    'last_triggered_at',
+    'last_error',
+    'snoozed_until',
+    'completed_at',
+    'status',
+  ]) {
+    if (!runtime.containsKey(key) && json.containsKey(key)) {
+      runtime[key] = json[key];
+    }
+  }
+
+  return runtime;
+}
+
+Map<String, dynamic> _asMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return Map<String, dynamic>.from(value);
+  }
+  return <String, dynamic>{};
+}
+
+String? _readNullableString(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key]?.toString().trim();
+    if (value != null && value.isNotEmpty) {
+      return value;
+    }
+  }
+  return null;
+}
+
+List<String> _readConflictSummaries(Map<String, dynamic> json) {
+  final summaries = <String>[];
+  final single = _readNullableString(json, const <String>['conflict_summary']);
+  if (single != null) {
+    summaries.add(single);
+  }
+
+  final multi = json['conflict_summaries'];
+  if (multi is List) {
+    for (final item in multi) {
+      if (item is String && item.trim().isNotEmpty) {
+        summaries.add(item.trim());
+      }
+    }
+  }
+  return summaries.toSet().toList();
 }
