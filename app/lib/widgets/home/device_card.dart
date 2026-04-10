@@ -40,7 +40,9 @@ class DeviceCard extends StatelessWidget {
           ),
           const SizedBox(height: LinearSpacing.sm),
           Text(
-            'Live hardware state from the runtime channel.',
+            status.connected
+                ? 'Live hardware state from the runtime channel.'
+                : 'Device offline. Waiting for the hardware to reconnect.',
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),

@@ -1591,11 +1591,19 @@ class AppController extends StateNotifier<AppState> {
         break;
       case 'runtime.task.current_changed':
       case 'runtime.task.queue_changed':
-      case 'device.connection.changed':
       case 'device.state.changed':
       case 'device.status.updated':
       case 'todo.summary.changed':
       case 'calendar.summary.changed':
+        unawaited(refreshRuntime());
+        break;
+      case 'device.connection.changed':
+        final connected = event.payload['connected'] == true;
+        state = state.copyWith(
+          globalMessage: connected
+              ? 'Device online.'
+              : 'Device offline. Waiting for reconnect.',
+        );
         unawaited(refreshRuntime());
         break;
       case 'planning.changed':

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from channels.device_channel import DeviceChannel
+from channels.device_channel import (
+    DEVICE_ACTIVITY_STALE_TIMEOUT,
+    DeviceChannel,
+)
 from models.device_state import DeviceState
 from nanobot.bus.queue import MessageBus
 
@@ -144,3 +148,26 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["status_bar"]["time"], "19:06")
         self.assertEqual(snapshot["status_bar"]["weather"], "26°C")
         self.assertEqual(snapshot["status_bar"]["weather_status"], "ready")
+
+    async def test_get_snapshot_marks_connection_offline_when_activity_is_stale(self) -> None:
+        channel = DeviceChannel(MessageBus())
+        channel.connected = True
+        channel._last_device_activity_monotonic = (
+            time.monotonic() - DEVICE_ACTIVITY_STALE_TIMEOUT - 1
+        )
+        channel._last_device_activity_at = "2026-04-10T19:20:00+08:00"
+
+        snapshot = channel.get_snapshot()
+
+        self.assertFalse(snapshot["connected"])
+        self.assertEqual(snapshot["last_seen_at"], "2026-04-10T19:20:00+08:00")
+
+    async def test_execute_app_command_rejects_stale_connection(self) -> None:
+        channel = DeviceChannel(MessageBus())
+        channel.connected = True
+        channel._last_device_activity_monotonic = (
+            time.monotonic() - DEVICE_ACTIVITY_STALE_TIMEOUT - 1
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "DEVICE_OFFLINE"):
+            await channel.execute_app_command("set_volume", {"level": 50})

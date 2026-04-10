@@ -56,6 +56,12 @@ DISPLAY_MAX_CHARS = 120  # 中文约每行10字 × 12行
 # WebSocket 心跳间隔 (秒)
 HEARTBEAT_INTERVAL = 30
 
+# 设备无任何上行活动超过该时长后，主动判定连接已陈旧
+DEVICE_ACTIVITY_STALE_TIMEOUT = 20
+
+# 陈旧连接巡检频率 (秒)
+CONNECTION_WATCHDOG_INTERVAL = 1
+
 # 进入 LISTENING 后迟迟没有音频的超时 (秒)
 LISTENING_START_TIMEOUT = 10
 
@@ -141,6 +147,7 @@ class DeviceChannel:
         self.audio_buffer = bytearray()
         self._outbound_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
+        self._connection_watchdog_task: asyncio.Task | None = None
         self._recording_timeout_task: asyncio.Task | None = None
         self._asr_task: asyncio.Task | None = None
         self._tts_task: asyncio.Task | None = None
@@ -165,6 +172,8 @@ class DeviceChannel:
         # ── 连接统计 (Phase 6) ───────────────────────────
         self._connect_time: float = 0
         self._reconnect_count: int = 0
+        self._last_device_activity_monotonic: float = 0.0
+        self._last_device_activity_at: str | None = None
 
         # ── 表情系统 (Phase 3) ────────────────────────────
         self._last_chat_time: float = 0  # 最后对话时间戳
@@ -204,12 +213,13 @@ class DeviceChannel:
     def get_snapshot(self) -> dict[str, Any]:
         """返回当前设备快照。"""
         return {
-            "connected": self.connected,
+            "connected": self._is_effectively_connected(),
             "state": self.state.value,
             "battery": self.device_info["battery"],
             "wifi_rssi": self.device_info["wifi_rssi"],
             "charging": self.device_info["charging"],
             "reconnect_count": self._reconnect_count,
+            "last_seen_at": self._last_device_activity_at,
             "controls": dict(self._control_state),
             "status_bar": dict(self._status_bar_state),
             "last_command": dict(self._last_command_state),
@@ -311,14 +321,14 @@ class DeviceChannel:
 
     async def notify_external_voice_transcribing(self) -> None:
         """桌面麦克风链路进入转写阶段时，更新设备反馈。"""
-        if not self.connected:
+        if not self._is_effectively_connected():
             return
         await self._set_state(DeviceState.PROCESSING)
         await self._send_display_update("录音结束，正在识别")
 
     async def notify_external_voice_responding(self) -> None:
         """桌面麦克风链路进入回复阶段时，更新设备反馈。"""
-        if not self.connected:
+        if not self._is_effectively_connected():
             return
         if self.state != DeviceState.PROCESSING:
             await self._set_state(DeviceState.PROCESSING)
@@ -326,7 +336,7 @@ class DeviceChannel:
 
     async def deliver_external_text_response(self, text: str) -> None:
         """把桌面麦克风链路的回复回传到设备，优先走设备喇叭播放。"""
-        if not self.connected:
+        if not self._is_effectively_connected():
             return
         if self.tts:
             await self._send_voice_reply(text)
@@ -340,7 +350,7 @@ class DeviceChannel:
 
     async def fail_external_voice_feedback(self, message: str) -> None:
         """桌面麦克风链路异常或取消时，恢复设备状态并提示。"""
-        if not self.connected:
+        if not self._is_effectively_connected():
             return
         await self._send_display_update(message)
         if self.state != DeviceState.IDLE:
@@ -442,6 +452,7 @@ class DeviceChannel:
         await self._cancel_task(self._asr_task)
         await self._cancel_task(self._tts_task)
         await self._cancel_task(self._heartbeat_task)
+        await self._cancel_task(self._connection_watchdog_task)
         await self._cancel_task(self._time_push_task)
         await self._cancel_task(self._weather_task)
         pending = list(self._pending_app_commands.values())
@@ -450,6 +461,47 @@ class DeviceChannel:
             timeout_task = item.get("timeout_task")
             if isinstance(timeout_task, asyncio.Task):
                 await self._cancel_task(timeout_task)
+
+    def _mark_device_activity(self) -> None:
+        self._last_device_activity_monotonic = time.monotonic()
+        self._last_device_activity_at = self._now_iso()
+
+    def _is_connection_stale(self) -> bool:
+        if not self.connected:
+            return False
+        if self._last_device_activity_monotonic <= 0:
+            return False
+        return (
+            time.monotonic() - self._last_device_activity_monotonic
+        ) > DEVICE_ACTIVITY_STALE_TIMEOUT
+
+    def _is_effectively_connected(self) -> bool:
+        return self.connected and not self._is_connection_stale()
+
+    async def _connection_watchdog_loop(self, connection_id: int) -> None:
+        while True:
+            try:
+                await asyncio.sleep(CONNECTION_WATCHDOG_INTERVAL)
+                if connection_id != self._connection_seq or not self.connected:
+                    break
+                if not self._is_connection_stale():
+                    continue
+                idle_for = time.monotonic() - self._last_device_activity_monotonic
+                logger.warning(
+                    "设备连接超过 {:.1f}s 无活动，主动判定离线",
+                    idle_for,
+                )
+                if self.ws and not self.ws.closed:
+                    await self.ws.close(
+                        code=1001,
+                        message=b"device activity timeout",
+                    )
+                break
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("设备连接 watchdog 异常")
+                break
 
     def _arm_recording_timeout(self, timeout_s: float) -> None:
         """启动或重置录音 watchdog。"""
@@ -550,6 +602,7 @@ class DeviceChannel:
         self._connection_seq = connection_id
         self.ws = ws
         self.connected = True
+        self._mark_device_activity()
         self.audio_buffer.clear()
         self.state = DeviceState.IDLE
         self._connect_time = time.monotonic()
@@ -561,6 +614,9 @@ class DeviceChannel:
 
         # 启动心跳
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        self._connection_watchdog_task = asyncio.create_task(
+            self._connection_watchdog_loop(connection_id)
+        )
 
         # 启动时间推送
         if self._time_push_task and not self._time_push_task.done():
@@ -584,6 +640,7 @@ class DeviceChannel:
 
         try:
             async for msg in ws:
+                self._mark_device_activity()
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     await self._on_text(msg.data)
                 elif msg.type == aiohttp.WSMsgType.BINARY:
@@ -885,6 +942,7 @@ class DeviceChannel:
 
     async def _on_device_status(self, data: dict) -> None:
         """记录设备状态（电量/WiFi/充电）。"""
+        self._mark_device_activity()
         if "battery" in data:
             self.device_info["battery"] = data["battery"]
         if "wifi_rssi" in data:
@@ -905,6 +963,7 @@ class DeviceChannel:
         )
 
     async def _on_device_command_result(self, data: dict[str, Any]) -> None:
+        self._mark_device_activity()
         command_id = str(data.get("command_id") or "").strip() or None
         pending = self._pending_app_commands.pop(command_id, None) if command_id else None
         timeout_task = pending.get("timeout_task") if isinstance(pending, dict) else None
@@ -963,7 +1022,7 @@ class DeviceChannel:
         while True:
             try:
                 await asyncio.sleep(TIME_PUSH_INTERVAL)
-                if not self.connected:
+                if not self._is_effectively_connected():
                     continue
                 now = datetime.datetime.now()
                 time_str = now.strftime("%H:%M")
@@ -1172,7 +1231,7 @@ class DeviceChannel:
         client_command_id: str | None = None,
     ) -> dict[str, Any]:
         """执行来自 Flutter App 的设备控制命令。"""
-        if not self.connected:
+        if not self._is_effectively_connected():
             raise RuntimeError("DEVICE_OFFLINE")
         if command not in _SUPPORTED_APP_COMMANDS:
             raise ValueError("COMMAND_NOT_SUPPORTED")
