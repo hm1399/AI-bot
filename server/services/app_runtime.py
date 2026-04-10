@@ -339,6 +339,7 @@ class AppRuntimeService:
             payload={
                 "connected": connected,
                 "reconnect_count": snapshot.get("reconnect_count", 0),
+                "device": snapshot,
             },
             scope="global",
         )
@@ -355,6 +356,7 @@ class AppRuntimeService:
             payload={
                 "state": new_state,
                 "previous_state": old_state,
+                "device": snapshot,
             },
             scope="global",
         )
@@ -366,7 +368,22 @@ class AppRuntimeService:
                 "battery": snapshot.get("battery"),
                 "wifi_rssi": snapshot.get("wifi_rssi"),
                 "charging": snapshot.get("charging"),
+                "device": snapshot,
             },
+            scope="global",
+        )
+
+    async def on_device_command_updated(
+        self,
+        *,
+        result: dict[str, Any],
+        snapshot: dict[str, Any],
+    ) -> None:
+        payload = dict(result)
+        payload["device"] = snapshot
+        await self._broadcast_event(
+            "device.command.updated",
+            payload=payload,
             scope="global",
         )
 

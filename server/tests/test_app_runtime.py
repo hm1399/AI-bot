@@ -31,6 +31,29 @@ class DummyDeviceChannel:
             "wifi_rssi": 0,
             "charging": False,
             "reconnect_count": 0,
+            "controls": {
+                "volume": 70,
+                "muted": False,
+                "sleeping": False,
+                "led_enabled": True,
+                "led_brightness": 50,
+                "led_color": "#2563eb",
+            },
+            "status_bar": {
+                "time": "09:41",
+                "weather": "26°C",
+                "weather_status": "ready",
+                "updated_at": "2026-04-10T09:41:00+08:00",
+            },
+            "last_command": {
+                "command_id": None,
+                "client_command_id": None,
+                "command": None,
+                "status": "idle",
+                "ok": None,
+                "error": None,
+                "updated_at": None,
+            },
         }
         self.last_outbound: OutboundMessage | None = None
         self.last_command: dict[str, Any] | None = None
@@ -53,10 +76,21 @@ class DummyDeviceChannel:
             "params": params,
             "client_command_id": client_command_id,
         }
+        self._snapshot["last_command"] = {
+            "command_id": "cmd_srv_001",
+            "client_command_id": client_command_id,
+            "command": command,
+            "status": "pending",
+            "ok": None,
+            "error": None,
+            "updated_at": "2026-04-10T09:42:00+08:00",
+        }
         return {
             "accepted": True,
             "command_id": "cmd_srv_001",
+            "client_command_id": client_command_id,
             "command": command,
+            "status": "pending",
             "device": self.get_snapshot(),
         }
 
@@ -523,4 +557,42 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(supported.status, 200)
         supported_payload = json.loads(supported.text)["data"]
         self.assertTrue(supported_payload["accepted"])
+        self.assertEqual(supported_payload["status"], "pending")
+        self.assertEqual(
+            supported_payload["device"]["last_command"]["status"],
+            "pending",
+        )
         self.assertEqual(self.device.last_command["command"], "set_volume")
+
+    async def test_device_command_update_event_exposes_snapshot(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+        self.device._snapshot["controls"]["volume"] = 80
+        self.device._snapshot["last_command"] = {
+            "command_id": "cmd_srv_001",
+            "client_command_id": "cmd_local_001",
+            "command": "set_volume",
+            "status": "succeeded",
+            "ok": True,
+            "error": None,
+            "updated_at": "2026-04-10T09:43:00+08:00",
+        }
+
+        await self.service.on_device_command_updated(
+            result={
+                "command_id": "cmd_srv_001",
+                "client_command_id": "cmd_local_001",
+                "command": "set_volume",
+                "ok": True,
+                "error": None,
+                "status": "succeeded",
+                "applied_state": {"volume": 80},
+            },
+            snapshot=self.device.get_snapshot(),
+        )
+
+        self.assertEqual(ws.sent[-1]["event_type"], "device.command.updated")
+        self.assertEqual(
+            ws.sent[-1]["payload"]["device"]["controls"]["volume"],
+            80,
+        )

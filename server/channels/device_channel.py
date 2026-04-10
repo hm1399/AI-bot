@@ -22,6 +22,7 @@ import hmac
 import json
 import time
 import uuid
+from datetime import datetime
 from typing import Any, Optional
 
 import aiohttp
@@ -90,6 +91,32 @@ _SUPPORTED_APP_COMMANDS = {
     "set_led_brightness",
 }
 
+_DEFAULT_CONTROL_STATE: dict[str, Any] = {
+    "volume": 70,
+    "muted": False,
+    "sleeping": False,
+    "led_enabled": True,
+    "led_brightness": 50,
+    "led_color": "#2563eb",
+}
+
+_DEFAULT_STATUS_BAR_STATE: dict[str, Any] = {
+    "time": None,
+    "weather": None,
+    "weather_status": "idle",
+    "updated_at": None,
+}
+
+_DEFAULT_LAST_COMMAND_STATE: dict[str, Any] = {
+    "command_id": None,
+    "client_command_id": None,
+    "command": None,
+    "status": "idle",
+    "ok": None,
+    "error": None,
+    "updated_at": None,
+}
+
 
 class DeviceChannel:
     """ESP32 WebSocket 通信通道，集成 ASR + TTS + 状态机。"""
@@ -125,6 +152,10 @@ class DeviceChannel:
             "wifi_rssi": 0,     # WiFi 信号强度 (dBm)
             "charging": False,  # 是否充电中
         }
+        self._control_state: dict[str, Any] = dict(_DEFAULT_CONTROL_STATE)
+        self._status_bar_state: dict[str, Any] = dict(_DEFAULT_STATUS_BAR_STATE)
+        self._last_command_state: dict[str, Any] = dict(_DEFAULT_LAST_COMMAND_STATE)
+        self._pending_app_commands: dict[str, dict[str, Any]] = {}
 
         # ── 连接统计 (Phase 6) ───────────────────────────
         self._connect_time: float = 0
@@ -174,7 +205,104 @@ class DeviceChannel:
             "wifi_rssi": self.device_info["wifi_rssi"],
             "charging": self.device_info["charging"],
             "reconnect_count": self._reconnect_count,
+            "controls": dict(self._control_state),
+            "status_bar": dict(self._status_bar_state),
+            "last_command": dict(self._last_command_state),
         }
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+
+    def _set_last_command_state(
+        self,
+        *,
+        command_id: str | None,
+        client_command_id: str | None,
+        command: str | None,
+        status: str,
+        ok: bool | None,
+        error: str | None,
+    ) -> None:
+        self._last_command_state = {
+            "command_id": command_id,
+            "client_command_id": client_command_id,
+            "command": command,
+            "status": status,
+            "ok": ok,
+            "error": error.strip() if isinstance(error, str) and error.strip() else None,
+            "updated_at": self._now_iso(),
+        }
+
+    def _merge_control_state(self, payload: dict[str, Any]) -> None:
+        if "volume" in payload:
+            volume = payload.get("volume")
+            if isinstance(volume, int):
+                self._control_state["volume"] = max(0, min(100, volume))
+        if "muted" in payload:
+            self._control_state["muted"] = bool(payload.get("muted"))
+        if "sleeping" in payload:
+            self._control_state["sleeping"] = bool(payload.get("sleeping"))
+
+        led_payload = payload.get("led")
+        if isinstance(led_payload, dict):
+            if "enabled" in led_payload:
+                self._control_state["led_enabled"] = bool(led_payload.get("enabled"))
+            if "brightness" in led_payload:
+                brightness = led_payload.get("brightness")
+                if isinstance(brightness, int):
+                    self._control_state["led_brightness"] = max(0, min(100, brightness))
+            if "color" in led_payload:
+                color = led_payload.get("color")
+                if isinstance(color, str) and color.strip():
+                    self._control_state["led_color"] = color.strip()
+
+        if "led_enabled" in payload:
+            self._control_state["led_enabled"] = bool(payload.get("led_enabled"))
+        if "led_brightness" in payload:
+            brightness = payload.get("led_brightness")
+            if isinstance(brightness, int):
+                self._control_state["led_brightness"] = max(0, min(100, brightness))
+        if "led_color" in payload:
+            color = payload.get("led_color")
+            if isinstance(color, str) and color.strip():
+                self._control_state["led_color"] = color.strip()
+
+    def _merge_status_bar_state(
+        self,
+        payload: dict[str, Any],
+        *,
+        weather_status: str | None = None,
+    ) -> None:
+        status_bar = payload.get("status_bar")
+        if isinstance(status_bar, dict):
+            payload = {
+                "time": status_bar.get("time"),
+                "weather": status_bar.get("weather"),
+                "weather_status": status_bar.get("weather_status"),
+            }
+
+        changed = False
+        if "time" in payload:
+            time_value = payload.get("time")
+            normalized_time = time_value.strip() if isinstance(time_value, str) and time_value.strip() else None
+            if self._status_bar_state.get("time") != normalized_time:
+                self._status_bar_state["time"] = normalized_time
+                changed = True
+        if "weather" in payload:
+            weather_value = payload.get("weather")
+            normalized_weather = weather_value.strip() if isinstance(weather_value, str) and weather_value.strip() else None
+            if self._status_bar_state.get("weather") != normalized_weather:
+                self._status_bar_state["weather"] = normalized_weather
+                changed = True
+        next_weather_status = weather_status
+        if next_weather_status is None and isinstance(payload.get("weather_status"), str):
+            next_weather_status = payload["weather_status"].strip() or None
+        if next_weather_status is not None and self._status_bar_state.get("weather_status") != next_weather_status:
+            self._status_bar_state["weather_status"] = next_weather_status
+            changed = True
+        if changed:
+            self._status_bar_state["updated_at"] = self._now_iso()
 
     async def notify_external_voice_transcribing(self) -> None:
         """桌面麦克风链路进入转写阶段时，更新设备反馈。"""
@@ -543,6 +671,9 @@ class DeviceChannel:
         elif msg_type == DeviceMessageType.DEVICE_STATUS:
             await self._on_device_status(data)
 
+        elif msg_type == DeviceMessageType.DEVICE_COMMAND_RESULT:
+            await self._on_device_command_result(data)
+
         else:
             logger.warning("未知消息类型: {}", msg_type)
 
@@ -749,6 +880,8 @@ class DeviceChannel:
             self.device_info["wifi_rssi"] = data["wifi_rssi"]
         if "charging" in data:
             self.device_info["charging"] = data["charging"]
+        self._merge_control_state(data)
+        self._merge_status_bar_state(data)
         logger.info(
             "设备状态更新: 电量={}%, WiFi={}dBm, 充电={}",
             self.device_info["battery"],
@@ -757,6 +890,54 @@ class DeviceChannel:
         )
         await self._notify_event_observer(
             "on_device_status_updated",
+            snapshot=self.get_snapshot(),
+        )
+
+    async def _on_device_command_result(self, data: dict[str, Any]) -> None:
+        command_id = str(data.get("command_id") or "").strip() or None
+        pending = self._pending_app_commands.pop(command_id, None) if command_id else None
+        client_command_id = str(data.get("client_command_id") or "").strip() or None
+        if not client_command_id and pending:
+            client_command_id = pending.get("client_command_id")
+        command = str(data.get("command") or "").strip() or None
+        if not command and pending:
+            command = pending.get("command")
+        ok = data.get("ok")
+        ok_bool = ok if isinstance(ok, bool) else False
+        error = str(data.get("error") or "").strip() or None
+
+        applied_state = data.get("applied_state", {})
+        if isinstance(applied_state, dict):
+            self._merge_control_state(applied_state)
+            self._merge_status_bar_state(applied_state)
+
+        self._set_last_command_state(
+            command_id=command_id,
+            client_command_id=client_command_id,
+            command=command,
+            status="succeeded" if ok_bool else "failed",
+            ok=ok_bool,
+            error=error,
+        )
+
+        result_payload = {
+            "command_id": command_id,
+            "client_command_id": client_command_id,
+            "command": command,
+            "ok": ok_bool,
+            "error": error,
+            "applied_state": applied_state if isinstance(applied_state, dict) else {},
+            "status": self._last_command_state["status"],
+        }
+        logger.info(
+            "设备命令结果: command={} ok={} error={}",
+            command or "unknown",
+            ok_bool,
+            error or "",
+        )
+        await self._notify_event_observer(
+            "on_device_command_updated",
+            result=result_payload,
             snapshot=self.get_snapshot(),
         )
 
@@ -782,7 +963,12 @@ class DeviceChannel:
         """每 30 分钟从 OpenWeatherMap 获取天气并推送到设备。"""
         while True:
             try:
-                weather_str = await self._fetch_weather()
+                weather_str, weather_status = await self._fetch_weather()
+                self._merge_status_bar_state({}, weather_status=weather_status)
+                await self._notify_event_observer(
+                    "on_device_status_updated",
+                    snapshot=self.get_snapshot(),
+                )
                 if weather_str:
                     self._last_weather = weather_str
                     await self._send_status_bar_update(weather=weather_str)
@@ -792,14 +978,19 @@ class DeviceChannel:
                 break
             except Exception:
                 logger.exception("天气推送异常")
+                self._merge_status_bar_state({}, weather_status="fetch_failed")
+                await self._notify_event_observer(
+                    "on_device_status_updated",
+                    snapshot=self.get_snapshot(),
+                )
                 await asyncio.sleep(60)  # 出错后 1 分钟重试
 
-    async def _fetch_weather(self) -> str:
+    async def _fetch_weather(self) -> tuple[str, str]:
         """从 OpenWeatherMap API 获取当前温度。"""
         api_key = self._weather_config.get("api_key", "")
         if not api_key:
             logger.debug("天气 API Key 未配置，跳过")
-            return ""
+            return "", "missing_api_key"
 
         city = self._weather_config.get("city", "Hong Kong")
         units = self._weather_config.get("units", "metric")
@@ -813,15 +1004,15 @@ class DeviceChannel:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status != 200:
                         logger.warning("天气 API 返回 {}: {}", resp.status, await resp.text())
-                        return ""
+                        return "", "fetch_failed"
                     data = await resp.json()
                     temp = data.get("main", {}).get("temp")
                     if temp is not None:
-                        return f"{int(round(temp))}°C"
-                    return ""
+                        return f"{int(round(temp))}°C", "ready"
+                    return "", "fetch_failed"
         except Exception:
             logger.exception("天气 API 请求失败")
-            return ""
+            return "", "fetch_failed"
 
     async def _send_status_bar_update(
         self,
@@ -838,9 +1029,15 @@ class DeviceChannel:
         if weather is not None:
             data["weather"] = weather
         if data:
+            next_weather_status = "ready" if weather is not None and weather else None
+            self._merge_status_bar_state(data, weather_status=next_weather_status)
             await self.send_json(make_server_message(
                 ServerMessageType.STATUS_BAR_UPDATE, data
             ))
+            await self._notify_event_observer(
+                "on_device_status_updated",
+                snapshot=self.get_snapshot(),
+            )
 
     # ── 屏幕显示控制 (Phase 5.3) ─────────────────────────────
 
@@ -893,6 +1090,18 @@ class DeviceChannel:
 
         normalized_params = self._normalize_app_command_params(command, params)
         command_id = f"cmd_{uuid.uuid4().hex[:12]}"
+        self._pending_app_commands[command_id] = {
+            "command": command,
+            "client_command_id": client_command_id,
+        }
+        self._set_last_command_state(
+            command_id=command_id,
+            client_command_id=client_command_id,
+            command=command,
+            status="pending",
+            ok=None,
+            error=None,
+        )
         await self.send_json(make_server_message(
             ServerMessageType.DEVICE_COMMAND,
             {
@@ -905,7 +1114,9 @@ class DeviceChannel:
         return {
             "accepted": True,
             "command_id": command_id,
+            "client_command_id": client_command_id,
             "command": command,
+            "status": "pending",
             "device": self.get_snapshot(),
         }
 

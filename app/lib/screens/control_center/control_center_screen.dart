@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../models/home/runtime_state_model.dart';
 import '../../models/reminders/reminder_model.dart';
 import '../../providers/app_providers.dart';
 import '../../theme/linear_tokens.dart';
@@ -19,7 +20,7 @@ class ControlCenterScreen extends ConsumerStatefulWidget {
 class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
   double _volume = 70;
   double _brightness = 50;
-  bool _seededFromSettings = false;
+  String _lastRuntimeSyncToken = '';
   late final TextEditingController _colorController;
 
   @override
@@ -47,16 +48,24 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     final settings = state.settings;
     final runtime = state.runtimeState;
     final chrome = context.linear;
+    final commandsAvailable =
+        runtime.device.connected && !runtime.device.lastCommand.isPending;
     final planning = _ControlCenterPlanningSnapshot.fromSources(
       state: state,
       controller: controller,
     );
 
-    if (settings != null && !_seededFromSettings) {
-      _volume = settings.deviceVolume.toDouble();
-      _brightness = settings.ledBrightness.toDouble();
-      _colorController.text = settings.ledColor;
-      _seededFromSettings = true;
+    final controls = runtime.device.controls;
+    final runtimeSyncToken =
+        '${runtime.device.connected}|${runtime.device.reconnectCount}|'
+        '${controls.volume}|${controls.muted}|${controls.sleeping}|'
+        '${controls.ledEnabled}|${controls.ledBrightness}|${controls.ledColor}|'
+        '${runtime.device.lastCommand.updatedAt ?? ''}';
+    if (runtimeSyncToken != _lastRuntimeSyncToken) {
+      _volume = controls.volume.toDouble();
+      _brightness = controls.ledBrightness.toDouble();
+      _colorController.text = controls.ledColor;
+      _lastRuntimeSyncToken = runtimeSyncToken;
     }
 
     return ListView(
@@ -101,7 +110,9 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
               label: const Text('Sync Runtime'),
             ),
             OutlinedButton.icon(
-              onPressed: () => controller.sendDeviceCommand('toggle_led'),
+              onPressed: commandsAvailable
+                  ? () => controller.sendDeviceCommand('toggle_led')
+                  : null,
               icon: const Icon(Icons.lightbulb_circle_outlined, size: 16),
               label: const Text('Toggle LED'),
             ),
@@ -134,8 +145,9 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
               runtimeState: runtime.device.state,
               deviceConnected: runtime.device.connected,
               bridgeReady: runtime.voice.desktopBridgeReady,
-              settingsLoaded: settings != null,
-              ledEnabled: settings?.ledEnabled ?? true,
+              controls: runtime.device.controls,
+              statusBar: runtime.device.statusBar,
+              lastCommand: runtime.device.lastCommand,
               ledMode: settings?.ledMode ?? 'breathing',
               volume: _volume,
               brightness: _brightness,
@@ -335,8 +347,9 @@ class _DeviceCommandPanel extends StatelessWidget {
     required this.runtimeState,
     required this.deviceConnected,
     required this.bridgeReady,
-    required this.settingsLoaded,
-    required this.ledEnabled,
+    required this.controls,
+    required this.statusBar,
+    required this.lastCommand,
     required this.ledMode,
     required this.volume,
     required this.brightness,
@@ -355,8 +368,9 @@ class _DeviceCommandPanel extends StatelessWidget {
   final String runtimeState;
   final bool deviceConnected;
   final bool bridgeReady;
-  final bool settingsLoaded;
-  final bool ledEnabled;
+  final DeviceControlsModel controls;
+  final DeviceStatusBarModel statusBar;
+  final DeviceCommandModel lastCommand;
   final String ledMode;
   final double volume;
   final double brightness;
@@ -374,6 +388,26 @@ class _DeviceCommandPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final chrome = context.linear;
+    final commandPending = lastCommand.isPending;
+    final canSendCommands = deviceConnected && !commandPending;
+    final commandStatusLabel = switch (lastCommand.status) {
+      'pending' => 'Command Pending',
+      'succeeded' => 'Command OK',
+      'failed' => 'Command Failed',
+      _ => 'Command Idle',
+    };
+    final commandStatusTone = switch (lastCommand.status) {
+      'pending' => StatusPillTone.warning,
+      'succeeded' => StatusPillTone.success,
+      'failed' => StatusPillTone.danger,
+      _ => StatusPillTone.neutral,
+    };
+    final weatherLabel = switch (statusBar.weatherStatus) {
+      'ready' => statusBar.weather ?? 'Weather Ready',
+      'missing_api_key' => 'Weather Key Missing',
+      'fetch_failed' => 'Weather Retry Needed',
+      _ => 'Weather Waiting',
+    };
     return Container(
       padding: const EdgeInsets.all(LinearSpacing.md),
       decoration: BoxDecoration(
@@ -411,15 +445,63 @@ class _DeviceCommandPanel extends StatelessWidget {
                     ? StatusPillTone.success
                     : StatusPillTone.warning,
               ),
-              if (settingsLoaded)
-                StatusPill(
-                  label: ledEnabled ? 'LED $ledMode' : 'LED disabled',
-                  tone: ledEnabled
-                      ? StatusPillTone.accent
-                      : StatusPillTone.neutral,
-                ),
+              StatusPill(label: commandStatusLabel, tone: commandStatusTone),
+              StatusPill(
+                label: controls.ledEnabled ? 'LED $ledMode' : 'LED Disabled',
+                tone: controls.ledEnabled
+                    ? StatusPillTone.accent
+                    : StatusPillTone.neutral,
+              ),
+              StatusPill(
+                label: controls.muted ? 'Muted' : 'Audio Live',
+                tone: controls.muted
+                    ? StatusPillTone.warning
+                    : StatusPillTone.success,
+              ),
+              StatusPill(
+                label: controls.sleeping ? 'Sleeping' : 'Awake',
+                tone: controls.sleeping
+                    ? StatusPillTone.warning
+                    : StatusPillTone.success,
+              ),
             ],
           ),
+          const SizedBox(height: LinearSpacing.md),
+          Wrap(
+            spacing: LinearSpacing.sm,
+            runSpacing: LinearSpacing.sm,
+            children: <Widget>[
+              _MetricPill(
+                label: 'Status Bar',
+                value:
+                    '${statusBar.time ?? '--:--'} · ${weatherLabel.isEmpty ? 'Waiting' : weatherLabel}',
+              ),
+              _MetricPill(label: 'Runtime Volume', value: '${controls.volume}'),
+              _MetricPill(
+                label: 'LED',
+                value:
+                    '${controls.ledBrightness}% · ${controls.ledColor.toUpperCase()}',
+              ),
+            ],
+          ),
+          if (lastCommand.command != null) ...<Widget>[
+            const SizedBox(height: LinearSpacing.sm),
+            Text(
+              'Last command: ${lastCommand.command} · ${lastCommand.status}',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+            ),
+          ],
+          if (lastCommand.error != null) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              lastCommand.error!,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: chrome.danger),
+            ),
+          ],
           const SizedBox(height: LinearSpacing.md),
           Text('Volume ${volume.round()}'),
           Slider(
@@ -428,12 +510,12 @@ class _DeviceCommandPanel extends StatelessWidget {
             max: 100,
             divisions: 20,
             label: volume.round().toString(),
-            onChanged: onVolumeChanged,
+            onChanged: canSendCommands ? onVolumeChanged : null,
           ),
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.tonal(
-              onPressed: onSendVolume,
+              onPressed: canSendCommands ? onSendVolume : null,
               child: const Text('Send Volume'),
             ),
           ),
@@ -445,18 +527,19 @@ class _DeviceCommandPanel extends StatelessWidget {
             max: 100,
             divisions: 20,
             label: brightness.round().toString(),
-            onChanged: onBrightnessChanged,
+            onChanged: canSendCommands ? onBrightnessChanged : null,
           ),
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.tonal(
-              onPressed: onSendBrightness,
+              onPressed: canSendCommands ? onSendBrightness : null,
               child: const Text('Send Brightness'),
             ),
           ),
           const SizedBox(height: LinearSpacing.md),
           TextField(
             controller: colorController,
+            enabled: canSendCommands,
             decoration: const InputDecoration(
               labelText: 'LED Color',
               hintText: '#2563eb',
@@ -466,7 +549,7 @@ class _DeviceCommandPanel extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.tonal(
-              onPressed: onSendColor,
+              onPressed: canSendCommands ? onSendColor : null,
               child: const Text('Send Color'),
             ),
           ),
@@ -475,18 +558,57 @@ class _DeviceCommandPanel extends StatelessWidget {
             spacing: LinearSpacing.sm,
             runSpacing: LinearSpacing.sm,
             children: <Widget>[
-              FilledButton.tonal(onPressed: onWake, child: const Text('Wake')),
               FilledButton.tonal(
-                onPressed: onSleep,
+                onPressed: canSendCommands ? onWake : null,
+                child: const Text('Wake'),
+              ),
+              FilledButton.tonal(
+                onPressed: canSendCommands ? onSleep : null,
                 child: const Text('Sleep'),
               ),
-              FilledButton.tonal(onPressed: onMute, child: const Text('Mute')),
               FilledButton.tonal(
-                onPressed: onToggleLed,
+                onPressed: canSendCommands ? onMute : null,
+                child: Text(controls.muted ? 'Unmute' : 'Mute'),
+              ),
+              FilledButton.tonal(
+                onPressed: canSendCommands ? onToggleLed : null,
                 child: const Text('Toggle LED'),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricPill extends StatelessWidget {
+  const _MetricPill({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = context.linear;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: chrome.panel,
+        borderRadius: LinearRadius.control,
+        border: Border.all(color: chrome.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: chrome.textTertiary),
+          ),
+          const SizedBox(height: 2),
+          Text(value, style: Theme.of(context).textTheme.labelLarge),
         ],
       ),
     );

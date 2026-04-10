@@ -116,3 +116,11 @@
 - 影响：后续继续扩设备控制或通知提醒时，容易让人误以为 Control Center 还有独立 provider 分层，增加阅读噪音和错误落点。
 - 建议动作：后续单独立项决定是删除该兼容文件，还是恢复成真实的 Control Center 状态封装；在当前任务中不应顺手处理。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-10-02 `ControlCenterScreen` 仍在 `build()` 中回写设备控制草稿值
+
+- 发现来源：本轮 `P0 剩余硬件协同与设备控制闭环` 前端收口。
+- 当前状态：`app/lib/screens/control_center/control_center_screen.dart` 目前会在 runtime token 变化时，于 `build()` 内同步 `_volume`、`_brightness` 和 `_colorController.text`。
+- 影响：当前实现能满足“优先显示 runtime 真读回”，但如果后续设备状态刷新更频繁，用户在编辑 LED 颜色时仍可能遇到输入被回写、光标跳动或草稿被覆盖的问题。
+- 建议动作：后续单独立项，把 runtime -> 表单草稿同步收敛到更稳定的表单状态策略，例如按焦点/提交态区分自动回填时机。
+- 本轮处理：未处理。

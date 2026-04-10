@@ -33,6 +33,135 @@ class RuntimeTaskModel {
   }
 }
 
+class DeviceControlsModel {
+  const DeviceControlsModel({
+    required this.volume,
+    required this.muted,
+    required this.sleeping,
+    required this.ledEnabled,
+    required this.ledBrightness,
+    required this.ledColor,
+  });
+
+  final int volume;
+  final bool muted;
+  final bool sleeping;
+  final bool ledEnabled;
+  final int ledBrightness;
+  final String ledColor;
+
+  factory DeviceControlsModel.fromJson(Map<String, dynamic> json) {
+    return DeviceControlsModel(
+      volume: _clampPercentInt(_runtimeReadInt(json, const <String>['volume'])),
+      muted: _runtimeReadBool(json, const <String>['muted']),
+      sleeping: _runtimeReadBool(json, const <String>['sleeping']),
+      ledEnabled: _runtimeReadBool(json, const <String>['led_enabled']),
+      ledBrightness: _clampPercentInt(
+        _runtimeReadInt(json, const <String>['led_brightness']),
+      ),
+      ledColor:
+          _runtimeReadNullableString(json, const <String>['led_color']) ??
+          '#2563eb',
+    );
+  }
+
+  factory DeviceControlsModel.empty() {
+    return const DeviceControlsModel(
+      volume: 70,
+      muted: false,
+      sleeping: false,
+      ledEnabled: true,
+      ledBrightness: 50,
+      ledColor: '#2563eb',
+    );
+  }
+}
+
+class DeviceStatusBarModel {
+  const DeviceStatusBarModel({
+    required this.time,
+    required this.weather,
+    required this.weatherStatus,
+    required this.updatedAt,
+  });
+
+  final String? time;
+  final String? weather;
+  final String weatherStatus;
+  final String? updatedAt;
+
+  factory DeviceStatusBarModel.fromJson(Map<String, dynamic> json) {
+    return DeviceStatusBarModel(
+      time: _runtimeReadNullableString(json, const <String>['time']),
+      weather: _runtimeReadNullableString(json, const <String>['weather']),
+      weatherStatus:
+          _runtimeReadNullableString(json, const <String>['weather_status']) ??
+          'idle',
+      updatedAt: _runtimeReadNullableString(json, const <String>['updated_at']),
+    );
+  }
+
+  factory DeviceStatusBarModel.empty() {
+    return const DeviceStatusBarModel(
+      time: null,
+      weather: null,
+      weatherStatus: 'idle',
+      updatedAt: null,
+    );
+  }
+}
+
+class DeviceCommandModel {
+  const DeviceCommandModel({
+    required this.commandId,
+    required this.clientCommandId,
+    required this.command,
+    required this.status,
+    required this.ok,
+    required this.error,
+    required this.updatedAt,
+  });
+
+  final String? commandId;
+  final String? clientCommandId;
+  final String? command;
+  final String status;
+  final bool? ok;
+  final String? error;
+  final String? updatedAt;
+
+  bool get isPending => status == 'pending';
+  bool get isSucceeded => status == 'succeeded';
+  bool get isFailed => status == 'failed';
+
+  factory DeviceCommandModel.fromJson(Map<String, dynamic> json) {
+    return DeviceCommandModel(
+      commandId: _runtimeReadNullableString(json, const <String>['command_id']),
+      clientCommandId: _runtimeReadNullableString(json, const <String>[
+        'client_command_id',
+      ]),
+      command: _runtimeReadNullableString(json, const <String>['command']),
+      status:
+          _runtimeReadNullableString(json, const <String>['status']) ?? 'idle',
+      ok: json['ok'] is bool ? json['ok'] as bool : null,
+      error: _runtimeReadNullableString(json, const <String>['error']),
+      updatedAt: _runtimeReadNullableString(json, const <String>['updated_at']),
+    );
+  }
+
+  factory DeviceCommandModel.empty() {
+    return const DeviceCommandModel(
+      commandId: null,
+      clientCommandId: null,
+      command: null,
+      status: 'idle',
+      ok: null,
+      error: null,
+      updatedAt: null,
+    );
+  }
+}
+
 class DeviceStatusModel {
   const DeviceStatusModel({
     required this.connected,
@@ -42,6 +171,9 @@ class DeviceStatusModel {
     required this.wifiSignal,
     required this.charging,
     required this.reconnectCount,
+    required this.controls,
+    required this.statusBar,
+    required this.lastCommand,
   });
 
   final bool connected;
@@ -51,6 +183,9 @@ class DeviceStatusModel {
   final int wifiSignal;
   final bool charging;
   final int reconnectCount;
+  final DeviceControlsModel controls;
+  final DeviceStatusBarModel statusBar;
+  final DeviceCommandModel lastCommand;
 
   factory DeviceStatusModel.fromJson(Map<String, dynamic> json) {
     final wifiRssi = json['wifi_rssi'] is int
@@ -58,7 +193,7 @@ class DeviceStatusModel {
         : int.tryParse(json['wifi_rssi']?.toString() ?? '') ?? 0;
     final normalized = wifiRssi == 0
         ? 0
-        : (((wifiRssi + 100) / 60) * 100).round().clamp(0, 100);
+        : _clampPercentInt((((wifiRssi + 100) / 60) * 100).round());
     return DeviceStatusModel(
       connected: json['connected'] == true,
       state: (json['state']?.toString() ?? 'unknown').toLowerCase(),
@@ -71,11 +206,20 @@ class DeviceStatusModel {
       reconnectCount: json['reconnect_count'] is int
           ? json['reconnect_count'] as int
           : int.tryParse(json['reconnect_count']?.toString() ?? '') ?? 0,
+      controls: DeviceControlsModel.fromJson(
+        _extractNestedRuntimePayload(json, const <String>['controls']),
+      ),
+      statusBar: DeviceStatusBarModel.fromJson(
+        _extractNestedRuntimePayload(json, const <String>['status_bar']),
+      ),
+      lastCommand: DeviceCommandModel.fromJson(
+        _extractNestedRuntimePayload(json, const <String>['last_command']),
+      ),
     );
   }
 
   factory DeviceStatusModel.empty() {
-    return const DeviceStatusModel(
+    return DeviceStatusModel(
       connected: false,
       state: 'unknown',
       battery: -1,
@@ -83,6 +227,9 @@ class DeviceStatusModel {
       wifiSignal: 0,
       charging: false,
       reconnectCount: 0,
+      controls: DeviceControlsModel.empty(),
+      statusBar: DeviceStatusBarModel.empty(),
+      lastCommand: DeviceCommandModel.empty(),
     );
   }
 }
@@ -508,6 +655,10 @@ Map<String, dynamic> _extractNestedRuntimePayload(
     }
   }
   return <String, dynamic>{};
+}
+
+int _clampPercentInt(int value) {
+  return value.clamp(0, 100).toInt();
 }
 
 bool _runtimeReadBool(Map<String, dynamic> json, List<String> keys) {

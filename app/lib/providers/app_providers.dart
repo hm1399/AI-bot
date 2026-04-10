@@ -1425,16 +1425,21 @@ class AppController extends StateNotifier<AppState> {
     }
     _apiClient.setConnection(state.connection);
     try {
+      final clientCommandId =
+          'flutter_${DateTime.now().millisecondsSinceEpoch}';
       final result = await ref
           .read(deviceServiceProvider)
           .sendCommand(
             command,
             params: params,
-            clientCommandId: 'flutter_${DateTime.now().millisecondsSinceEpoch}',
+            clientCommandId: clientCommandId,
           );
+      final acceptedCommand = result['command']?.toString() ?? command;
+      final acceptedStatus = result['status']?.toString() ?? 'pending';
       state = state.copyWith(
-        globalMessage:
-            'Device command accepted: ${result['command'] ?? command}.',
+        globalMessage: acceptedStatus == 'pending'
+            ? 'Device command pending: $acceptedCommand.'
+            : 'Device command accepted: $acceptedCommand.',
       );
       await refreshRuntime();
     } on ApiError catch (error) {
@@ -1822,9 +1827,25 @@ class AppController extends StateNotifier<AppState> {
         final command = event.payload['command']?.toString();
         state = state.copyWith(
           globalMessage: command == null || command.isEmpty
-              ? 'Device command accepted.'
-              : 'Device command accepted: $command.',
+              ? 'Device command pending.'
+              : 'Device command pending: $command.',
         );
+        unawaited(refreshRuntime());
+        break;
+      case 'device.command.updated':
+        final command = event.payload['command']?.toString();
+        final ok = event.payload['ok'] == true;
+        final error = event.payload['error']?.toString().trim();
+        state = state.copyWith(
+          globalMessage: ok
+              ? command == null || command.isEmpty
+                    ? 'Device command completed.'
+                    : 'Device command completed: $command.'
+              : command == null || command.isEmpty
+              ? 'Device command failed${error != null && error.isNotEmpty ? ': $error' : '.'}'
+              : 'Device command failed: $command${error != null && error.isNotEmpty ? ' ($error)' : ''}.',
+        );
+        unawaited(refreshRuntime());
         break;
     }
   }

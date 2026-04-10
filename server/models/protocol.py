@@ -17,6 +17,7 @@ class DeviceMessageType(str, Enum):
     TOUCH_EVENT = "touch_event"
     SHAKE_EVENT = "shake_event"
     DEVICE_STATUS = "device_status"
+    DEVICE_COMMAND_RESULT = "device_command_result"
     TEXT_INPUT = "text_input"  # 调试用
 
 

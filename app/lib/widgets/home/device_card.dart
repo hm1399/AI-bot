@@ -68,8 +68,50 @@ class DeviceCard extends StatelessWidget {
                 label: 'Reconnects',
                 value: '${status.reconnectCount}',
               ),
+              _MetricChip(label: 'Volume', value: '${status.controls.volume}'),
+              _MetricChip(
+                label: 'Audio',
+                value: status.controls.muted ? 'Muted' : 'Live',
+              ),
+              _MetricChip(
+                label: 'Power',
+                value: status.controls.sleeping ? 'Sleeping' : 'Awake',
+              ),
+              _MetricChip(
+                label: 'LED',
+                value:
+                    '${status.controls.ledBrightness}% · ${status.controls.ledColor.toUpperCase()}',
+              ),
+              _MetricChip(
+                label: 'Clock',
+                value: status.statusBar.time ?? '--:--',
+              ),
+              _MetricChip(
+                label: 'Weather',
+                value: switch (status.statusBar.weatherStatus) {
+                  'ready' => status.statusBar.weather ?? 'Ready',
+                  'missing_api_key' => 'Key missing',
+                  'fetch_failed' => 'Retry needed',
+                  _ => 'Waiting',
+                },
+              ),
+              _MetricChip(
+                label: 'Last Command',
+                value: status.lastCommand.command == null
+                    ? status.lastCommand.status
+                    : '${status.lastCommand.command} · ${status.lastCommand.status}',
+              ),
             ],
           ),
+          if (status.lastCommand.error != null) ...<Widget>[
+            const SizedBox(height: LinearSpacing.sm),
+            Text(
+              status.lastCommand.error!,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: chrome.danger),
+            ),
+          ],
         ],
       ),
     );

@@ -61,9 +61,21 @@ bool speakerReady = false;
 bool playbackActive = false;
 SpeakerSdMode currentSpeakerMode = SPEAKER_SD_SHUTDOWN;
 String lastReply = "";
+String lastStatusBarTime = "";
+String lastStatusWeather = "";
 unsigned long lastTouchCheck = 0;
 unsigned long lastNtpUpdate = 0;
+unsigned long lastDeviceStatusPush = 0;
 #define NTP_UPDATE_INTERVAL 30000  // NTP 时间更新间隔 (30秒)
+#define DEVICE_STATUS_INTERVAL 15000
+
+int currentVolume = 70;
+bool currentMuted = false;
+bool currentSleeping = false;
+bool ledEnabled = true;
+int ledBrightness = 50;
+String ledColor = "#2563eb";
+const bool LED_HARDWARE_AVAILABLE = false;
 
 // ===== 屏幕显示（通过 face_display 模块） =====
 
@@ -73,7 +85,12 @@ void displayInit() {
 
 void updateStatusBar() {
   bool wifiOk = (WiFi.status() == WL_CONNECTED);
-  faceSetStatusBar(nullptr, wifiOk, wsConnected);
+  faceSetStatusBar(
+    lastStatusBarTime.isEmpty() ? nullptr : lastStatusBarTime.c_str(),
+    wifiOk,
+    wsConnected
+  );
+  faceSetWeather(lastStatusWeather.isEmpty() ? nullptr : lastStatusWeather.c_str());
 }
 
 // ──────────────────────────────────────────────
@@ -130,7 +147,15 @@ bool initSpeaker() {
 }
 
 void playMonoPcmChunk(const uint8_t* payload, size_t length) {
-  if (!speakerReady || !playbackActive || payload == nullptr || length < 2) {
+  if (
+    !speakerReady ||
+    !playbackActive ||
+    payload == nullptr ||
+    length < 2 ||
+    currentMuted ||
+    currentSleeping ||
+    currentVolume <= 0
+  ) {
     return;
   }
 
@@ -151,8 +176,14 @@ void playMonoPcmChunk(const uint8_t* payload, size_t length) {
 
     for (size_t i = 0; i < batch; ++i) {
       int16_t sample = monoSamples[offset + i];
-      stereoBuffer[i * 2] = sample;
-      stereoBuffer[i * 2 + 1] = sample;
+      int32_t scaled = (static_cast<int32_t>(sample) * currentVolume) / 100;
+      if (scaled > 32767) {
+        scaled = 32767;
+      } else if (scaled < -32768) {
+        scaled = -32768;
+      }
+      stereoBuffer[i * 2] = static_cast<int16_t>(scaled);
+      stereoBuffer[i * 2 + 1] = static_cast<int16_t>(scaled);
     }
 
     speakerI2S.write(
@@ -231,6 +262,220 @@ void sendTouchEvent(const char* action) {
   Serial.printf("Sent touch_event: %s\n", action);
 }
 
+void sendDeviceStatus() {
+  if (!wsConnected) return;
+
+  JsonDocument doc;
+  doc["type"] = "device_status";
+  JsonObject data = doc["data"].to<JsonObject>();
+  data["battery"] = -1;
+  data["wifi_rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  data["charging"] = false;
+  data["volume"] = currentVolume;
+  data["muted"] = currentMuted;
+  data["sleeping"] = currentSleeping;
+  JsonObject led = data["led"].to<JsonObject>();
+  led["enabled"] = ledEnabled;
+  led["brightness"] = ledBrightness;
+  led["color"] = ledColor;
+  JsonObject statusBar = data["status_bar"].to<JsonObject>();
+  if (!lastStatusBarTime.isEmpty()) {
+    statusBar["time"] = lastStatusBarTime;
+  }
+  if (!lastStatusWeather.isEmpty()) {
+    statusBar["weather"] = lastStatusWeather;
+  }
+
+  String json;
+  serializeJson(doc, json);
+  webSocket.sendTXT(json);
+  Serial.printf(
+    "Sent device_status: wifi=%d volume=%d muted=%d sleeping=%d\n",
+    WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0,
+    currentVolume,
+    currentMuted ? 1 : 0,
+    currentSleeping ? 1 : 0
+  );
+}
+
+JsonObject beginDeviceCommandResult(
+  JsonDocument& doc,
+  const String& commandId,
+  const String& clientCommandId,
+  const String& command,
+  bool ok,
+  const String& error
+) {
+  doc["type"] = "device_command_result";
+  JsonObject data = doc["data"].to<JsonObject>();
+  data["command_id"] = commandId;
+  if (clientCommandId.length() > 0) {
+    data["client_command_id"] = clientCommandId;
+  }
+  data["command"] = command;
+  data["ok"] = ok;
+  data["error"] = error;
+  return data;
+}
+
+void sendCommandResultDoc(JsonDocument& doc) {
+  String json;
+  serializeJson(doc, json);
+  webSocket.sendTXT(json);
+  Serial.printf("Sent device_command_result: %s\n", json.c_str());
+}
+
+void sendDeviceCommandFailure(
+  const String& commandId,
+  const String& clientCommandId,
+  const String& command,
+  const String& error
+) {
+  JsonDocument doc;
+  beginDeviceCommandResult(doc, commandId, clientCommandId, command, false, error);
+  sendCommandResultDoc(doc);
+  sendDeviceStatus();
+}
+
+void handleDeviceCommand(JsonObject data) {
+  const char* commandIdValue = data["command_id"] | "";
+  const char* clientCommandIdValue = data["client_command_id"] | "";
+  const char* commandValue = data["command"] | "";
+  JsonObject params = data["params"].as<JsonObject>();
+
+  String commandId = String(commandIdValue);
+  String clientCommandId = String(clientCommandIdValue);
+  String command = String(commandValue);
+
+  if (command.length() == 0) {
+    sendDeviceCommandFailure(commandId, clientCommandId, command, "invalid_command");
+    return;
+  }
+
+  if (command == "set_volume") {
+    if (params.isNull() || !params["level"].is<int>()) {
+      sendDeviceCommandFailure(commandId, clientCommandId, command, "invalid_params");
+      return;
+    }
+    currentVolume = constrain(params["level"].as<int>(), 0, 100);
+    JsonDocument doc;
+    JsonObject result = beginDeviceCommandResult(
+      doc,
+      commandId,
+      clientCommandId,
+      command,
+      true,
+      ""
+    );
+    JsonObject applied = result["applied_state"].to<JsonObject>();
+    applied["volume"] = currentVolume;
+    sendCommandResultDoc(doc);
+    sendDeviceStatus();
+    return;
+  }
+
+  if (command == "mute") {
+    currentMuted = !currentMuted;
+    if (currentMuted) {
+      playbackActive = false;
+    }
+    JsonDocument doc;
+    JsonObject result = beginDeviceCommandResult(
+      doc,
+      commandId,
+      clientCommandId,
+      command,
+      true,
+      ""
+    );
+    JsonObject applied = result["applied_state"].to<JsonObject>();
+    applied["muted"] = currentMuted;
+    sendCommandResultDoc(doc);
+    sendDeviceStatus();
+    return;
+  }
+
+  if (command == "wake") {
+    currentSleeping = false;
+    faceSetState(FACE_IDLE);
+    faceSetText("设备已唤醒");
+    updateStatusBar();
+    JsonDocument doc;
+    JsonObject result = beginDeviceCommandResult(
+      doc,
+      commandId,
+      clientCommandId,
+      command,
+      true,
+      ""
+    );
+    JsonObject applied = result["applied_state"].to<JsonObject>();
+    applied["sleeping"] = false;
+    sendCommandResultDoc(doc);
+    sendDeviceStatus();
+    return;
+  }
+
+  if (command == "sleep") {
+    currentSleeping = true;
+    playbackActive = false;
+    faceSetState(FACE_IDLE);
+    faceSetText("设备休眠中");
+    updateStatusBar();
+    JsonDocument doc;
+    JsonObject result = beginDeviceCommandResult(
+      doc,
+      commandId,
+      clientCommandId,
+      command,
+      true,
+      ""
+    );
+    JsonObject applied = result["applied_state"].to<JsonObject>();
+    applied["sleeping"] = true;
+    sendCommandResultDoc(doc);
+    sendDeviceStatus();
+    return;
+  }
+
+  if (command == "restart") {
+    JsonDocument doc;
+    JsonObject result = beginDeviceCommandResult(
+      doc,
+      commandId,
+      clientCommandId,
+      command,
+      true,
+      ""
+    );
+    JsonObject applied = result["applied_state"].to<JsonObject>();
+    applied["restarting"] = true;
+    sendCommandResultDoc(doc);
+    sendDeviceStatus();
+    delay(150);
+    ESP.restart();
+    return;
+  }
+
+  if (
+    command == "toggle_led" ||
+    command == "set_led_brightness" ||
+    command == "set_led_color"
+  ) {
+    if (!LED_HARDWARE_AVAILABLE) {
+      sendDeviceCommandFailure(
+        commandId,
+        clientCommandId,
+        command,
+        "hardware_unavailable"
+      );
+      return;
+    }
+  }
+
+  sendDeviceCommandFailure(commandId, clientCommandId, command, "unsupported_command");
+}
+
 // ──────────────────────────────────────────────
 // WebSocket 事件处理
 // ──────────────────────────────────────────────
@@ -293,6 +538,12 @@ void handleServerMessage(uint8_t* payload, size_t length) {
       battery,
       weather ? weather : "null"
     );
+    if (timeStr) {
+      lastStatusBarTime = String(timeStr);
+    }
+    if (weather) {
+      lastStatusWeather = String(weather);
+    }
     faceSetStatusBar(timeStr, WiFi.status() == WL_CONNECTED, wsConnected);
     if (battery >= 0) {
       faceSetBattery(battery);
@@ -300,6 +551,9 @@ void handleServerMessage(uint8_t* payload, size_t length) {
     if (weather) {
       faceSetWeather(weather);
     }
+
+  } else if (strcmp(type, "device_command") == 0) {
+    handleDeviceCommand(data);
 
   } else if (strcmp(type, "audio_play") == 0) {
     playbackActive = true;
@@ -332,6 +586,7 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       Serial.println("WebSocket connected!");
       updateStatusBar();
       faceSetText("已连接服务器");
+      sendDeviceStatus();
 
       if (!introSent) {
         delay(500);
@@ -364,6 +619,10 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 // ──────────────────────────────────────────────
 
 void handleTouch() {
+  if (currentSleeping) {
+    return;
+  }
+
   uint32_t touchVal = touchRead(TOUCH_PIN);
   bool touched = touchVal > TOUCH_THRESHOLD;
 
@@ -425,8 +684,14 @@ void loop() {
     if (getLocalTime(&timeinfo, 100)) {
       char timeBuf[8];
       strftime(timeBuf, sizeof(timeBuf), "%H:%M", &timeinfo);
+      lastStatusBarTime = String(timeBuf);
       faceSetStatusBar(timeBuf, WiFi.status() == WL_CONNECTED, wsConnected);
     }
+  }
+
+  if (wsConnected && millis() - lastDeviceStatusPush >= DEVICE_STATUS_INTERVAL) {
+    lastDeviceStatusPush = millis();
+    sendDeviceStatus();
   }
 
   if (millis() - lastTouchCheck >= 20) {
