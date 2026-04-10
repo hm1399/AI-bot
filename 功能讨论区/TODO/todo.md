@@ -1,3 +1,4 @@
+功能讨论区/TODO/2026-04-10-首页DeviceSnapshot卡片等高整理计划.md
 功能讨论区/TODO/2026-04-10-天气真实性与首页DeviceSnapshot字段排查及修改计划.md
 功能讨论区/TODO/2026-04-10-P0剩余硬件协同与设备控制闭环实施计划.md
 功能讨论区/TODO/2026-04-09-CHANGELOG补充app主题与Linear重构记录.md

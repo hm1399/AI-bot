@@ -168,6 +168,7 @@ class _MetricChip extends StatelessWidget {
     final chrome = context.linear;
     return Container(
       width: 148,
+      height: 120,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         color: chrome.panel,
@@ -187,6 +188,8 @@ class _MetricChip extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: Theme.of(
               context,
             ).textTheme.labelLarge?.copyWith(color: chrome.textPrimary),
@@ -196,6 +199,8 @@ class _MetricChip extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               detailText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: chrome.textSecondary),
@@ -206,6 +211,8 @@ class _MetricChip extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               captionText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(
                 context,
               ).textTheme.labelSmall?.copyWith(color: chrome.textTertiary),
