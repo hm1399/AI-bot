@@ -124,3 +124,19 @@
 - 影响：当前实现能满足“优先显示 runtime 真读回”，但如果后续设备状态刷新更频繁，用户在编辑 LED 颜色时仍可能遇到输入被回写、光标跳动或草稿被覆盖的问题。
 - 建议动作：后续单独立项，把 runtime -> 表单草稿同步收敛到更稳定的表单状态策略，例如按焦点/提交态区分自动回填时机。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-10-03 demo 固件的 `battery / charging` 仍是占位遥测
+
+- 发现来源：本轮天气真实性与首页 `Device Snapshot` 排查。
+- 当前状态：`firmware/arduino/demo/demo.ino` 仍写死 `battery = -1`、`charging = false`，因此首页当前只能通过前端文案把它标成 `Unknown / Demo placeholder`，不能当成真实硬件电源状态。
+- 影响：在固件未接入真实电量/充电检测前，任何 `Battery / Charging` 验收都只能算 UI 语义正确，不能算硬件遥测闭环已打通。
+- 建议动作：后续单独立项接入真实电量与充电检测，并同步定义“未接通/读取失败/真实数值”的上报契约。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-10-04 后端全量 `unittest` 仍有 bootstrap 测试漂移
+
+- 发现来源：本轮提交前自动化测试。
+- 当前状态：执行 `server/.venv/bin/python -m unittest discover -s tests -q` 时，`test_bootstrap_cors` 仍按旧签名调用 `create_http_app()`，`test_bootstrap_provider_timeout` 仍在无事件循环环境下直接触发 `ReminderScheduler()`；这 3 个失败与本轮 `device_channel / Device Snapshot` 改动无直接关系。
+- 影响：后续如果继续把 “后端全量 unittest 全绿” 当成提交通道，会被这组既有 bootstrap 测试阻塞，也不利于区分“本轮回归”与“历史测试债务”。
+- 建议动作：后续单独立项修正 bootstrap 测试夹具，使其和当前 `create_http_app()` / `create_agent()` 的依赖契约对齐，再恢复全量后端 suite 作为稳定门禁。
+- 本轮处理：未处理。

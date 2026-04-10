@@ -83,12 +83,14 @@ class DeviceStatusBarModel {
     required this.weather,
     required this.weatherStatus,
     required this.updatedAt,
+    required this.weatherMeta,
   });
 
   final String? time;
   final String? weather;
   final String weatherStatus;
   final String? updatedAt;
+  final DeviceWeatherMetaModel weatherMeta;
 
   factory DeviceStatusBarModel.fromJson(Map<String, dynamic> json) {
     return DeviceStatusBarModel(
@@ -98,6 +100,9 @@ class DeviceStatusBarModel {
           _runtimeReadNullableString(json, const <String>['weather_status']) ??
           'idle',
       updatedAt: _runtimeReadNullableString(json, const <String>['updated_at']),
+      weatherMeta: DeviceWeatherMetaModel.fromJson(
+        _extractNestedRuntimePayload(json, const <String>['weather_meta']),
+      ),
     );
   }
 
@@ -107,8 +112,38 @@ class DeviceStatusBarModel {
       weather: null,
       weatherStatus: 'idle',
       updatedAt: null,
+      weatherMeta: DeviceWeatherMetaModel.empty(),
     );
   }
+}
+
+class DeviceWeatherMetaModel {
+  const DeviceWeatherMetaModel({
+    required this.provider,
+    required this.city,
+    required this.source,
+    required this.fetchedAt,
+  });
+
+  final String? provider;
+  final String? city;
+  final String? source;
+  final String? fetchedAt;
+
+  factory DeviceWeatherMetaModel.fromJson(Map<String, dynamic> json) {
+    return DeviceWeatherMetaModel(
+      provider: _runtimeReadNullableString(json, const <String>['provider']),
+      city: _runtimeReadNullableString(json, const <String>['city']),
+      source: _runtimeReadNullableString(json, const <String>['source']),
+      fetchedAt: _runtimeReadNullableString(json, const <String>['fetched_at']),
+    );
+  }
+
+  const DeviceWeatherMetaModel.empty()
+    : provider = null,
+      city = null,
+      source = null,
+      fetchedAt = null;
 }
 
 class DeviceCommandModel {
@@ -171,6 +206,7 @@ class DeviceStatusModel {
     required this.wifiSignal,
     required this.charging,
     required this.reconnectCount,
+    required this.lastSeenAt,
     required this.controls,
     required this.statusBar,
     required this.lastCommand,
@@ -183,6 +219,7 @@ class DeviceStatusModel {
   final int wifiSignal;
   final bool charging;
   final int reconnectCount;
+  final String? lastSeenAt;
   final DeviceControlsModel controls;
   final DeviceStatusBarModel statusBar;
   final DeviceCommandModel lastCommand;
@@ -206,6 +243,9 @@ class DeviceStatusModel {
       reconnectCount: json['reconnect_count'] is int
           ? json['reconnect_count'] as int
           : int.tryParse(json['reconnect_count']?.toString() ?? '') ?? 0,
+      lastSeenAt: _runtimeReadNullableString(json, const <String>[
+        'last_seen_at',
+      ]),
       controls: DeviceControlsModel.fromJson(
         _extractNestedRuntimePayload(json, const <String>['controls']),
       ),
@@ -227,6 +267,7 @@ class DeviceStatusModel {
       wifiSignal: 0,
       charging: false,
       reconnectCount: 0,
+      lastSeenAt: null,
       controls: DeviceControlsModel.empty(),
       statusBar: DeviceStatusBarModel.empty(),
       lastCommand: DeviceCommandModel.empty(),

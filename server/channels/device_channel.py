@@ -183,12 +183,19 @@ class DeviceChannel:
         self._weather_task: asyncio.Task | None = None
         self._weather_config: dict[str, Any] = {}
         self._last_weather: str = ""  # 缓存最新天气字符串
+        self._weather_provider: str | None = None
+        self._weather_city: str = "Hong Kong"
+        self._weather_source: str = "computer_fetch"
+        self._weather_fetched_at: str | None = None
         self._event_observer: Any | None = None
         self._desktop_voice_bridge: Any | None = None
 
     def set_weather_config(self, config: dict[str, Any]) -> None:
         """设置天气 API 配置（从 config.yaml 加载）。"""
         self._weather_config = config
+        city = str(config.get("city") or "").strip()
+        if city:
+            self._weather_city = city
 
     def set_event_observer(self, observer: Any) -> None:
         """注册设备事件观察器。"""
@@ -212,6 +219,13 @@ class DeviceChannel:
 
     def get_snapshot(self) -> dict[str, Any]:
         """返回当前设备快照。"""
+        status_bar = dict(self._status_bar_state)
+        status_bar["weather_meta"] = {
+            "provider": self._weather_provider,
+            "city": self._weather_city,
+            "source": self._weather_source,
+            "fetched_at": self._weather_fetched_at,
+        }
         return {
             "connected": self._is_effectively_connected(),
             "state": self.state.value,
@@ -221,7 +235,7 @@ class DeviceChannel:
             "reconnect_count": self._reconnect_count,
             "last_seen_at": self._last_device_activity_at,
             "controls": dict(self._control_state),
-            "status_bar": dict(self._status_bar_state),
+            "status_bar": status_bar,
             "last_command": dict(self._last_command_state),
         }
 
@@ -1044,6 +1058,7 @@ class DeviceChannel:
                 )
                 if weather_str:
                     self._last_weather = weather_str
+                    self._weather_fetched_at = self._now_iso()
                     await self._send_status_bar_update(weather=weather_str)
                     logger.info("天气推送: {}", weather_str)
                 await asyncio.sleep(WEATHER_PUSH_INTERVAL)
@@ -1063,10 +1078,13 @@ class DeviceChannel:
         api_key = self._weather_config.get("api_key", "")
         city = self._weather_config.get("city", "Hong Kong")
         units = self._weather_config.get("units", "metric")
+        self._weather_city = city
         if not api_key:
+            self._weather_provider = "open-meteo-fallback"
             logger.debug("天气 API Key 未配置，改用 fallback provider")
             return await self._fetch_weather_fallback(city=city, units=units)
 
+        self._weather_provider = "openweather"
         return await self._fetch_weather_openweather(
             api_key=api_key,
             city=city,

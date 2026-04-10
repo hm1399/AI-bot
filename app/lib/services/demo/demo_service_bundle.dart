@@ -69,6 +69,7 @@ class DemoServiceBundle {
       wifiSignal: 77,
       charging: false,
       reconnectCount: 0,
+      lastSeenAt: '2026-04-10T09:41:00+08:00',
       controls: DeviceControlsModel(
         volume: 70,
         muted: false,
@@ -82,6 +83,12 @@ class DemoServiceBundle {
         weather: '26°C',
         weatherStatus: 'ready',
         updatedAt: '2026-04-10T09:41:00+08:00',
+        weatherMeta: DeviceWeatherMetaModel(
+          provider: 'open-meteo-fallback',
+          city: 'Hong Kong',
+          source: 'computer_fetch',
+          fetchedAt: '2026-04-10T09:30:00+08:00',
+        ),
       ),
       lastCommand: DeviceCommandModel(
         commandId: null,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -129,6 +128,8 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(weather, "26°C")
         self.assertEqual(status, "ready")
+        self.assertEqual(channel._weather_provider, "open-meteo-fallback")
+        self.assertEqual(channel._weather_city, "Hong Kong")
         fallback.assert_awaited_once()
 
     async def test_merge_status_bar_state_preserves_weather_when_payload_omits_it(self) -> None:
@@ -152,12 +153,14 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
     async def test_get_snapshot_marks_connection_offline_when_activity_is_stale(self) -> None:
         channel = DeviceChannel(MessageBus())
         channel.connected = True
-        channel._last_device_activity_monotonic = (
-            time.monotonic() - DEVICE_ACTIVITY_STALE_TIMEOUT - 1
-        )
+        channel._last_device_activity_monotonic = 1.0
         channel._last_device_activity_at = "2026-04-10T19:20:00+08:00"
 
-        snapshot = channel.get_snapshot()
+        with patch(
+            "channels.device_channel.time.monotonic",
+            return_value=DEVICE_ACTIVITY_STALE_TIMEOUT + 2,
+        ):
+            snapshot = channel.get_snapshot()
 
         self.assertFalse(snapshot["connected"])
         self.assertEqual(snapshot["last_seen_at"], "2026-04-10T19:20:00+08:00")
@@ -165,9 +168,40 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
     async def test_execute_app_command_rejects_stale_connection(self) -> None:
         channel = DeviceChannel(MessageBus())
         channel.connected = True
-        channel._last_device_activity_monotonic = (
-            time.monotonic() - DEVICE_ACTIVITY_STALE_TIMEOUT - 1
-        )
+        channel._last_device_activity_monotonic = 1.0
 
-        with self.assertRaisesRegex(RuntimeError, "DEVICE_OFFLINE"):
-            await channel.execute_app_command("set_volume", {"level": 50})
+        with patch(
+            "channels.device_channel.time.monotonic",
+            return_value=DEVICE_ACTIVITY_STALE_TIMEOUT + 2,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "DEVICE_OFFLINE"):
+                await channel.execute_app_command("set_volume", {"level": 50})
+
+    async def test_get_snapshot_exposes_weather_metadata(self) -> None:
+        channel = DeviceChannel(MessageBus())
+        channel._status_bar_state["weather"] = "25°C"
+        channel._status_bar_state["weather_status"] = "ready"
+        channel._status_bar_state["updated_at"] = "2026-04-10T19:36:19+08:00"
+        channel._weather_provider = "open-meteo-fallback"
+        channel._weather_city = "Hong Kong"
+        channel._weather_source = "computer_fetch"
+        channel._weather_fetched_at = "2026-04-10T19:30:30+08:00"
+
+        snapshot = channel.get_snapshot()
+
+        self.assertEqual(
+            snapshot["status_bar"]["weather_meta"]["provider"],
+            "open-meteo-fallback",
+        )
+        self.assertEqual(
+            snapshot["status_bar"]["weather_meta"]["city"],
+            "Hong Kong",
+        )
+        self.assertEqual(
+            snapshot["status_bar"]["weather_meta"]["source"],
+            "computer_fetch",
+        )
+        self.assertEqual(
+            snapshot["status_bar"]["weather_meta"]["fetched_at"],
+            "2026-04-10T19:30:30+08:00",
+        )

@@ -62,44 +62,44 @@
 
 ### A. 天气来源与可信度标注
 
-- [ ] 在后端运行态快照中补一个轻量 weather metadata：
+- [x] 在后端运行态快照中补一个轻量 weather metadata：
   - `provider`：`openweather` / `open-meteo-fallback`
   - `city`
   - `fetched_at`
   - 可选：`source = "computer_fetch"`
-- [ ] 前端首页 `Device Snapshot` 的天气区域补充二级说明，但不改现有整体布局风格：
+- [x] 前端首页 `Device Snapshot` 的天气区域补充二级说明，但不改现有整体布局风格：
   - 明确这是电脑侧天气
   - 显示最近刷新时间
   - 当 provider 为 fallback 时给出非阻塞提示，而不是报错语气
 
 ### B. Device Snapshot 字段补齐
 
-- [ ] 前端 `DeviceStatusModel` 解析 `last_seen_at`
-- [ ] 首页补展示 `Last Seen`
-- [ ] 首页在 `Wi-Fi` 除百分比外再显示原始 `wifi_rssi`
-- [ ] 首页对 `Last Command` 增加 `updated_at` 辅助信息
-- [ ] 首页对 `Clock / Weather` 增加 `status_bar.updated_at` 辅助信息
+- [x] 前端 `DeviceStatusModel` 解析 `last_seen_at`
+- [x] 首页补展示 `Last Seen`
+- [x] 首页在 `Wi-Fi` 除百分比外再显示原始 `wifi_rssi`
+- [x] 首页对 `Last Command` 增加 `updated_at` 辅助信息
+- [x] 首页对 `Clock / Weather` 增加 `status_bar.updated_at` / `fetched_at` 辅助信息
 
 ### C. 占位遥测与真实遥测区分
 
 - [ ] 固件层把 `battery = -1` / `charging = false` 的现状明确标记为“占位值未接通”，避免被误读为真实状态
-- [ ] 前端对 `battery = -1` 显示 `Unknown`
-- [ ] 前端对 `charging` 增加占位态文案策略：
+- [x] 前端对 `battery = -1` 显示 `Unknown`
+- [x] 前端对 `charging` 增加占位态文案策略：
   - 若仍是 demo 固件占位值，不显示肯定式 `No`
   - 改为更接近事实的 `Unknown` / `Not Wired`
 
 ### D. 验收标准
 
-- [ ] 用户在首页能区分：
+- [x] 用户在首页能区分：
   - 电脑侧天气数据
   - 硬件真实状态
   - demo 固件占位状态
-- [ ] 用户能在首页直接看到：
+- [x] 用户能在首页直接看到：
   - 最近设备上行时间
   - 最近天气刷新时间
   - 原始 Wi-Fi RSSI
   - 命令结果更新时间
-- [ ] `charging / battery` 在真实遥测未接通前，不再误导用户
+- [x] `charging / battery` 在真实遥测未接通前，不再误导用户
 
 ## 相关代码范围
 
@@ -117,5 +117,5 @@
 - [x] 完成天气真实性核验
 - [x] 完成首页字段覆盖排查
 - [x] 完成后续修改计划整理
-- [ ] 尚未进入实现
-- [ ] 尚未跑新的自动化测试
+- [x] 完成后端 weather metadata 与前端 Device Snapshot 实现
+- [x] 已跑新的自动化测试
