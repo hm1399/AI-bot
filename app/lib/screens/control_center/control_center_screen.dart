@@ -8,6 +8,7 @@ import '../../theme/linear_tokens.dart';
 import '../../widgets/common/status_pill.dart';
 import '../../widgets/control/notification_panel.dart';
 import '../../widgets/control/reminder_panel.dart';
+import 'control_center_permissions.dart';
 
 class ControlCenterScreen extends ConsumerStatefulWidget {
   const ControlCenterScreen({super.key});
@@ -48,8 +49,10 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     final settings = state.settings;
     final runtime = state.runtimeState;
     final chrome = context.linear;
-    final commandsAvailable =
-        runtime.device.connected && !runtime.device.lastCommand.isPending;
+    final commandsAvailable = canSendDeviceCommands(
+      deviceConnected: runtime.device.connected,
+      commandPending: runtime.device.lastCommand.isPending,
+    );
     final planning = _ControlCenterPlanningSnapshot.fromSources(
       state: state,
       controller: controller,
@@ -389,7 +392,14 @@ class _DeviceCommandPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final chrome = context.linear;
     final commandPending = lastCommand.isPending;
-    final canSendCommands = deviceConnected && !commandPending;
+    final canAdjustControls = canAdjustDeviceControls(
+      deviceConnected: deviceConnected,
+      commandPending: commandPending,
+    );
+    final canSendCommands = canSendDeviceCommands(
+      deviceConnected: deviceConnected,
+      commandPending: commandPending,
+    );
     final commandStatusLabel = switch (lastCommand.status) {
       'pending' => 'Command Pending',
       'succeeded' => 'Command OK',
@@ -510,7 +520,7 @@ class _DeviceCommandPanel extends StatelessWidget {
             max: 100,
             divisions: 20,
             label: volume.round().toString(),
-            onChanged: canSendCommands ? onVolumeChanged : null,
+            onChanged: canAdjustControls ? onVolumeChanged : null,
           ),
           Align(
             alignment: Alignment.centerRight,
@@ -527,7 +537,7 @@ class _DeviceCommandPanel extends StatelessWidget {
             max: 100,
             divisions: 20,
             label: brightness.round().toString(),
-            onChanged: canSendCommands ? onBrightnessChanged : null,
+            onChanged: canAdjustControls ? onBrightnessChanged : null,
           ),
           Align(
             alignment: Alignment.centerRight,

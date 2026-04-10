@@ -515,11 +515,29 @@ class AppRuntimeService:
         except ValueError as exc:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
 
+        self.device_channel.set_weather_config(self.cfg.get("weather", {}))
+
         await self._broadcast_event(
             "settings.updated",
             payload=settings,
             scope="global",
         )
+
+        if "device_volume" in payload and self.device_channel.connected:
+            try:
+                result = await self.device_channel.execute_app_command(
+                    "set_volume",
+                    {"level": int(settings["device_volume"])},
+                    client_command_id=f"settings_volume_{uuid.uuid4().hex[:8]}",
+                )
+            except (RuntimeError, ValueError):
+                logger.exception("Failed to apply device volume after settings update")
+            else:
+                await self._broadcast_event(
+                    "device.command.accepted",
+                    payload=result,
+                    scope="global",
+                )
         return self._ok(settings)
 
     async def handle_test_llm_settings(self, request: web.Request) -> web.Response:

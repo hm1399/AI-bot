@@ -68,6 +68,9 @@ TIME_PUSH_INTERVAL = 60
 # 天气推送间隔 (秒) — 每 30 分钟
 WEATHER_PUSH_INTERVAL = 1800
 
+# App 设备命令等待结果超时 (秒)
+COMMAND_RESULT_TIMEOUT = 5.0
+
 # ACTIVE 状态判定：最近对话时间窗口 (秒)
 ACTIVE_WINDOW = 30
 
@@ -127,6 +130,7 @@ class DeviceChannel:
         asr: Optional[ASRService] = None,
         tts: Optional[TTSService] = None,
         auth_token: str = "",
+        command_result_timeout_s: float = COMMAND_RESULT_TIMEOUT,
     ):
         self.bus = bus
         self.asr = asr
@@ -156,6 +160,7 @@ class DeviceChannel:
         self._status_bar_state: dict[str, Any] = dict(_DEFAULT_STATUS_BAR_STATE)
         self._last_command_state: dict[str, Any] = dict(_DEFAULT_LAST_COMMAND_STATE)
         self._pending_app_commands: dict[str, dict[str, Any]] = {}
+        self._command_result_timeout_s = max(0.01, float(command_result_timeout_s))
 
         # ── 连接统计 (Phase 6) ───────────────────────────
         self._connect_time: float = 0
@@ -277,9 +282,9 @@ class DeviceChannel:
         status_bar = payload.get("status_bar")
         if isinstance(status_bar, dict):
             payload = {
-                "time": status_bar.get("time"),
-                "weather": status_bar.get("weather"),
-                "weather_status": status_bar.get("weather_status"),
+                key: status_bar.get(key)
+                for key in ("time", "weather", "weather_status")
+                if key in status_bar
             }
 
         changed = False
@@ -439,6 +444,12 @@ class DeviceChannel:
         await self._cancel_task(self._heartbeat_task)
         await self._cancel_task(self._time_push_task)
         await self._cancel_task(self._weather_task)
+        pending = list(self._pending_app_commands.values())
+        self._pending_app_commands.clear()
+        for item in pending:
+            timeout_task = item.get("timeout_task")
+            if isinstance(timeout_task, asyncio.Task):
+                await self._cancel_task(timeout_task)
 
     def _arm_recording_timeout(self, timeout_s: float) -> None:
         """启动或重置录音 watchdog。"""
@@ -896,6 +907,9 @@ class DeviceChannel:
     async def _on_device_command_result(self, data: dict[str, Any]) -> None:
         command_id = str(data.get("command_id") or "").strip() or None
         pending = self._pending_app_commands.pop(command_id, None) if command_id else None
+        timeout_task = pending.get("timeout_task") if isinstance(pending, dict) else None
+        if isinstance(timeout_task, asyncio.Task):
+            await self._cancel_task(timeout_task)
         client_command_id = str(data.get("client_command_id") or "").strip() or None
         if not client_command_id and pending:
             client_command_id = pending.get("client_command_id")
@@ -988,12 +1002,25 @@ class DeviceChannel:
     async def _fetch_weather(self) -> tuple[str, str]:
         """从 OpenWeatherMap API 获取当前温度。"""
         api_key = self._weather_config.get("api_key", "")
-        if not api_key:
-            logger.debug("天气 API Key 未配置，跳过")
-            return "", "missing_api_key"
-
         city = self._weather_config.get("city", "Hong Kong")
         units = self._weather_config.get("units", "metric")
+        if not api_key:
+            logger.debug("天气 API Key 未配置，改用 fallback provider")
+            return await self._fetch_weather_fallback(city=city, units=units)
+
+        return await self._fetch_weather_openweather(
+            api_key=api_key,
+            city=city,
+            units=units,
+        )
+
+    async def _fetch_weather_openweather(
+        self,
+        *,
+        api_key: str,
+        city: str,
+        units: str,
+    ) -> tuple[str, str]:
         url = (
             f"https://api.openweathermap.org/data/2.5/weather"
             f"?q={city}&units={units}&appid={api_key}"
@@ -1012,6 +1039,68 @@ class DeviceChannel:
                     return "", "fetch_failed"
         except Exception:
             logger.exception("天气 API 请求失败")
+            return "", "fetch_failed"
+
+    async def _fetch_weather_fallback(
+        self,
+        *,
+        city: str,
+        units: str,
+    ) -> tuple[str, str]:
+        temperature_unit = "fahrenheit" if units == "imperial" else "celsius"
+        suffix = "°F" if temperature_unit == "fahrenheit" else "°C"
+        geocode_url = (
+            "https://geocoding-api.open-meteo.com/v1/search"
+            f"?name={city}&count=1&language=en&format=json"
+        )
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    geocode_url,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            "天气 fallback geocoding 返回 {}: {}",
+                            resp.status,
+                            await resp.text(),
+                        )
+                        return "", "fetch_failed"
+                    geocode = await resp.json()
+                results = geocode.get("results") or []
+                if not results:
+                    logger.warning("天气 fallback geocoding 未找到城市: {}", city)
+                    return "", "fetch_failed"
+                first = results[0]
+                latitude = first.get("latitude")
+                longitude = first.get("longitude")
+                if latitude is None or longitude is None:
+                    return "", "fetch_failed"
+
+                forecast_url = (
+                    "https://api.open-meteo.com/v1/forecast"
+                    f"?latitude={latitude}&longitude={longitude}"
+                    f"&current=temperature_2m&temperature_unit={temperature_unit}"
+                )
+                async with session.get(
+                    forecast_url,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            "天气 fallback forecast 返回 {}: {}",
+                            resp.status,
+                            await resp.text(),
+                        )
+                        return "", "fetch_failed"
+                    data = await resp.json()
+                temp = data.get("current", {}).get("temperature_2m")
+                if temp is None:
+                    return "", "fetch_failed"
+                return f"{int(round(float(temp)))}{suffix}", "ready"
+        except Exception:
+            logger.exception("天气 fallback 请求失败")
             return "", "fetch_failed"
 
     async def _send_status_bar_update(
@@ -1090,9 +1179,11 @@ class DeviceChannel:
 
         normalized_params = self._normalize_app_command_params(command, params)
         command_id = f"cmd_{uuid.uuid4().hex[:12]}"
+        timeout_task = asyncio.create_task(self._expire_pending_command(command_id))
         self._pending_app_commands[command_id] = {
             "command": command,
             "client_command_id": client_command_id,
+            "timeout_task": timeout_task,
         }
         self._set_last_command_state(
             command_id=command_id,
@@ -1119,6 +1210,38 @@ class DeviceChannel:
             "status": "pending",
             "device": self.get_snapshot(),
         }
+
+    async def _expire_pending_command(self, command_id: str) -> None:
+        try:
+            await asyncio.sleep(self._command_result_timeout_s)
+            pending = self._pending_app_commands.pop(command_id, None)
+            if not pending:
+                return
+            command = pending.get("command")
+            client_command_id = pending.get("client_command_id")
+            self._set_last_command_state(
+                command_id=command_id,
+                client_command_id=client_command_id,
+                command=command,
+                status="failed",
+                ok=False,
+                error="command_timeout",
+            )
+            await self._notify_event_observer(
+                "on_device_command_updated",
+                result={
+                    "command_id": command_id,
+                    "client_command_id": client_command_id,
+                    "command": command,
+                    "ok": False,
+                    "error": "command_timeout",
+                    "applied_state": {},
+                    "status": "failed",
+                },
+                snapshot=self.get_snapshot(),
+            )
+        except asyncio.CancelledError:
+            pass
 
     @staticmethod
     def _normalize_app_command_params(command: str, params: dict[str, Any]) -> dict[str, Any]:

@@ -57,9 +57,13 @@ class DummyDeviceChannel:
         }
         self.last_outbound: OutboundMessage | None = None
         self.last_command: dict[str, Any] | None = None
+        self.weather_config: dict[str, Any] | None = None
 
     def get_snapshot(self) -> dict[str, Any]:
         return dict(self._snapshot)
+
+    def set_weather_config(self, config: dict[str, Any]) -> None:
+        self.weather_config = dict(config)
 
     async def send_outbound(self, out_msg: OutboundMessage) -> None:
         self.last_outbound = out_msg
@@ -429,6 +433,20 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tested.status, 200)
         tested_payload = json.loads(tested.text)
         self.assertTrue(tested_payload["data"]["success"])
+
+    async def test_put_settings_applies_device_volume_to_connected_device(self) -> None:
+        self.device.connected = True
+        self.device._snapshot["connected"] = True
+
+        updated = await self.service.handle_put_settings(FakeRequest(
+            headers=self.headers,
+            json_body={"device_volume": 42},
+        ))
+
+        self.assertEqual(updated.status, 200)
+        self.assertIsNotNone(self.device.last_command)
+        self.assertEqual(self.device.last_command["command"], "set_volume")
+        self.assertEqual(self.device.last_command["params"]["level"], 42)
 
     async def test_tasks_events_notifications_and_reminders_crud(self) -> None:
         ws = FakeWebSocket()
