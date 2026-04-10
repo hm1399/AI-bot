@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-04-10 - 首页 Device Snapshot 天气来源补齐与卡片整理
+
+### Device Snapshot 数据语义补齐
+
+- 后端 `server/channels/device_channel.py` 为设备快照新增天气来源元数据，补充 `provider`、`city`、`source`、`fetched_at`
+- 前端 `app/lib/models/home/runtime_state_model.dart` 新增 `weather_meta` 与 `last_seen_at` 解析
+- 首页 `Device Snapshot` 新增 `Last Seen` 展示，并在 `Wi-Fi` 卡片中同时显示百分比和原始 `wifi_rssi`
+- 首页 `Clock / Weather / Last Command` 增加更新时间辅助信息
+- 首页 `Weather` 区域补充“电脑侧天气 provider”来源说明，避免与硬件遥测混淆
+- 对 demo 固件尚未接通的 `battery / charging` 改为 `Unknown` 等占位语义，避免把占位值误读成真实硬件状态
+
+### 测试与文档
+
+- 新增后端测试 `server/tests/test_device_channel.py`，覆盖天气 metadata 暴露与 fallback provider 写入
+- 新增前端测试 `app/test/device_card_test.dart`，覆盖首页 `Device Snapshot` 的天气来源、刷新时间与占位状态展示
+- 新增并回填 `功能讨论区/TODO/2026-04-10-天气真实性与首页DeviceSnapshot字段排查及修改计划.md`
+
+### 首页卡片布局整理
+
+- 首页 `Device Snapshot` 的指标卡片统一为等高布局，解决有补充文案和无补充文案时卡片高低不齐的问题
+- `_MetricChip` 增加统一高度与文本截断策略，在保留现有风格前提下让卡片边界更整齐
+- 新增 widget 测试，确保不同信息密度的卡片仍保持一致高度
+- 新增并回填 `功能讨论区/TODO/2026-04-10-首页DeviceSnapshot卡片等高整理计划.md`
+
+---
+
 ## 2026-02-04（Day 1）- 项目启动与功能规划
 
 ### 项目初始化
