@@ -108,3 +108,11 @@
 - 影响：前端、agent 或未来脚本一旦写入拼错的 `repeat` 值，后端不会在创建阶段报错，却会在运行阶段按 `daily` 执行，容易造成口径偏差和误触发。
 - 建议动作：后续单独立项统一 `repeat` 的允许枚举、错误返回和前端/agent 侧契约，避免“创建成功但语义被静默改写”。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-10-01 `app/lib/providers/control_center_provider.dart` 已退化为未使用的兼容层
+
+- 发现来源：本轮 `P0 剩余硬件协同与设备控制闭环` 调研。
+- 当前状态：`app/lib/providers/control_center_provider.dart` 只保留两个透传 `appControllerProvider` 的 Provider，仓库内已没有任何引用。
+- 影响：后续继续扩设备控制或通知提醒时，容易让人误以为 Control Center 还有独立 provider 分层，增加阅读噪音和错误落点。
+- 建议动作：后续单独立项决定是删除该兼容文件，还是恢复成真实的 Control Center 状态封装；在当前任务中不应顺手处理。
+- 本轮处理：未处理。
