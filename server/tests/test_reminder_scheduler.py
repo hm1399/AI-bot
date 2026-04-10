@@ -82,7 +82,7 @@ class ReminderSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(completed["next_trigger_at"])
         self.assertIsNotNone(completed["completed_at"])
 
-    async def test_due_once_reminder_creates_notification_and_marks_triggered(self) -> None:
+    async def test_due_once_reminder_syncs_to_overdue_state(self) -> None:
         reminder = self.resources.reminder_store.create(
             {
                 "title": "Pay rent",
@@ -92,17 +92,42 @@ class ReminderSchedulerTests(unittest.IsolatedAsyncioTestCase):
             }
         )
 
+        synced = await self.scheduler.sync_reminder(reminder["reminder_id"])
+
+        assert synced is not None
+        self.assertTrue(synced["enabled"])
+        self.assertEqual(synced["status"], "overdue")
+        self.assertEqual(
+            datetime.fromisoformat(synced["next_trigger_at"]).astimezone(timezone.utc),
+            datetime.fromisoformat(reminder["time"]).astimezone(timezone.utc),
+        )
+
+    async def test_due_once_reminder_creates_notification_and_stays_overdue(self) -> None:
+        reminder = self.resources.reminder_store.create(
+            {
+                "title": "Pay rent",
+                "time": (self.now - timedelta(minutes=5)).isoformat(),
+                "repeat": "once",
+                "enabled": True,
+                "bundle_id": "bundle_plan_001",
+            }
+        )
+
         await self.scheduler._process_due_reminders()
 
         updated = self.resources.reminder_store.get(reminder["reminder_id"])
         notifications = self.resources.notification_store.list_items()
 
         assert updated is not None
-        self.assertFalse(updated["enabled"])
-        self.assertEqual(updated["status"], "triggered")
-        self.assertIsNone(updated["next_trigger_at"])
+        self.assertTrue(updated["enabled"])
+        self.assertEqual(updated["status"], "overdue")
+        self.assertEqual(
+            datetime.fromisoformat(updated["next_trigger_at"]).astimezone(timezone.utc),
+            datetime.fromisoformat(reminder["time"]).astimezone(timezone.utc),
+        )
         self.assertEqual(len(notifications), 1)
         self.assertEqual(notifications[0]["metadata"]["reminder_id"], reminder["reminder_id"])
+        self.assertEqual(notifications[0]["metadata"]["bundle_id"], "bundle_plan_001")
         self.assertEqual(len(self.observer.events), 1)
 
     async def test_due_repeating_reminder_reschedules_and_returns_to_scheduled(self) -> None:

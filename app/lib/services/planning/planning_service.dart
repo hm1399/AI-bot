@@ -9,6 +9,15 @@ class PlanningService {
 
   final ApiClient _apiClient;
 
+  Future<Map<String, dynamic>> createBundle(Map<String, dynamic> body) {
+    return _apiClient.post(
+      ApiConstants.planningBundlesPath,
+      body: body,
+      parser: (dynamic data) =>
+          data is Map<String, dynamic> ? data : <String, dynamic>{},
+    );
+  }
+
   Future<PlanningOverviewModel> fetchOverview({Map<String, String>? query}) {
     return _apiClient.get(
       ApiConstants.planningOverviewPath,

@@ -6,7 +6,10 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from services.app_api.resource_service import AppResourceService
+from services.app_api.resource_service import (
+    AppResourceService,
+    PLANNING_METADATA_FIELDS,
+)
 
 
 _REPEAT_DAILY = "daily"
@@ -20,9 +23,9 @@ _SUPPORTED_REPEATS = {
     _REPEAT_WEEKENDS,
 }
 _STATUS_COMPLETED = "completed"
+_STATUS_OVERDUE = "overdue"
 _STATUS_SCHEDULED = "scheduled"
 _STATUS_SNOOZED = "snoozed"
-_STATUS_TRIGGERED = "triggered"
 
 
 class ReminderScheduler:
@@ -92,9 +95,17 @@ class ReminderScheduler:
             if item is None:
                 return None
             now = self.now_provider()
-            target = self._parse_iso_datetime(snoozed_until)
-            if target is None:
-                target = now + timedelta(minutes=max(delay_minutes, 1))
+            target = None
+            if snoozed_until is not None:
+                target = self._parse_iso_datetime(snoozed_until)
+                if target is None:
+                    raise ValueError("snoozed_until must be a valid ISO datetime")
+                if target <= now:
+                    raise ValueError("snoozed_until must be in the future")
+            else:
+                if delay_minutes < 1:
+                    raise ValueError("delay_minutes must be at least 1")
+                target = now + timedelta(minutes=delay_minutes)
             updated = self.resources.reminder_store.update(
                 reminder_id,
                 {
@@ -146,6 +157,8 @@ class ReminderScheduler:
                 next_trigger_at = self._parse_iso_datetime(updated.get("next_trigger_at"))
                 if next_trigger_at is None or next_trigger_at > now:
                     continue
+                if not self._should_deliver(updated, scheduled_for=next_trigger_at):
+                    continue
                 await self._deliver_due_reminder_unlocked(updated, now=now)
 
     async def _sync_reminder_unlocked(
@@ -181,6 +194,11 @@ class ReminderScheduler:
                     "reminder_id": reminder_id,
                     "scheduled_for": scheduled_for,
                     "repeat": reminder.get("repeat"),
+                    **{
+                        field: reminder.get(field)
+                        for field in PLANNING_METADATA_FIELDS
+                        if reminder.get(field) is not None
+                    },
                 },
             }
         )
@@ -193,9 +211,9 @@ class ReminderScheduler:
         }
         next_dt = self._compute_next_trigger(reminder, now=now, after_trigger=True)
         if next_dt is None:
-            patch["enabled"] = False
-            patch["next_trigger_at"] = None
-            patch["status"] = _STATUS_TRIGGERED
+            patch["enabled"] = True
+            patch["next_trigger_at"] = scheduled_for or reminder.get("next_trigger_at") or reminder.get("time")
+            patch["status"] = _STATUS_OVERDUE
         else:
             patch["next_trigger_at"] = self._format_dt(next_dt)
             patch["status"] = _STATUS_SCHEDULED
@@ -224,7 +242,8 @@ class ReminderScheduler:
 
         enabled = bool(reminder.get("enabled", True))
         if not enabled:
-            if reminder.get("next_trigger_at") is not None:
+            is_overdue = str(reminder.get("status") or "").strip().lower() == _STATUS_OVERDUE
+            if reminder.get("next_trigger_at") is not None and not is_overdue:
                 patch["next_trigger_at"] = None
             if reminder.get("last_error") is not None:
                 patch["last_error"] = None
@@ -235,8 +254,9 @@ class ReminderScheduler:
             next_trigger_at = self._format_dt(snoozed_until)
             if reminder.get("next_trigger_at") != next_trigger_at:
                 patch["next_trigger_at"] = next_trigger_at
-            if reminder.get("status") != _STATUS_SNOOZED:
-                patch["status"] = _STATUS_SNOOZED
+            status = _STATUS_SNOOZED if snoozed_until > now else _STATUS_OVERDUE
+            if reminder.get("status") != status:
+                patch["status"] = status
             if reminder.get("last_error") is not None:
                 patch["last_error"] = None
             return patch
@@ -249,11 +269,21 @@ class ReminderScheduler:
             patch["next_trigger_at"] = None
             return patch
 
+        repeat = self._repeat_value(reminder)
+        existing_due = self._parse_iso_datetime(reminder.get("next_trigger_at"))
+        if repeat == _REPEAT_ONCE and existing_due is not None and existing_due <= now:
+            if reminder.get("status") != _STATUS_OVERDUE:
+                patch["status"] = _STATUS_OVERDUE
+            if reminder.get("last_error") is not None:
+                patch["last_error"] = None
+            return patch
+
         next_trigger_at = self._format_dt(next_dt) if next_dt else None
         if reminder.get("next_trigger_at") != next_trigger_at:
             patch["next_trigger_at"] = next_trigger_at
-        if reminder.get("status") != _STATUS_SCHEDULED:
-            patch["status"] = _STATUS_SCHEDULED
+        status = _STATUS_OVERDUE if repeat == _REPEAT_ONCE and next_dt is not None and next_dt <= now else _STATUS_SCHEDULED
+        if reminder.get("status") != status:
+            patch["status"] = status
         if reminder.get("last_error") is not None:
             patch["last_error"] = None
         return patch
@@ -265,9 +295,7 @@ class ReminderScheduler:
         now: datetime,
         after_trigger: bool = False,
     ) -> datetime | None:
-        repeat = str(reminder.get("repeat") or _REPEAT_DAILY).strip().lower()
-        if repeat not in _SUPPORTED_REPEATS:
-            repeat = _REPEAT_DAILY
+        repeat = self._repeat_value(reminder)
 
         raw_time = str(reminder.get("time") or "").strip()
         if not raw_time:
@@ -291,6 +319,12 @@ class ReminderScheduler:
         if repeat == _REPEAT_ONCE:
             return candidate if not after_trigger else None
         return self._advance_to_valid_day(candidate, repeat)
+
+    def _repeat_value(self, reminder: dict[str, Any]) -> str:
+        repeat = str(reminder.get("repeat") or _REPEAT_DAILY).strip().lower()
+        if repeat not in _SUPPORTED_REPEATS:
+            raise ValueError(f"repeat must be one of: {', '.join(sorted(_SUPPORTED_REPEATS))}")
+        return repeat
 
     def _compute_repeating_from_time(
         self,
@@ -331,6 +365,12 @@ class ReminderScheduler:
             await callback(**kwargs)
         except Exception:
             logger.exception("ReminderScheduler observer callback failed: {}", method_name)
+
+    def _should_deliver(self, reminder: dict[str, Any], *, scheduled_for: datetime) -> bool:
+        last_triggered_at = self._parse_iso_datetime(reminder.get("last_triggered_at"))
+        if last_triggered_at is None:
+            return True
+        return last_triggered_at < scheduled_for
 
     @staticmethod
     def _parse_clock_time(value: str) -> tuple[int, int, int]:

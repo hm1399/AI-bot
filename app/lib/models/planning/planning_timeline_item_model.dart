@@ -55,6 +55,16 @@ class PlanningTimelineItemModel {
   final Map<String, dynamic> resource;
   final Map<String, dynamic> metadata;
 
+  DateTime? get sortAtDateTime => _tryParseDateTime(sortAt);
+
+  DateTime? get startAtDateTime => _tryParseDateTime(startAt);
+
+  DateTime? get endAtDateTime => _tryParseDateTime(endAt);
+
+  DateTime? get dueAtDateTime => _tryParseDateTime(dueAt);
+
+  DateTime? get nextTriggerDateTime => _tryParseDateTime(nextTriggerAt);
+
   factory PlanningTimelineItemModel.fromJson(Map<String, dynamic> json) {
     final source = _firstMap(<dynamic>[json['item'], json]);
     final resource = _firstMap(<dynamic>[source['resource']]);
@@ -276,6 +286,13 @@ String? _readStringAny(List<Map<String, dynamic>> sources, List<String> keys) {
     }
   }
   return null;
+}
+
+DateTime? _tryParseDateTime(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(value);
 }
 
 List<String> _readConflictSummaries(

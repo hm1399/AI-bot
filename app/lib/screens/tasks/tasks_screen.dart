@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../models/events/event_model.dart';
+import '../../models/planning/planning_agenda_entry_model.dart';
+import '../../models/planning/planning_conflict_model.dart';
+import '../../models/planning/planning_editor_models.dart';
 import '../../models/reminders/reminder_model.dart';
 import '../../models/tasks/task_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
+import '../../widgets/planning/planning_editor_dialog.dart';
 import '../../widgets/tasks/task_filter_bar.dart';
 
 class TasksScreen extends ConsumerStatefulWidget {
@@ -48,13 +52,14 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
+    final agendaDataset = ref.watch(planningAgendaDatasetProvider);
     final chrome = context.linear;
     final filteredTasks = _filterTasks(state.tasks);
     final filteredEvents = _filterEvents(state.events);
     final filteredReminders = _filterReminders(state.reminders);
     final workbench = _PlanningWorkbenchSnapshot.fromSources(
       state: state,
-      controller: controller,
+      agendaDataset: agendaDataset,
       visibleTasks: filteredTasks,
       visibleEvents: filteredEvents,
       visibleReminders: filteredReminders,
@@ -99,14 +104,31 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
             runSpacing: LinearSpacing.sm,
             children: <Widget>[
               FilledButton.icon(
-                onPressed: () => _openTaskEditor(context),
+                onPressed: () => showPlanningEditorDialog(
+                  context,
+                  kind: PlanningEditorKind.task,
+                  origin: 'tasks_manual',
+                ),
                 icon: const Icon(Icons.add_task_outlined),
                 label: const Text('Add Task'),
               ),
               FilledButton.tonalIcon(
-                onPressed: () => _openEventEditor(context),
+                onPressed: () => showPlanningEditorDialog(
+                  context,
+                  kind: PlanningEditorKind.event,
+                  origin: 'tasks_manual',
+                ),
                 icon: const Icon(Icons.event_outlined),
                 label: const Text('Add Event'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: () => showPlanningEditorDialog(
+                  context,
+                  kind: PlanningEditorKind.reminder,
+                  origin: 'tasks_manual',
+                ),
+                icon: const Icon(Icons.alarm_add_outlined),
+                label: const Text('Add Reminder'),
               ),
               OutlinedButton.icon(
                 onPressed: _clearFilters,
@@ -123,8 +145,12 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               final taskPanel = _TaskWorkbenchPanel(
                 tasks: filteredTasks,
                 status: state.tasksStatus,
-                onEdit: (TaskModel task) =>
-                    _openTaskEditor(context, existing: task),
+                onEdit: (TaskModel task) => showPlanningEditorDialog(
+                  context,
+                  kind: PlanningEditorKind.task,
+                  origin: 'tasks_manual',
+                  task: task,
+                ),
                 onToggleComplete: (TaskModel task) => controller.updateTask(
                   task.copyWith(completed: !task.completed),
                 ),
@@ -136,14 +162,12 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               );
               final timelinePanel = _TimelinePanel(
                 entries: workbench.timelineEntries,
-                status: state.eventsStatus,
-                onEditEvent: (EventModel event) =>
-                    _openEventEditor(context, existing: event),
-                onDeleteEvent: (EventModel event) => _confirmDelete(
-                  context,
-                  title: 'Delete event?',
-                  onConfirm: () => controller.deleteEvent(event.id),
-                ),
+                status: workbench.planningStatus,
+                message: workbench.planningMessage,
+                onEditEntry: (_TimelineEntry entry) =>
+                    _openTimelineEntryEditor(context, entry),
+                onDeleteEntry: (_TimelineEntry entry) =>
+                    _deleteTimelineEntry(context, entry),
               );
               final sideColumn = Column(
                 children: <Widget>[
@@ -152,6 +176,35 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                   _RemindersAndConflictsPanel(
                     reminders: filteredReminders,
                     conflicts: workbench.conflicts,
+                    planningStatus: workbench.planningStatus,
+                    planningMessage: workbench.planningMessage,
+                    degraded: workbench.degraded,
+                    hiddenReminderCount: workbench.hiddenReminderCount,
+                    onAddReminder: () => showPlanningEditorDialog(
+                      context,
+                      kind: PlanningEditorKind.reminder,
+                      origin: 'tasks_manual',
+                    ),
+                    onEditReminder: (ReminderModel reminder) =>
+                        showPlanningEditorDialog(
+                          context,
+                          kind: PlanningEditorKind.reminder,
+                          origin: 'tasks_manual',
+                          reminder: reminder,
+                        ),
+                    onDeleteReminder: (ReminderModel reminder) =>
+                        _confirmDelete(
+                          context,
+                          title: 'Delete reminder?',
+                          onConfirm: () =>
+                              controller.deleteReminder(reminder.id),
+                        ),
+                    onOpenConflictParticipant:
+                        (PlanningConflictParticipantModel participant) =>
+                            _openConflictParticipantEditor(
+                              context,
+                              participant,
+                            ),
                   ),
                 ],
               );
@@ -351,233 +404,165 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         ),
       );
     }
+    if (state.planningWorkbenchMessage != null &&
+        state.planningWorkbenchStatus != FeatureStatus.ready &&
+        state.planningWorkbenchStatus != FeatureStatus.demo) {
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(top: LinearSpacing.md),
+          child: _StatusPanel(
+            title: 'Planning',
+            status: state.planningWorkbenchStatus,
+            message: state.planningWorkbenchMessage!,
+          ),
+        ),
+      );
+    }
     return widgets;
   }
 
-  Future<void> _openTaskEditor(
-    BuildContext context, {
-    TaskModel? existing,
-  }) async {
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final descriptionController = TextEditingController(
-      text: existing?.description ?? '',
-    );
-    final dueAtController = TextEditingController(text: existing?.dueAt ?? '');
-    var priority = existing?.priority ?? 'medium';
-    var completed = existing?.completed ?? false;
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setState) {
-            return AlertDialog(
-              title: Text(existing == null ? 'Add Task' : 'Edit Task'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    TextField(
-                      controller: titleController,
-                      autofocus: true,
-                      decoration: const InputDecoration(labelText: 'Title'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                      ),
-                      minLines: 2,
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: priority,
-                      decoration: const InputDecoration(labelText: 'Priority'),
-                      items: const <DropdownMenuItem<String>>[
-                        DropdownMenuItem(value: 'high', child: Text('High')),
-                        DropdownMenuItem(
-                          value: 'medium',
-                          child: Text('Medium'),
-                        ),
-                        DropdownMenuItem(value: 'low', child: Text('Low')),
-                      ],
-                      onChanged: (String? value) {
-                        if (value != null) {
-                          setState(() => priority = value);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: dueAtController,
-                      decoration: const InputDecoration(
-                        labelText: 'Due At',
-                        hintText: '2026-04-06T09:00:00',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile.adaptive(
-                      value: completed,
-                      onChanged: (bool value) {
-                        setState(() => completed = value);
-                      },
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Completed'),
-                    ),
-                  ],
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
+  Future<void> _openTimelineEntryEditor(
+    BuildContext context,
+    _TimelineEntry entry,
+  ) {
+    switch (entry.kind) {
+      case PlanningAgendaEntryKind.task:
+        if (entry.task == null) {
+          return Future<void>.value();
+        }
+        return showPlanningEditorDialog(
+          context,
+          kind: PlanningEditorKind.task,
+          origin: 'tasks_manual',
+          task: entry.task,
         );
-      },
-    );
-
-    if (saved == true) {
-      final task = TaskModel(
-        id:
-            existing?.id ??
-            'task_local_${DateTime.now().millisecondsSinceEpoch}',
-        title: titleController.text.trim(),
-        description: descriptionController.text.trim().isEmpty
-            ? null
-            : descriptionController.text.trim(),
-        priority: priority,
-        completed: completed,
-        dueAt: dueAtController.text.trim().isEmpty
-            ? null
-            : dueAtController.text.trim(),
-        createdAt: existing?.createdAt ?? DateTime.now().toIso8601String(),
-        updatedAt: DateTime.now().toIso8601String(),
-      );
-      if (existing == null) {
-        await ref.read(appControllerProvider.notifier).createTask(task);
-      } else {
-        await ref.read(appControllerProvider.notifier).updateTask(task);
-      }
+      case PlanningAgendaEntryKind.event:
+        if (entry.event == null) {
+          return Future<void>.value();
+        }
+        return showPlanningEditorDialog(
+          context,
+          kind: PlanningEditorKind.event,
+          origin: 'tasks_manual',
+          event: entry.event,
+        );
+      case PlanningAgendaEntryKind.reminder:
+        if (entry.reminder == null) {
+          return Future<void>.value();
+        }
+        return showPlanningEditorDialog(
+          context,
+          kind: PlanningEditorKind.reminder,
+          origin: 'tasks_manual',
+          reminder: entry.reminder,
+        );
     }
-
-    titleController.dispose();
-    descriptionController.dispose();
-    dueAtController.dispose();
   }
 
-  Future<void> _openEventEditor(
-    BuildContext context, {
-    EventModel? existing,
-  }) async {
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final descriptionController = TextEditingController(
-      text: existing?.description ?? '',
-    );
-    final startAtController = TextEditingController(
-      text: existing?.startAt ?? '',
-    );
-    final endAtController = TextEditingController(text: existing?.endAt ?? '');
-    final locationController = TextEditingController(
-      text: existing?.location ?? '',
-    );
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text(existing == null ? 'Add Event' : 'Edit Event'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                TextField(
-                  controller: titleController,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Title'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                  minLines: 2,
-                  maxLines: 4,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: startAtController,
-                  decoration: const InputDecoration(
-                    labelText: 'Start At',
-                    hintText: '2026-04-06T09:00:00',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: endAtController,
-                  decoration: const InputDecoration(
-                    labelText: 'End At',
-                    hintText: '2026-04-06T10:00:00',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: locationController,
-                  decoration: const InputDecoration(labelText: 'Location'),
-                ),
-              ],
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Save'),
-            ),
-          ],
+  Future<void> _deleteTimelineEntry(
+    BuildContext context,
+    _TimelineEntry entry,
+  ) {
+    final controller = ref.read(appControllerProvider.notifier);
+    switch (entry.kind) {
+      case PlanningAgendaEntryKind.task:
+        if (entry.task == null) {
+          return Future<void>.value();
+        }
+        return _confirmDelete(
+          context,
+          title: 'Delete task?',
+          onConfirm: () => controller.deleteTask(entry.task!.id),
         );
-      },
-    );
+      case PlanningAgendaEntryKind.event:
+        if (entry.event == null) {
+          return Future<void>.value();
+        }
+        return _confirmDelete(
+          context,
+          title: 'Delete event?',
+          onConfirm: () => controller.deleteEvent(entry.event!.id),
+        );
+      case PlanningAgendaEntryKind.reminder:
+        if (entry.reminder == null) {
+          return Future<void>.value();
+        }
+        return _confirmDelete(
+          context,
+          title: 'Delete reminder?',
+          onConfirm: () => controller.deleteReminder(entry.reminder!.id),
+        );
+    }
+  }
 
-    if (saved == true) {
-      final event = EventModel(
-        id:
-            existing?.id ??
-            'event_local_${DateTime.now().millisecondsSinceEpoch}',
-        title: titleController.text.trim(),
-        description: descriptionController.text.trim().isEmpty
-            ? null
-            : descriptionController.text.trim(),
-        startAt: startAtController.text.trim(),
-        endAt: endAtController.text.trim(),
-        location: locationController.text.trim().isEmpty
-            ? null
-            : locationController.text.trim(),
-        createdAt: existing?.createdAt ?? DateTime.now().toIso8601String(),
-        updatedAt: DateTime.now().toIso8601String(),
-      );
-      if (existing == null) {
-        await ref.read(appControllerProvider.notifier).createEvent(event);
-      } else {
-        await ref.read(appControllerProvider.notifier).updateEvent(event);
+  Future<void> _openConflictParticipantEditor(
+    BuildContext context,
+    PlanningConflictParticipantModel participant,
+  ) {
+    switch (participant.kind) {
+      case 'task':
+        final task = _taskById(participant.id);
+        if (task == null) {
+          return Future<void>.value();
+        }
+        return showPlanningEditorDialog(
+          context,
+          kind: PlanningEditorKind.task,
+          origin: 'tasks_manual',
+          task: task,
+        );
+      case 'event':
+        final event = _eventById(participant.id);
+        if (event == null) {
+          return Future<void>.value();
+        }
+        return showPlanningEditorDialog(
+          context,
+          kind: PlanningEditorKind.event,
+          origin: 'tasks_manual',
+          event: event,
+        );
+      case 'reminder':
+        final reminder = _reminderById(participant.id);
+        if (reminder == null) {
+          return Future<void>.value();
+        }
+        return showPlanningEditorDialog(
+          context,
+          kind: PlanningEditorKind.reminder,
+          origin: 'tasks_manual',
+          reminder: reminder,
+        );
+      default:
+        return Future<void>.value();
+    }
+  }
+
+  TaskModel? _taskById(String id) {
+    for (final item in ref.read(appControllerProvider).tasks) {
+      if (item.id == id) {
+        return item;
       }
     }
+    return null;
+  }
 
-    titleController.dispose();
-    descriptionController.dispose();
-    startAtController.dispose();
-    endAtController.dispose();
-    locationController.dispose();
+  EventModel? _eventById(String id) {
+    for (final item in ref.read(appControllerProvider).events) {
+      if (item.id == id) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  ReminderModel? _reminderById(String id) {
+    for (final item in ref.read(appControllerProvider).reminders) {
+      if (item.id == id) {
+        return item;
+      }
+    }
+    return null;
   }
 
   Future<void> _confirmDelete(
@@ -662,7 +647,9 @@ class _TodayOverviewPanel extends StatelessWidget {
                 label: 'Reminders & Conflicts',
                 value:
                     '${snapshot.activeReminders} reminders · ${snapshot.conflictCount} conflicts',
-                detail: 'Reminders stay editable in Control Center.',
+                detail: snapshot.degraded
+                    ? 'Planning is degraded; some reminder slots may be withheld until next trigger data arrives.'
+                    : 'Shared editor is available from Tasks and Agenda.',
               ),
             ],
           ),
@@ -774,14 +761,16 @@ class _TimelinePanel extends StatelessWidget {
   const _TimelinePanel({
     required this.entries,
     required this.status,
-    required this.onEditEvent,
-    required this.onDeleteEvent,
+    required this.message,
+    required this.onEditEntry,
+    required this.onDeleteEntry,
   });
 
   final List<_TimelineEntry> entries;
   final FeatureStatus status;
-  final ValueChanged<EventModel> onEditEvent;
-  final ValueChanged<EventModel> onDeleteEvent;
+  final String? message;
+  final ValueChanged<_TimelineEntry> onEditEntry;
+  final ValueChanged<_TimelineEntry> onDeleteEntry;
 
   @override
   Widget build(BuildContext context) {
@@ -807,11 +796,17 @@ class _TimelinePanel extends StatelessWidget {
               context,
             ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
           ),
+          if (message != null &&
+              status != FeatureStatus.ready &&
+              status != FeatureStatus.demo) ...<Widget>[
+            const SizedBox(height: LinearSpacing.md),
+            _StatusPanel(title: 'Planning', status: status, message: message!),
+          ],
           const SizedBox(height: LinearSpacing.md),
           if (entries.isEmpty)
             _EmptyPanel(
               message: status == FeatureStatus.notReady
-                  ? 'The backend event endpoint is not ready yet.'
+                  ? 'Planning timeline is not ready yet. Dated local items will appear once available.'
                   : 'No timeline items match the current filters.',
             )
           else
@@ -819,12 +814,8 @@ class _TimelinePanel extends StatelessWidget {
               children: entries.map((_TimelineEntry entry) {
                 return _TimelineEntryCard(
                   entry: entry,
-                  onEditEvent: entry.event == null
-                      ? null
-                      : () => onEditEvent(entry.event!),
-                  onDeleteEvent: entry.event == null
-                      ? null
-                      : () => onDeleteEvent(entry.event!),
+                  onEdit: () => onEditEntry(entry),
+                  onDelete: () => onDeleteEntry(entry),
                 );
               }).toList(),
             ),
@@ -837,13 +828,13 @@ class _TimelinePanel extends StatelessWidget {
 class _TimelineEntryCard extends StatelessWidget {
   const _TimelineEntryCard({
     required this.entry,
-    required this.onEditEvent,
-    required this.onDeleteEvent,
+    required this.onEdit,
+    required this.onDelete,
   });
 
   final _TimelineEntry entry;
-  final VoidCallback? onEditEvent;
-  final VoidCallback? onDeleteEvent;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -869,18 +860,16 @@ class _TimelineEntryCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
               ),
-              if (onEditEvent != null)
-                IconButton(
-                  tooltip: 'Edit event',
-                  onPressed: onEditEvent,
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-              if (onDeleteEvent != null)
-                IconButton(
-                  tooltip: 'Delete event',
-                  onPressed: onDeleteEvent,
-                  icon: const Icon(Icons.delete_outline),
-                ),
+              IconButton(
+                tooltip: 'Edit ${entry.kindLabel.toLowerCase()}',
+                onPressed: entry.canEdit ? onEdit : null,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                tooltip: 'Delete ${entry.kindLabel.toLowerCase()}',
+                onPressed: entry.canEdit ? onDelete : null,
+                icon: const Icon(Icons.delete_outline),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -917,10 +906,27 @@ class _RemindersAndConflictsPanel extends StatelessWidget {
   const _RemindersAndConflictsPanel({
     required this.reminders,
     required this.conflicts,
+    required this.planningStatus,
+    required this.planningMessage,
+    required this.degraded,
+    required this.hiddenReminderCount,
+    required this.onAddReminder,
+    required this.onEditReminder,
+    required this.onDeleteReminder,
+    required this.onOpenConflictParticipant,
   });
 
   final List<ReminderModel> reminders;
   final List<_ConflictItem> conflicts;
+  final FeatureStatus planningStatus;
+  final String? planningMessage;
+  final bool degraded;
+  final int hiddenReminderCount;
+  final VoidCallback onAddReminder;
+  final ValueChanged<ReminderModel> onEditReminder;
+  final ValueChanged<ReminderModel> onDeleteReminder;
+  final ValueChanged<PlanningConflictParticipantModel>
+  onOpenConflictParticipant;
 
   @override
   Widget build(BuildContext context) {
@@ -935,17 +941,48 @@ class _RemindersAndConflictsPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            'Reminders & Conflicts',
-            style: Theme.of(context).textTheme.titleMedium,
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Reminders & Conflicts',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: onAddReminder,
+                icon: const Icon(Icons.alarm_add_outlined, size: 16),
+                label: const Text('Add Reminder'),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           Text(
-            'Reminder editing remains in Control Center for compatibility. This panel keeps the operational view visible inside planning.',
+            'Reminder editing now uses the shared planning dialog, while conflicts continue to reflect backend planning when available.',
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
           ),
+          if (planningMessage != null &&
+              planningStatus != FeatureStatus.ready &&
+              planningStatus != FeatureStatus.demo) ...<Widget>[
+            const SizedBox(height: LinearSpacing.md),
+            _StatusPanel(
+              title: 'Planning',
+              status: planningStatus,
+              message: planningMessage!,
+            ),
+          ],
+          if (degraded || hiddenReminderCount > 0) ...<Widget>[
+            const SizedBox(height: LinearSpacing.md),
+            _StatusPanel(
+              title: 'Reminder Visibility',
+              status: FeatureStatus.notReady,
+              message: hiddenReminderCount > 0
+                  ? '$hiddenReminderCount reminder(s) do not have a safe calendar day yet, so they stay out of the agenda until next trigger data arrives.'
+                  : 'Planning timeline is degraded. Reminder slots may be incomplete.',
+            ),
+          ],
           const SizedBox(height: LinearSpacing.md),
           Text('Reminders', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
@@ -1026,6 +1063,19 @@ class _RemindersAndConflictsPanel extends StatelessWidget {
                   ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
                 ),
               ],
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  TextButton(
+                    onPressed: () => onEditReminder(reminder),
+                    child: const Text('Edit'),
+                  ),
+                  TextButton(
+                    onPressed: () => onDeleteReminder(reminder),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ),
             ],
           ),
         );
@@ -1063,6 +1113,22 @@ class _RemindersAndConflictsPanel extends StatelessWidget {
                   style: Theme.of(
                     context,
                   ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+                ),
+              ],
+              if (conflict.participants.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: conflict.participants.map((
+                    PlanningConflictParticipantModel participant,
+                  ) {
+                    return TextButton.icon(
+                      onPressed: () => onOpenConflictParticipant(participant),
+                      icon: Icon(_iconForEntryType(participant.kind), size: 16),
+                      label: Text('Open ${participant.title}'),
+                    );
+                  }).toList(),
                 ),
               ],
             ],
@@ -1223,10 +1289,7 @@ class _TaskRow extends StatelessWidget {
             children: <Widget>[
               _MetaTag(label: task.completed ? 'Completed' : 'Open'),
               if (task.dueAt?.isNotEmpty == true)
-                _MetaTag(
-                  label:
-                      'Due ${_formatDateTime(DateTime.tryParse(task.dueAt!))}',
-                ),
+                _MetaTag(label: 'Due ${_formatDateTime(task.dueDateTime)}'),
               if (_planningSourceLabel(
                     createdVia: task.createdVia,
                     sourceChannel: task.sourceChannel,
@@ -1236,8 +1299,7 @@ class _TaskRow extends StatelessWidget {
               if (task.bundleId?.isNotEmpty == true)
                 _MetaTag(label: 'Bundle ${task.bundleId!}'),
               _MetaTag(
-                label:
-                    'Updated ${_formatDateTime(DateTime.tryParse(task.updatedAt ?? task.createdAt))}',
+                label: 'Updated ${_formatDateTime(task.updatedDateTime)}',
               ),
             ],
           ),
@@ -1311,6 +1373,10 @@ class _PlanningWorkbenchSnapshot {
     required this.nextTimelineTime,
     required this.timelineEntries,
     required this.conflicts,
+    required this.planningStatus,
+    required this.planningMessage,
+    required this.degraded,
+    required this.hiddenReminderCount,
   });
 
   final String headline;
@@ -1323,67 +1389,59 @@ class _PlanningWorkbenchSnapshot {
   final String? nextTimelineTime;
   final List<_TimelineEntry> timelineEntries;
   final List<_ConflictItem> conflicts;
+  final FeatureStatus planningStatus;
+  final String? planningMessage;
+  final bool degraded;
+  final int hiddenReminderCount;
 
   factory _PlanningWorkbenchSnapshot.fromSources({
     required AppState state,
-    required Object controller,
+    required PlanningAgendaDataset agendaDataset,
     required List<TaskModel> visibleTasks,
     required List<EventModel> visibleEvents,
     required List<ReminderModel> visibleReminders,
     required bool showTodayOnly,
   }) {
-    final overview = _coerceStringMap(
-      _readPlanningProperty(
-        state: state,
-        controller: controller,
-        name: 'planningOverview',
-      ),
-    );
-    final rawTimeline = _coerceList(
-      _readPlanningProperty(
-        state: state,
-        controller: controller,
-        name: 'planningTimeline',
-      ),
-    );
-    final rawConflicts = _coerceList(
-      _readPlanningProperty(
-        state: state,
-        controller: controller,
-        name: 'planningConflicts',
-      ),
-    );
+    final overview = state.planningOverview;
+    final now = DateTime.now();
+    final visibleTaskIds = visibleTasks
+        .map((TaskModel item) => item.id)
+        .toSet();
+    final visibleEventIds = visibleEvents
+        .map((EventModel item) => item.id)
+        .toSet();
+    final visibleReminderIds = visibleReminders
+        .map((ReminderModel item) => item.id)
+        .toSet();
 
-    final timelineEntries = rawTimeline.isNotEmpty
-        ? rawTimeline
-              .map(
-                (Object? raw) => _TimelineEntry.fromDynamic(
-                  raw,
-                  events: visibleEvents,
-                  tasks: visibleTasks,
-                  reminders: visibleReminders,
-                ),
-              )
-              .whereType<_TimelineEntry>()
-              .toList()
-        : _buildFallbackTimeline(
-            tasks: visibleTasks,
-            events: visibleEvents,
-            reminders: visibleReminders,
-            showTodayOnly: showTodayOnly,
-          );
+    final timelineEntries = agendaDataset.entries
+        .where((PlanningAgendaEntryModel entry) {
+          final matchesFilter = switch (entry.kind) {
+            PlanningAgendaEntryKind.task => visibleTaskIds.contains(
+              entry.resourceId,
+            ),
+            PlanningAgendaEntryKind.event => visibleEventIds.contains(
+              entry.resourceId,
+            ),
+            PlanningAgendaEntryKind.reminder => visibleReminderIds.contains(
+              entry.resourceId,
+            ),
+          };
+          if (!matchesFilter) {
+            return false;
+          }
+          if (showTodayOnly && !_sameDay(entry.scheduledAt, now)) {
+            return false;
+          }
+          return true;
+        })
+        .map(_TimelineEntry.fromAgendaEntry)
+        .toList();
     timelineEntries.sort(_sortTimelineEntries);
 
-    final conflicts = rawConflicts.isNotEmpty
-        ? rawConflicts
-              .map((_ConflictItem.fromDynamic))
-              .whereType<_ConflictItem>()
-              .toList()
-        : _deriveConflicts(
-            tasks: visibleTasks,
-            events: visibleEvents,
-            reminders: visibleReminders,
-          );
+    final conflicts = state.planningConflicts
+        .map(_ConflictItem.fromModel)
+        .toList();
 
     final nextEntry = timelineEntries.isEmpty ? null : timelineEntries.first;
     final openTaskFallback = state.tasks
@@ -1404,55 +1462,33 @@ class _PlanningWorkbenchSnapshot {
         .length;
 
     return _PlanningWorkbenchSnapshot(
-      headline:
-          _lookupString(overview, <String>[
-            'headline',
-            'today_summary',
-            'todaySummary',
-            'summary',
-          ]) ??
-          'Derived planning summary stays visible even before provider-side planning data arrives.',
-      openTasks:
-          _lookupInt(overview, <String>['open_tasks', 'openTaskCount']) ??
-          _lookupInt(overview, <String>['pending_count', 'pendingCount']) ??
-          openTaskFallback,
-      completedTasks:
-          _lookupInt(overview, <String>[
-            'completed_tasks',
-            'completedTaskCount',
-          ]) ??
-          completedTaskFallback,
-      dueToday:
-          _lookupInt(overview, <String>['due_today', 'dueTodayCount']) ??
-          dueTodayFallback,
-      activeReminders:
-          _lookupInt(overview, <String>[
-            'active_reminders',
-            'activeReminderCount',
-          ]) ??
-          activeReminderFallback,
-      conflictCount:
-          _lookupInt(overview, <String>['conflict_count', 'conflictCount']) ??
-          conflicts.length,
+      headline: state.planningTimelineReady
+          ? overview?.nextItemTitle != null
+                ? 'Backend planning is synced. Next up: ${overview!.nextItemTitle}.'
+                : 'Backend planning is synced and ready for editing.'
+          : state.planningWorkbenchStatus == FeatureStatus.notReady
+          ? 'Planning timeline is not ready on this backend. The workbench is explicitly degraded instead of faking planning results.'
+          : 'Planning timeline is still partial. Only dated local resources are shown until backend planning arrives.',
+      openTasks: overview?.pendingTaskCount ?? openTaskFallback,
+      completedTasks: overview?.completedTaskCount ?? completedTaskFallback,
+      dueToday: dueTodayFallback,
+      activeReminders: overview?.activeReminderCount ?? activeReminderFallback,
+      conflictCount: overview?.conflictCount ?? conflicts.length,
       nextTimelineLabel:
-          _lookupString(overview, <String>[
-            'next_item_title',
-            'nextItemTitle',
-            'next_event_title',
-            'nextEventTitle',
-          ]) ??
+          overview?.nextItemTitle ??
           nextEntry?.title ??
-          'No timeline items yet.',
-      nextTimelineTime:
-          _lookupString(overview, <String>[
-            'next_item_time',
-            'nextItemTime',
-            'next_event_time',
-            'nextEventTime',
-          ]) ??
-          nextEntry?.timeLabel,
+          (agendaDataset.degraded
+              ? 'Planning timeline unavailable'
+              : 'No timeline items yet.'),
+      nextTimelineTime: overview?.nextItemAt == null
+          ? nextEntry?.timeLabel
+          : _formatDateTime(DateTime.tryParse(overview!.nextItemAt!)),
       timelineEntries: timelineEntries.take(12).toList(),
       conflicts: conflicts.take(8).toList(),
+      planningStatus: state.planningWorkbenchStatus,
+      planningMessage: state.planningWorkbenchMessage,
+      degraded: agendaDataset.degraded,
+      hiddenReminderCount: agendaDataset.hiddenReminders.length,
     );
   }
 }
@@ -1460,6 +1496,7 @@ class _PlanningWorkbenchSnapshot {
 class _TimelineEntry {
   const _TimelineEntry({
     required this.id,
+    required this.kind,
     required this.kindLabel,
     required this.title,
     required this.timeLabel,
@@ -1469,10 +1506,13 @@ class _TimelineEntry {
     this.secondaryLabel,
     this.sourceLabel,
     this.bundleLabel,
+    this.task,
     this.event,
+    this.reminder,
   });
 
   final String id;
+  final PlanningAgendaEntryKind kind;
   final String kindLabel;
   final String title;
   final String timeLabel;
@@ -1482,133 +1522,44 @@ class _TimelineEntry {
   final String? bundleLabel;
   final IconData icon;
   final DateTime? sortAt;
+  final TaskModel? task;
   final EventModel? event;
+  final ReminderModel? reminder;
 
-  factory _TimelineEntry.fromDynamic(
-    Object? raw, {
-    required List<EventModel> events,
-    required List<TaskModel> tasks,
-    required List<ReminderModel> reminders,
-  }) {
-    final map = _coerceStringMap(raw);
-    if (map.isEmpty) {
-      final fallbackTitle = raw?.toString().trim();
-      return _TimelineEntry(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        kindLabel: 'Timeline',
-        title: fallbackTitle == null || fallbackTitle.isEmpty
-            ? 'Planning item'
-            : fallbackTitle,
-        timeLabel: 'Unscheduled',
-        icon: Icons.timeline_outlined,
-        sortAt: null,
-      );
-    }
-    final resourceId = _lookupString(map, <String>[
-      'resource_id',
-      'resourceId',
-      'event_id',
-      'eventId',
-      'task_id',
-      'taskId',
-      'id',
-    ]);
-    final resourceType =
-        _lookupString(map, <String>[
-          'resource_type',
-          'resourceType',
-          'type',
-          'kind',
-        ]) ??
-        _inferEntryType(map);
-    EventModel? matchedEvent;
-    TaskModel? matchedTask;
-    ReminderModel? matchedReminder;
-    if (resourceId != null) {
-      for (final event in events) {
-        if (event.id == resourceId) {
-          matchedEvent = event;
-          break;
-        }
-      }
-      for (final task in tasks) {
-        if (task.id == resourceId) {
-          matchedTask = task;
-          break;
-        }
-      }
-      for (final reminder in reminders) {
-        if (reminder.id == resourceId) {
-          matchedReminder = reminder;
-          break;
-        }
-      }
-    }
-    final startAt =
-        _lookupDateTime(map, <String>['start_at', 'startAt', 'time', 'at']) ??
-        _lookupDateTime(map, <String>['normalized_time', 'normalizedTime']) ??
-        _lookupDateTime(map, <String>['scheduled_for', 'scheduledFor']) ??
-        DateTime.tryParse(matchedEvent?.startAt ?? '') ??
-        DateTime.tryParse(matchedTask?.dueAt ?? '');
+  bool get canEdit => task != null || event != null || reminder != null;
 
+  factory _TimelineEntry.fromAgendaEntry(PlanningAgendaEntryModel entry) {
     return _TimelineEntry(
-      id: resourceId ?? DateTime.now().microsecondsSinceEpoch.toString(),
-      kindLabel: _titleCase(resourceType),
-      title:
-          _lookupString(map, <String>['title', 'summary', 'label', 'name']) ??
-          matchedEvent?.title ??
-          matchedTask?.title ??
-          matchedReminder?.title ??
-          'Planning item',
-      timeLabel:
-          _lookupString(map, <String>[
-            'time_label',
-            'timeLabel',
-            'display_time',
-            'displayTime',
-          ]) ??
-          _lookupString(map, <String>[
-            'normalized_time',
-            'normalizedTime',
-            'scheduled_for',
-            'scheduledFor',
-          ]) ??
-          _formatDateTime(startAt),
-      description:
-          _lookupString(map, <String>[
-            'description',
-            'detail',
-            'message',
-            'reason',
-          ]) ??
-          matchedEvent?.description ??
-          matchedTask?.description ??
-          matchedReminder?.message,
+      id: entry.id,
+      kind: entry.kind,
+      kindLabel: _titleCase(entry.kind.name),
+      title: entry.title,
+      timeLabel: switch (entry.kind) {
+        PlanningAgendaEntryKind.event => _formatTimeRange(
+          entry.scheduledAt,
+          entry.endsAt,
+        ),
+        PlanningAgendaEntryKind.task =>
+          'Due ${_formatDateTime(entry.scheduledAt)}',
+        PlanningAgendaEntryKind.reminder =>
+          'Reminder ${_formatDateTime(entry.scheduledAt)}',
+      },
+      description: entry.description,
       secondaryLabel: _mergeLabels(<String?>[
-        _lookupString(map, <String>['location', 'secondary_label']),
-        matchedEvent?.location,
-        matchedReminder?.repeat,
+        entry.location,
+        entry.priority,
+        entry.repeat,
       ]),
       sourceLabel: _planningSourceLabel(
-        createdVia:
-            _lookupString(map, <String>['created_via', 'createdVia']) ??
-            matchedEvent?.createdVia ??
-            matchedTask?.createdVia ??
-            matchedReminder?.createdVia,
-        sourceChannel:
-            _lookupString(map, <String>['source_channel', 'sourceChannel']) ??
-            matchedEvent?.sourceChannel ??
-            matchedTask?.sourceChannel ??
-            matchedReminder?.sourceChannel,
+        createdVia: entry.createdVia,
+        sourceChannel: entry.sourceChannel,
       ),
-      bundleLabel:
-          _lookupString(map, <String>['bundle_id', 'bundleId']) ??
-          matchedEvent?.bundleId ??
-          matchedTask?.bundleId ??
-          matchedReminder?.bundleId,
-      icon: _iconForEntryType(resourceType),
-      sortAt: startAt,
-      event: matchedEvent,
+      bundleLabel: entry.bundleId,
+      icon: _iconForEntryType(entry.kind.name),
+      sortAt: entry.scheduledAt,
+      task: entry.task,
+      event: entry.event,
+      reminder: entry.reminder,
     );
   }
 }
@@ -1618,215 +1569,27 @@ class _ConflictItem {
     required this.title,
     required this.detail,
     required this.severity,
+    required this.participants,
   });
 
   final String title;
   final String? detail;
   final String severity;
+  final List<PlanningConflictParticipantModel> participants;
 
-  static _ConflictItem? fromDynamic(Object? raw) {
-    if (raw == null) {
-      return null;
-    }
-    if (raw is String) {
-      return _ConflictItem(title: raw, detail: null, severity: 'warning');
-    }
-    final map = _coerceStringMap(raw);
-    if (map.isEmpty) {
-      return null;
-    }
-    return _ConflictItem(
-      title:
-          _lookupString(map, <String>[
-            'title',
-            'summary',
-            'message',
-            'reason',
-          ]) ??
-          'Conflict detected',
-      detail: _lookupString(map, <String>['detail', 'description', 'context']),
-      severity:
-          _lookupString(map, <String>['severity', 'level', 'tone']) ??
-          'warning',
-    );
-  }
-}
-
-List<_TimelineEntry> _buildFallbackTimeline({
-  required List<TaskModel> tasks,
-  required List<EventModel> events,
-  required List<ReminderModel> reminders,
-  required bool showTodayOnly,
-}) {
-  final now = DateTime.now();
-  final entries = <_TimelineEntry>[
-    ...events.map((EventModel event) {
-      final startAt = DateTime.tryParse(event.startAt);
-      return _TimelineEntry(
-        id: event.id,
-        kindLabel: 'Event',
-        title: event.title,
-        timeLabel: _formatTimeRange(
-          DateTime.tryParse(event.startAt),
-          DateTime.tryParse(event.endAt),
-        ),
-        description: event.description,
-        secondaryLabel: event.location,
-        sourceLabel: _planningSourceLabel(
-          createdVia: event.createdVia,
-          sourceChannel: event.sourceChannel,
-        ),
-        bundleLabel: event.bundleId,
-        icon: Icons.event_outlined,
-        sortAt: startAt,
-        event: event,
-      );
-    }),
-    ...tasks
-        .where((TaskModel task) => !task.completed && task.dueAt != null)
-        .map((TaskModel task) {
-          final dueAt = DateTime.tryParse(task.dueAt!);
-          return _TimelineEntry(
-            id: task.id,
-            kindLabel: 'Task Due',
-            title: task.title,
-            timeLabel: 'Due ${_formatDateTime(dueAt)}',
-            description: task.description,
-            secondaryLabel: task.priority,
-            sourceLabel: _planningSourceLabel(
-              createdVia: task.createdVia,
-              sourceChannel: task.sourceChannel,
-            ),
-            bundleLabel: task.bundleId,
-            icon: Icons.task_alt_outlined,
-            sortAt: dueAt,
-          );
-        }),
-    ...reminders.where((ReminderModel reminder) => reminder.enabled).map((
-      ReminderModel reminder,
-    ) {
-      final reminderTime = _reminderDateTimeForToday(reminder.time);
-      return _TimelineEntry(
-        id: reminder.id,
-        kindLabel: 'Reminder',
-        title: reminder.title,
-        timeLabel: reminderTime == null
-            ? reminder.time
-            : _formatDateTime(reminderTime),
-        description: reminder.message,
-        secondaryLabel: reminder.repeat,
-        sourceLabel: _planningSourceLabel(
-          createdVia: reminder.createdVia,
-          sourceChannel: reminder.sourceChannel,
-        ),
-        bundleLabel: reminder.bundleId,
-        icon: Icons.alarm_outlined,
-        sortAt: reminderTime,
-      );
-    }),
-  ];
-
-  final filtered = showTodayOnly
-      ? entries.where((_TimelineEntry entry) {
-          if (entry.sortAt == null) {
-            return false;
-          }
-          return _sameDay(entry.sortAt!, now);
-        }).toList()
-      : entries;
-  filtered.sort(_sortTimelineEntries);
-  return filtered;
-}
-
-List<_ConflictItem> _deriveConflicts({
-  required List<TaskModel> tasks,
-  required List<EventModel> events,
-  required List<ReminderModel> reminders,
-}) {
-  final now = DateTime.now();
-  final conflicts = <_ConflictItem>[];
-  final overdueTasks = tasks.where((TaskModel task) {
-    if (task.completed || task.dueAt == null) {
-      return false;
-    }
-    final dueAt = DateTime.tryParse(task.dueAt!);
-    return dueAt != null && dueAt.isBefore(now);
-  });
-
-  for (final task in overdueTasks.take(3)) {
-    conflicts.add(
-      _ConflictItem(
-        title: 'Overdue task: ${task.title}',
-        detail: task.dueAt == null
+  static _ConflictItem fromModel(PlanningConflictModel conflict) {
+    final detail =
+        conflict.summary ??
+        (conflict.participants.isEmpty
             ? null
-            : 'Due ${_formatDateTime(DateTime.tryParse(task.dueAt!))}',
-        severity: 'warning',
-      ),
+            : conflict.participants.map((item) => item.title).join(' · '));
+    return _ConflictItem(
+      title: conflict.title,
+      detail: detail,
+      severity: conflict.severity,
+      participants: conflict.participants,
     );
   }
-
-  final eventSpans =
-      events
-          .map((EventModel event) {
-            final startAt = DateTime.tryParse(event.startAt);
-            final endAt = DateTime.tryParse(event.endAt);
-            if (startAt == null || endAt == null) {
-              return null;
-            }
-            return (event: event, startAt: startAt, endAt: endAt);
-          })
-          .whereType<({EventModel event, DateTime startAt, DateTime endAt})>()
-          .toList()
-        ..sort(
-          (
-            ({EventModel event, DateTime startAt, DateTime endAt}) a,
-            ({EventModel event, DateTime startAt, DateTime endAt}) b,
-          ) => a.startAt.compareTo(b.startAt),
-        );
-
-  for (var index = 0; index < eventSpans.length - 1; index += 1) {
-    final current = eventSpans[index];
-    final next = eventSpans[index + 1];
-    if (next.startAt.isBefore(current.endAt)) {
-      conflicts.add(
-        _ConflictItem(
-          title: 'Event overlap',
-          detail:
-              '${current.event.title} overlaps ${next.event.title} around ${_formatDateTime(next.startAt)}.',
-          severity: 'danger',
-        ),
-      );
-    }
-  }
-
-  for (final reminder in reminders.where(
-    (ReminderModel item) => item.enabled,
-  )) {
-    final reminderTime = _reminderDateTimeForToday(reminder.time);
-    if (reminderTime == null) {
-      continue;
-    }
-    for (final event in eventSpans) {
-      final startsSoon =
-          reminderTime.isAfter(
-            event.startAt.subtract(const Duration(minutes: 20)),
-          ) &&
-          reminderTime.isBefore(event.endAt.add(const Duration(minutes: 20)));
-      if (startsSoon) {
-        conflicts.add(
-          _ConflictItem(
-            title: 'Reminder may clash with event',
-            detail:
-                '${reminder.title} is set for ${_formatDateTime(reminderTime)} while ${event.event.title} is on the calendar.',
-            severity: 'warning',
-          ),
-        );
-        break;
-      }
-    }
-  }
-
-  return conflicts;
 }
 
 int _sortTimelineEntries(_TimelineEntry a, _TimelineEntry b) {
@@ -1842,111 +1605,6 @@ int _sortTimelineEntries(_TimelineEntry a, _TimelineEntry b) {
     return -1;
   }
   return aSort.compareTo(bSort);
-}
-
-Object? _readPlanningProperty({
-  required AppState state,
-  required Object controller,
-  required String name,
-}) {
-  Object? readFrom(Object target) {
-    try {
-      final dynamic dynamicTarget = target;
-      switch (name) {
-        case 'planningOverview':
-          return dynamicTarget.planningOverview;
-        case 'planningTimeline':
-          return dynamicTarget.planningTimeline;
-        case 'planningConflicts':
-          return dynamicTarget.planningConflicts;
-      }
-    } catch (_) {
-      return null;
-    }
-    return null;
-  }
-
-  return readFrom(state) ?? readFrom(controller);
-}
-
-Map<String, dynamic> _coerceStringMap(Object? value) {
-  if (value is Map<String, dynamic>) {
-    return value;
-  }
-  if (value is Map) {
-    return value.map<String, dynamic>(
-      (Object? key, Object? item) => MapEntry(key.toString(), item),
-    );
-  }
-  return <String, dynamic>{};
-}
-
-List<Object?> _coerceList(Object? value) {
-  if (value is List<Object?>) {
-    return value;
-  }
-  if (value is List) {
-    return value.cast<Object?>();
-  }
-  return const <Object?>[];
-}
-
-String? _lookupString(Map<String, dynamic> map, List<String> keys) {
-  for (final key in keys) {
-    final value = map[key];
-    if (value is String && value.trim().isNotEmpty) {
-      return value.trim();
-    }
-    if (value is num || value is bool) {
-      return value.toString();
-    }
-  }
-  return null;
-}
-
-int? _lookupInt(Map<String, dynamic> map, List<String> keys) {
-  for (final key in keys) {
-    final value = map[key];
-    if (value is int) {
-      return value;
-    }
-    if (value is num) {
-      return value.toInt();
-    }
-    if (value is String) {
-      final parsed = int.tryParse(value);
-      if (parsed != null) {
-        return parsed;
-      }
-    }
-  }
-  return null;
-}
-
-DateTime? _lookupDateTime(Map<String, dynamic> map, List<String> keys) {
-  for (final key in keys) {
-    final value = map[key];
-    if (value is String) {
-      final parsed = DateTime.tryParse(value);
-      if (parsed != null) {
-        return parsed;
-      }
-    }
-  }
-  return null;
-}
-
-String _inferEntryType(Map<String, dynamic> map) {
-  if (map.containsKey('event_id') || map['kind'] == 'event') {
-    return 'event';
-  }
-  if (map.containsKey('task_id') || map['kind'] == 'task') {
-    return 'task';
-  }
-  if (map.containsKey('reminder_id') || map['kind'] == 'reminder') {
-    return 'reminder';
-  }
-  return 'timeline';
 }
 
 IconData _iconForEntryType(String? type) {
@@ -1966,20 +1624,6 @@ bool _sameDay(DateTime left, DateTime right) {
   return left.year == right.year &&
       left.month == right.month &&
       left.day == right.day;
-}
-
-DateTime? _reminderDateTimeForToday(String raw) {
-  final parts = raw.split(':');
-  if (parts.length < 2) {
-    return null;
-  }
-  final hour = int.tryParse(parts[0]);
-  final minute = int.tryParse(parts[1]);
-  if (hour == null || minute == null) {
-    return null;
-  }
-  final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day, hour, minute);
 }
 
 String _formatTimeRange(DateTime? startAt, DateTime? endAt) {

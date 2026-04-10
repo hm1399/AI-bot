@@ -13,6 +13,7 @@ import '../models/connect/connection_config_model.dart';
 import '../models/events/event_model.dart';
 import '../models/notifications/notification_model.dart';
 import '../models/planning/planning_conflict_model.dart';
+import '../models/planning/planning_agenda_entry_model.dart';
 import '../models/planning/planning_overview_model.dart';
 import '../models/planning/planning_timeline_item_model.dart';
 import '../models/reminders/reminder_model.dart';
@@ -948,6 +949,116 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  Future<void> createPlanningBundle({
+    List<TaskModel> tasks = const <TaskModel>[],
+    List<EventModel> events = const <EventModel>[],
+    List<ReminderModel> reminders = const <ReminderModel>[],
+    String successMessage = 'Planning items created.',
+  }) async {
+    if (tasks.isEmpty && events.isEmpty && reminders.isEmpty) {
+      return;
+    }
+
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        tasks: _sortTasks(_mergeTasks(state.tasks, tasks)),
+        events: _sortEvents(_mergeEvents(state.events, events)),
+        reminders: _sortReminders(_mergeReminders(state.reminders, reminders)),
+        tasksStatus: FeatureStatus.demo,
+        eventsStatus: FeatureStatus.demo,
+        remindersStatus: FeatureStatus.demo,
+        globalMessage: 'Demo planning bundle created locally.',
+      );
+      return;
+    }
+
+    _apiClient.setConnection(state.connection);
+    final firstBundleId = _firstDefined<String>(<String?>[
+      tasks.isEmpty ? null : tasks.first.bundleId,
+      events.isEmpty ? null : events.first.bundleId,
+      reminders.isEmpty ? null : reminders.first.bundleId,
+    ]);
+    final createdVia = _firstDefined<String>(<String?>[
+      tasks.isEmpty ? null : tasks.first.createdVia,
+      events.isEmpty ? null : events.first.createdVia,
+      reminders.isEmpty ? null : reminders.first.createdVia,
+    ]);
+    final sourceChannel = _firstDefined<String>(<String?>[
+      tasks.isEmpty ? null : tasks.first.sourceChannel,
+      events.isEmpty ? null : events.first.sourceChannel,
+      reminders.isEmpty ? null : reminders.first.sourceChannel,
+    ]);
+    final sourceSessionId = _firstDefined<String>(<String?>[
+      tasks.isEmpty ? null : tasks.first.sourceSessionId,
+      events.isEmpty ? null : events.first.sourceSessionId,
+      reminders.isEmpty ? null : reminders.first.sourceSessionId,
+    ]);
+    final sourceMessageId = _firstDefined<String>(<String?>[
+      tasks.isEmpty ? null : tasks.first.sourceMessageId,
+      events.isEmpty ? null : events.first.sourceMessageId,
+      reminders.isEmpty ? null : reminders.first.sourceMessageId,
+    ]);
+
+    try {
+      final bundle = await ref.read(planningServiceProvider).createBundle(<
+        String,
+        dynamic
+      >{
+        if (firstBundleId?.isNotEmpty == true) 'bundle_id': firstBundleId,
+        if (createdVia?.isNotEmpty == true) 'created_via': createdVia,
+        if (sourceChannel?.isNotEmpty == true) 'source_channel': sourceChannel,
+        if (sourceSessionId?.isNotEmpty == true)
+          'source_session_id': sourceSessionId,
+        if (sourceMessageId?.isNotEmpty == true)
+          'source_message_id': sourceMessageId,
+        if (tasks.isNotEmpty)
+          'tasks': tasks.map((TaskModel item) => item.toCreateJson()).toList(),
+        if (events.isNotEmpty)
+          'events': events
+              .map((EventModel item) => item.toCreateJson())
+              .toList(),
+        if (reminders.isNotEmpty)
+          'reminders': reminders
+              .map((ReminderModel item) => item.toCreateJson())
+              .toList(),
+      });
+
+      final createdTasks = _decodeTasksFromBundle(bundle);
+      final createdEvents = _decodeEventsFromBundle(bundle);
+      final createdReminders = _decodeRemindersFromBundle(bundle);
+      final createdNotifications = _decodeNotificationsFromBundle(bundle);
+
+      state = state.copyWith(
+        tasksStatus: FeatureStatus.ready,
+        tasks: _sortTasks(_mergeTasks(state.tasks, createdTasks)),
+        tasksMessage: createdTasks.isEmpty ? state.tasksMessage : null,
+        eventsStatus: FeatureStatus.ready,
+        events: _sortEvents(_mergeEvents(state.events, createdEvents)),
+        eventsMessage: createdEvents.isEmpty ? state.eventsMessage : null,
+        remindersStatus: FeatureStatus.ready,
+        reminders: _sortReminders(
+          _mergeReminders(state.reminders, createdReminders),
+        ),
+        remindersMessage: createdReminders.isEmpty
+            ? state.remindersMessage
+            : null,
+        notificationsStatus: createdNotifications.isEmpty
+            ? state.notificationsStatus
+            : FeatureStatus.ready,
+        notifications: createdNotifications.isEmpty
+            ? state.notifications
+            : _mergeNotifications(state.notifications, createdNotifications),
+        notificationsMessage: createdNotifications.isEmpty
+            ? state.notificationsMessage
+            : null,
+        globalMessage: successMessage,
+      );
+      unawaited(refreshPlanningWorkbench());
+    } on ApiError catch (error) {
+      state = state.copyWith(globalMessage: error.message);
+    }
+  }
+
   Future<void> updateTask(TaskModel task) async {
     if (state.isDemoMode) {
       state = state.copyWith(
@@ -1523,6 +1634,24 @@ class AppController extends StateNotifier<AppState> {
         .toList();
   }
 
+  List<TaskModel> _mergeTasks(
+    List<TaskModel> current,
+    List<TaskModel> nextItems,
+  ) {
+    final merged = List<TaskModel>.from(current);
+    for (final item in nextItems) {
+      final index = merged.indexWhere(
+        (TaskModel current) => current.id == item.id,
+      );
+      if (index == -1) {
+        merged.add(item);
+      } else {
+        merged[index] = item;
+      }
+    }
+    return merged;
+  }
+
   List<EventModel> _sortEvents(List<EventModel> events) {
     final sorted = List<EventModel>.from(events);
     sorted.sort(
@@ -1538,6 +1667,24 @@ class AppController extends StateNotifier<AppState> {
         .toList();
   }
 
+  List<EventModel> _mergeEvents(
+    List<EventModel> current,
+    List<EventModel> nextItems,
+  ) {
+    final merged = List<EventModel>.from(current);
+    for (final item in nextItems) {
+      final index = merged.indexWhere(
+        (EventModel current) => current.id == item.id,
+      );
+      if (index == -1) {
+        merged.add(item);
+      } else {
+        merged[index] = item;
+      }
+    }
+    return merged;
+  }
+
   List<NotificationModel> _replaceNotification(
     List<NotificationModel> notifications,
     NotificationModel next,
@@ -1545,6 +1692,24 @@ class AppController extends StateNotifier<AppState> {
     return notifications
         .map((NotificationModel item) => item.id == next.id ? next : item)
         .toList();
+  }
+
+  List<NotificationModel> _mergeNotifications(
+    List<NotificationModel> current,
+    List<NotificationModel> nextItems,
+  ) {
+    final merged = List<NotificationModel>.from(current);
+    for (final item in nextItems) {
+      final index = merged.indexWhere(
+        (NotificationModel current) => current.id == item.id,
+      );
+      if (index == -1) {
+        merged.add(item);
+      } else {
+        merged[index] = item;
+      }
+    }
+    return merged;
   }
 
   List<ReminderModel> _sortReminders(List<ReminderModel> reminders) {
@@ -1563,6 +1728,24 @@ class AppController extends StateNotifier<AppState> {
     return reminders
         .map((ReminderModel item) => item.id == next.id ? next : item)
         .toList();
+  }
+
+  List<ReminderModel> _mergeReminders(
+    List<ReminderModel> current,
+    List<ReminderModel> nextItems,
+  ) {
+    final merged = List<ReminderModel>.from(current);
+    for (final item in nextItems) {
+      final index = merged.indexWhere(
+        (ReminderModel current) => current.id == item.id,
+      );
+      if (index == -1) {
+        merged.add(item);
+      } else {
+        merged[index] = item;
+      }
+    }
+    return merged;
   }
 
   void _handleRealtimeStatus(RealtimeConnectionStatus status) {
@@ -1959,6 +2142,13 @@ final planningConflictsProvider = Provider<List<PlanningConflictModel>>((
   return ref.watch(appControllerProvider).planningConflicts;
 });
 
+final planningAgendaDatasetProvider = Provider<PlanningAgendaDataset>((
+  Ref ref,
+) {
+  final state = ref.watch(appControllerProvider);
+  return PlanningAgendaDataset.fromState(state);
+});
+
 final currentMessagesProvider = Provider<List<MessageModel>>(
   (Ref ref) => ref.watch(appControllerProvider).currentMessages,
 );
@@ -1987,3 +2177,62 @@ final upcomingEventsProvider = Provider<List<EventModel>>((Ref ref) {
     return parsed == null || parsed.isAfter(now);
   }).toList();
 });
+
+List<TaskModel> _decodeTasksFromBundle(Map<String, dynamic> bundle) {
+  final rawItems = bundle['tasks'];
+  if (rawItems is! List) {
+    return const <TaskModel>[];
+  }
+  return rawItems.map((dynamic item) {
+    return TaskModel.fromJson(
+      item is Map<String, dynamic> ? item : <String, dynamic>{},
+    );
+  }).toList();
+}
+
+List<EventModel> _decodeEventsFromBundle(Map<String, dynamic> bundle) {
+  final rawItems = bundle['events'];
+  if (rawItems is! List) {
+    return const <EventModel>[];
+  }
+  return rawItems.map((dynamic item) {
+    return EventModel.fromJson(
+      item is Map<String, dynamic> ? item : <String, dynamic>{},
+    );
+  }).toList();
+}
+
+List<ReminderModel> _decodeRemindersFromBundle(Map<String, dynamic> bundle) {
+  final rawItems = bundle['reminders'];
+  if (rawItems is! List) {
+    return const <ReminderModel>[];
+  }
+  return rawItems.map((dynamic item) {
+    return ReminderModel.fromJson(
+      item is Map<String, dynamic> ? item : <String, dynamic>{},
+    );
+  }).toList();
+}
+
+List<NotificationModel> _decodeNotificationsFromBundle(
+  Map<String, dynamic> bundle,
+) {
+  final rawItems = bundle['notifications'];
+  if (rawItems is! List) {
+    return const <NotificationModel>[];
+  }
+  return rawItems.map((dynamic item) {
+    return NotificationModel.fromJson(
+      item is Map<String, dynamic> ? item : <String, dynamic>{},
+    );
+  }).toList();
+}
+
+T? _firstDefined<T>(List<T?> values) {
+  for (final value in values) {
+    if (value != null) {
+      return value;
+    }
+  }
+  return null;
+}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Callable
 
 
@@ -54,14 +54,37 @@ class PlanningProjectionService:
         tasks: list[dict[str, Any]],
         events: list[dict[str, Any]],
         reminders: list[dict[str, Any]],
+        target_date: date | str | None = None,
     ) -> list[dict[str, Any]]:
+        now = self.now_provider()
         items = [
-            *[self._project_task(item) for item in tasks],
+            *[self._project_task(item, now=now) for item in tasks],
             *[self._project_event(item) for item in events],
-            *[self._project_reminder(item) for item in reminders],
+            *[self._project_reminder(item, now=now) for item in reminders],
         ]
+        resolved_target_date = self._resolve_target_date(target_date)
+        if resolved_target_date is not None:
+            items = [
+                item
+                for item in items
+                if self._timeline_matches_date(item, resolved_target_date)
+            ]
         items.sort(key=self._timeline_sort_key)
         return items
+
+    def filter_timeline_for_date(
+        self,
+        timeline: list[dict[str, Any]],
+        target_date: date | str,
+    ) -> list[dict[str, Any]]:
+        resolved_target_date = self._resolve_target_date(target_date)
+        if resolved_target_date is None:
+            return list(timeline)
+        return [
+            item
+            for item in timeline
+            if self._timeline_matches_date(item, resolved_target_date)
+        ]
 
     def build_conflicts(
         self,
@@ -228,8 +251,13 @@ class PlanningProjectionService:
             },
         }
 
-    def _project_task(self, item: dict[str, Any]) -> dict[str, Any]:
+    def _project_task(self, item: dict[str, Any], *, now: datetime) -> dict[str, Any]:
         due_at = self._parse_dt(item.get("due_at"))
+        is_overdue = (
+            due_at is not None
+            and due_at < now
+            and not bool(item.get("completed", False))
+        )
         return {
             "item_type": "task",
             "item_id": item.get("task_id"),
@@ -239,12 +267,17 @@ class PlanningProjectionService:
             "title": item.get("title"),
             "description": item.get("description"),
             "sort_at": self._format_optional_dt(due_at),
+            "start_at": self._format_optional_dt(due_at),
             "starts_at": self._format_optional_dt(due_at),
+            "end_at": None,
             "ends_at": None,
+            "due_at": self._format_optional_dt(due_at),
             "business_at": self._format_optional_dt(due_at),
             "business_end_at": None,
             "status": "completed" if bool(item.get("completed", False)) else "pending",
             "completed": bool(item.get("completed", False)),
+            "is_overdue": is_overdue,
+            "overdue_at": self._format_optional_dt(due_at) if is_overdue else None,
             "enabled": True,
             "priority": item.get("priority"),
             "time_kind": "due" if due_at else "backlog",
@@ -269,12 +302,17 @@ class PlanningProjectionService:
             "title": item.get("title"),
             "description": item.get("description"),
             "sort_at": self._format_optional_dt(start_at),
+            "start_at": self._format_optional_dt(start_at),
             "starts_at": self._format_optional_dt(start_at),
+            "end_at": self._format_optional_dt(end_at),
             "ends_at": self._format_optional_dt(end_at),
+            "due_at": None,
             "business_at": self._format_optional_dt(start_at),
             "business_end_at": self._format_optional_dt(end_at),
             "status": "scheduled",
             "completed": False,
+            "is_overdue": False,
+            "overdue_at": None,
             "enabled": True,
             "priority": item.get("priority"),
             "time_kind": "window",
@@ -288,9 +326,17 @@ class PlanningProjectionService:
             "linked_reminder_id": item.get("linked_reminder_id"),
         }
 
-    def _project_reminder(self, item: dict[str, Any]) -> dict[str, Any]:
+    def _project_reminder(self, item: dict[str, Any], *, now: datetime) -> dict[str, Any]:
         trigger_at = self._parse_dt(
             item.get("next_trigger_at") or item.get("snoozed_until") or item.get("time")
+        )
+        status = item.get("status") or ("scheduled" if bool(item.get("enabled", True)) else "disabled")
+        normalized_status = str(status).strip().lower()
+        is_overdue = normalized_status == "overdue" or (
+            trigger_at is not None
+            and trigger_at < now
+            and item.get("completed_at") is None
+            and normalized_status in {"scheduled", "snoozed"}
         )
         return {
             "item_type": "reminder",
@@ -301,12 +347,17 @@ class PlanningProjectionService:
             "title": item.get("title"),
             "description": item.get("message"),
             "sort_at": self._format_optional_dt(trigger_at),
+            "start_at": self._format_optional_dt(trigger_at),
             "starts_at": self._format_optional_dt(trigger_at),
+            "end_at": None,
             "ends_at": None,
+            "due_at": None,
             "business_at": self._format_optional_dt(trigger_at),
             "business_end_at": None,
-            "status": item.get("status") or ("scheduled" if bool(item.get("enabled", True)) else "disabled"),
+            "status": status,
             "completed": item.get("completed_at") is not None or str(item.get("status") or "").strip().lower() == "completed",
+            "is_overdue": is_overdue,
+            "overdue_at": self._format_optional_dt(trigger_at) if is_overdue else None,
             "enabled": bool(item.get("enabled", True)),
             "priority": item.get("priority"),
             "time_kind": "trigger",
@@ -479,6 +530,32 @@ class PlanningProjectionService:
             if parsed is not None:
                 return parsed
         return self.now_provider()
+
+    @staticmethod
+    def _resolve_target_date(value: date | str | None) -> date | None:
+        if value is None:
+            return None
+        if isinstance(value, date):
+            return value
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+
+    @classmethod
+    def _timeline_matches_date(cls, item: dict[str, Any], target_date: date) -> bool:
+        for key in ("start_at", "due_at", "next_trigger_at", "sort_at"):
+            parsed = cls._parse_dt(item.get(key))
+            if parsed is not None and parsed.date() == target_date:
+                return True
+
+        start_at = cls._parse_dt(item.get("start_at"))
+        end_at = cls._parse_dt(item.get("end_at"))
+        if start_at is not None and end_at is not None:
+            return start_at.date() <= target_date <= end_at.date()
+        return False
 
     @staticmethod
     def _is_high_priority(item: dict[str, Any]) -> bool:

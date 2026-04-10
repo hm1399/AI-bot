@@ -25,6 +25,18 @@ REMINDER_RUNTIME_FIELDS = (
     "completed_at",
     "status",
 )
+REMINDER_REPEAT_FIELDS = {
+    "daily",
+    "once",
+    "weekdays",
+    "weekends",
+}
+REMINDER_STATUS_FIELDS = {
+    "completed",
+    "overdue",
+    "scheduled",
+    "snoozed",
+}
 NOTIFICATION_ORIGIN_ALIASES = {
     "linked_task_id": "task_id",
     "linked_event_id": "event_id",
@@ -254,7 +266,11 @@ class AppResourceService:
         elif not partial:
             normalized["message"] = None
         if "repeat" in payload:
-            normalized["repeat"] = self._require_string(payload.get("repeat"), "repeat")
+            normalized["repeat"] = self._enum_string(
+                payload.get("repeat"),
+                "repeat",
+                REMINDER_REPEAT_FIELDS,
+            )
         elif not partial:
             normalized["repeat"] = "daily"
         if "enabled" in payload:
@@ -262,7 +278,7 @@ class AppResourceService:
         elif not partial:
             normalized["enabled"] = True
         normalized.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
-        normalized.update(self._normalize_optional_fields(payload, REMINDER_RUNTIME_FIELDS))
+        normalized.update(self._normalize_reminder_runtime_fields(payload))
         return normalized
 
     @staticmethod
@@ -300,6 +316,21 @@ class AppResourceService:
         for field in fields:
             if field in payload:
                 normalized[field] = cls._optional_string(payload.get(field), field)
+        return normalized
+
+    @classmethod
+    def _normalize_reminder_runtime_fields(cls, payload: dict[str, Any]) -> dict[str, str | None]:
+        normalized = cls._normalize_optional_fields(payload, REMINDER_RUNTIME_FIELDS)
+        if "status" in payload:
+            status = payload.get("status")
+            if status is None:
+                normalized["status"] = None
+            else:
+                normalized["status"] = cls._enum_string(
+                    status,
+                    "status",
+                    REMINDER_STATUS_FIELDS,
+                )
         return normalized
 
     @staticmethod

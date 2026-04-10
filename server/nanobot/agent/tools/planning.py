@@ -35,10 +35,25 @@ class PlanningBackend(Protocol):
     async def create_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         ...
 
+    async def update_event(self, event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
     async def create_reminder(self, payload: dict[str, Any]) -> dict[str, Any]:
         ...
 
     async def update_reminder(self, reminder_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    async def snooze_reminder(
+        self,
+        reminder_id: str,
+        *,
+        snoozed_until: str | None = None,
+        delay_minutes: int = 10,
+    ) -> dict[str, Any]:
+        ...
+
+    async def complete_reminder(self, reminder_id: str) -> dict[str, Any]:
         ...
 
     async def list_reminders(self, *, limit: int | None = None) -> dict[str, Any]:
@@ -65,10 +80,15 @@ class PlanningTool(Tool):
             "planning_turn_results",
             default=[],
         )
+        self._turn_bundle_id_var: ContextVar[str | None] = ContextVar(
+            "planning_turn_bundle_id",
+            default=None,
+        )
 
     def start_turn(self) -> None:
         """Reset per-turn structured tool results."""
         self._turn_results_var.set([])
+        self._turn_bundle_id_var.set(None)
 
     def consume_turn_results(self) -> list[dict[str, Any]]:
         """Return and clear structured results for the current turn."""
@@ -141,12 +161,19 @@ class PlanningTool(Tool):
                     "type": "string",
                     "description": "Target day for list_today, formatted as YYYY-MM-DD.",
                 },
+                "created_via": {"type": "string", "description": "Optional origin label."},
+                "source_channel": {"type": "string", "description": "Optional source channel."},
+                "source_message_id": {"type": "string", "description": "Optional source message id."},
+                "source_session_id": {"type": "string", "description": "Optional source session id."},
+                "linked_task_id": {"type": "string", "description": "Optional linked task id."},
+                "linked_event_id": {"type": "string", "description": "Optional linked event id."},
+                "linked_reminder_id": {"type": "string", "description": "Optional linked reminder id."},
             },
             "required": ["action"],
         }
 
     async def execute(self, action: str, **kwargs: Any) -> str:
-        bundle_id = f"planning_{uuid4().hex}"
+        bundle_id = self._bundle_id_for_turn()
         try:
             if action == "create_task":
                 result = await self._create_task(bundle_id=bundle_id, **kwargs)
@@ -181,18 +208,40 @@ class PlanningTool(Tool):
         description: str | None = None,
         priority: str | None = None,
         due_at: str | None = None,
+        created_via: str | None = None,
+        source_channel: str | None = None,
+        source_message_id: str | None = None,
+        source_session_id: str | None = None,
+        linked_event_id: str | None = None,
+        linked_reminder_id: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
         clean_title = self._require_text(title, "title")
         clean_priority = self._normalize_priority(priority)
         normalized_due_at = self._normalize_datetime(due_at, "due_at") if due_at else None
+        metadata = self._build_creation_metadata(
+            resource_type="task",
+            bundle_id=bundle_id,
+            created_via=created_via,
+            source_channel=source_channel,
+            source_message_id=source_message_id,
+            source_session_id=source_session_id,
+            linked_event_id=linked_event_id,
+            linked_reminder_id=linked_reminder_id,
+        )
         task = await self._backend.create_task(
             {
                 "title": clean_title,
                 "description": self._clean_optional_text(description),
                 "priority": clean_priority,
                 "due_at": normalized_due_at,
+                **metadata,
             }
+        )
+        await self._backfill_linked_resources(
+            task_id=task["task_id"],
+            event_id=task.get("linked_event_id"),
+            reminder_id=task.get("linked_reminder_id"),
         )
         return self._result_payload(
             bundle_id=bundle_id,
@@ -212,6 +261,12 @@ class PlanningTool(Tool):
         end_at: str | None = None,
         description: str | None = None,
         location: str | None = None,
+        created_via: str | None = None,
+        source_channel: str | None = None,
+        source_message_id: str | None = None,
+        source_session_id: str | None = None,
+        linked_task_id: str | None = None,
+        linked_reminder_id: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
         clean_title = self._require_text(title, "title")
@@ -223,6 +278,16 @@ class PlanningTool(Tool):
             raise ValueError("end_at must be after start_at")
 
         conflicts = await self._detect_event_conflicts(start_dt, end_dt)
+        metadata = self._build_creation_metadata(
+            resource_type="event",
+            bundle_id=bundle_id,
+            created_via=created_via,
+            source_channel=source_channel,
+            source_message_id=source_message_id,
+            source_session_id=source_session_id,
+            linked_task_id=linked_task_id,
+            linked_reminder_id=linked_reminder_id,
+        )
         event = await self._backend.create_event(
             {
                 "title": clean_title,
@@ -230,7 +295,13 @@ class PlanningTool(Tool):
                 "end_at": normalized_end_at,
                 "description": self._clean_optional_text(description),
                 "location": self._clean_optional_text(location),
+                **metadata,
             }
+        )
+        await self._backfill_linked_resources(
+            task_id=event.get("linked_task_id"),
+            event_id=event["event_id"],
+            reminder_id=event.get("linked_reminder_id"),
         )
         return self._result_payload(
             bundle_id=bundle_id,
@@ -254,11 +325,27 @@ class PlanningTool(Tool):
         time: str | None = None,
         message: str | None = None,
         repeat: str | None = None,
+        created_via: str | None = None,
+        source_channel: str | None = None,
+        source_message_id: str | None = None,
+        source_session_id: str | None = None,
+        linked_task_id: str | None = None,
+        linked_event_id: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
         clean_title = self._require_text(title, "title")
         normalized_time = self._normalize_reminder_time(time)
         normalized_repeat = self._normalize_repeat(repeat)
+        metadata = self._build_creation_metadata(
+            resource_type="reminder",
+            bundle_id=bundle_id,
+            created_via=created_via,
+            source_channel=source_channel,
+            source_message_id=source_message_id,
+            source_session_id=source_session_id,
+            linked_task_id=linked_task_id,
+            linked_event_id=linked_event_id,
+        )
         reminder = await self._backend.create_reminder(
             {
                 "title": clean_title,
@@ -266,7 +353,13 @@ class PlanningTool(Tool):
                 "message": self._clean_optional_text(message),
                 "repeat": normalized_repeat,
                 "enabled": True,
+                **metadata,
             }
+        )
+        await self._backfill_linked_resources(
+            task_id=reminder.get("linked_task_id"),
+            event_id=reminder.get("linked_event_id"),
+            reminder_id=reminder["reminder_id"],
         )
         return self._result_payload(
             bundle_id=bundle_id,
@@ -309,21 +402,18 @@ class PlanningTool(Tool):
     ) -> dict[str, Any]:
         clean_reminder_id = self._require_text(reminder_id, "reminder_id")
         reminder = await self._get_reminder(clean_reminder_id)
-        normalized_time = self._resolve_snooze_time(reminder, until=until, minutes=minutes)
-        updated = await self._backend.update_reminder(
+        normalized_until = self._resolve_snooze_time(reminder, until=until, minutes=minutes)
+        updated = await self._backend.snooze_reminder(
             clean_reminder_id,
-            {
-                "time": normalized_time,
-                "repeat": "once",
-                "enabled": True,
-            },
+            snoozed_until=normalized_until,
+            delay_minutes=minutes or 10,
         )
         return self._result_payload(
             bundle_id=bundle_id,
             action="snooze_reminder",
             resource_ids={"reminder_id": updated["reminder_id"]},
             normalized_times={
-                "time": updated.get("time") or normalized_time,
+                "snoozed_until": updated.get("snoozed_until") or normalized_until,
                 "next_trigger_at": updated.get("next_trigger_at"),
             },
             result={"reminder": updated},
@@ -423,6 +513,75 @@ class PlanningTool(Tool):
         else:
             base_dt = datetime.now().astimezone()
         return (base_dt + timedelta(minutes=minutes)).isoformat()
+
+    def _bundle_id_for_turn(self) -> str:
+        bundle_id = self._turn_bundle_id_var.get()
+        if bundle_id is None:
+            bundle_id = f"planning_{uuid4().hex}"
+            self._turn_bundle_id_var.set(bundle_id)
+        return bundle_id
+
+    def _build_creation_metadata(
+        self,
+        *,
+        resource_type: str,
+        bundle_id: str,
+        created_via: str | None = None,
+        source_channel: str | None = None,
+        source_message_id: str | None = None,
+        source_session_id: str | None = None,
+        linked_task_id: str | None = None,
+        linked_event_id: str | None = None,
+        linked_reminder_id: str | None = None,
+    ) -> dict[str, Any]:
+        recent_resource_ids = self._latest_created_resource_ids()
+        metadata: dict[str, Any] = {
+            "bundle_id": bundle_id,
+            "created_via": self._clean_optional_text(created_via) or "agent",
+            "source_channel": self._clean_optional_text(source_channel) or "agent",
+        }
+        optional_source_fields = {
+            "source_message_id": self._clean_optional_text(source_message_id),
+            "source_session_id": self._clean_optional_text(source_session_id),
+        }
+        metadata.update({key: value for key, value in optional_source_fields.items() if value is not None})
+
+        if resource_type != "task":
+            metadata["linked_task_id"] = self._clean_optional_text(linked_task_id) or recent_resource_ids.get("task_id")
+        if resource_type != "event":
+            metadata["linked_event_id"] = self._clean_optional_text(linked_event_id) or recent_resource_ids.get("event_id")
+        if resource_type != "reminder":
+            metadata["linked_reminder_id"] = self._clean_optional_text(linked_reminder_id) or recent_resource_ids.get("reminder_id")
+        return {key: value for key, value in metadata.items() if value is not None}
+
+    def _latest_created_resource_ids(self) -> dict[str, str]:
+        resource_ids: dict[str, str] = {}
+        for payload in reversed(self._turn_results_var.get()):
+            current_ids = payload.get("resource_ids", {})
+            if not isinstance(current_ids, dict):
+                continue
+            for key in ("task_id", "event_id", "reminder_id"):
+                value = current_ids.get(key)
+                if key not in resource_ids and isinstance(value, str) and value.strip():
+                    resource_ids[key] = value.strip()
+        return resource_ids
+
+    async def _backfill_linked_resources(
+        self,
+        *,
+        task_id: str | None = None,
+        event_id: str | None = None,
+        reminder_id: str | None = None,
+    ) -> None:
+        if task_id and event_id:
+            await self._backend.update_task(task_id, {"linked_event_id": event_id})
+            await self._backend.update_event(event_id, {"linked_task_id": task_id})
+        if task_id and reminder_id:
+            await self._backend.update_task(task_id, {"linked_reminder_id": reminder_id})
+            await self._backend.update_reminder(reminder_id, {"linked_task_id": task_id})
+        if event_id and reminder_id:
+            await self._backend.update_event(event_id, {"linked_reminder_id": reminder_id})
+            await self._backend.update_reminder(reminder_id, {"linked_event_id": event_id})
 
     @staticmethod
     def _result_payload(

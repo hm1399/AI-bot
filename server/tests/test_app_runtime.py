@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -554,6 +555,173 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         ))
         self.assertEqual(deleted_reminder.status, 200)
         self.assertEqual(ws.sent[-1]["event_type"], "reminder.deleted")
+
+    async def test_patch_reminder_rejects_runtime_action_fields(self) -> None:
+        created = await self.service.handle_create_reminder(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "title": "Morning Standup",
+                "time": "09:00",
+                "repeat": "daily",
+                "enabled": True,
+            },
+        ))
+        reminder_id = json.loads(created.text)["data"]["reminder_id"]
+
+        patched = await self.service.handle_patch_reminder(FakeRequest(
+            headers=self.headers,
+            match_info={"reminder_id": reminder_id},
+            json_body={"status": "completed"},
+        ))
+
+        self.assertEqual(patched.status, 400)
+        payload = json.loads(patched.text)
+        self.assertEqual(payload["error"]["code"], "INVALID_ARGUMENT")
+
+    async def test_create_reminder_rejects_invalid_repeat_value(self) -> None:
+        created = await self.service.handle_create_reminder(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "title": "Morning Standup",
+                "time": "09:00",
+                "repeat": "monthly",
+                "enabled": True,
+            },
+        ))
+
+        self.assertEqual(created.status, 400)
+        payload = json.loads(created.text)
+        self.assertEqual(payload["error"]["code"], "INVALID_ARGUMENT")
+
+    async def test_reminder_action_route_supports_snooze_and_complete(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+        now = datetime.now().astimezone().replace(microsecond=0)
+        reminder_time = (now + timedelta(hours=1)).isoformat()
+        snooze_until = (now + timedelta(hours=1, minutes=30)).isoformat()
+
+        created = await self.service.handle_create_reminder(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "title": "Morning Standup",
+                "time": reminder_time,
+                "repeat": "once",
+                "enabled": True,
+            },
+        ))
+        reminder_id = json.loads(created.text)["data"]["reminder_id"]
+
+        snoozed = await self.service.handle_post_reminder_action(FakeRequest(
+            headers=self.headers,
+            match_info={"reminder_id": reminder_id},
+            json_body={
+                "action": "snooze",
+                "until": snooze_until,
+            },
+        ))
+        self.assertEqual(snoozed.status, 200)
+        snoozed_payload = json.loads(snoozed.text)["data"]
+        self.assertEqual(snoozed_payload["status"], "snoozed")
+        self.assertEqual(snoozed_payload["snoozed_until"], snooze_until)
+        self.assertEqual(ws.sent[-1]["event_type"], "reminder.updated")
+
+        completed = await self.service.handle_post_reminder_action(FakeRequest(
+            headers=self.headers,
+            match_info={"reminder_id": reminder_id},
+            json_body={"action": "complete"},
+        ))
+        self.assertEqual(completed.status, 200)
+        completed_payload = json.loads(completed.text)["data"]
+        self.assertEqual(completed_payload["status"], "completed")
+        self.assertFalse(completed_payload["enabled"])
+        self.assertEqual(ws.sent[-1]["event_type"], "reminder.updated")
+
+    async def test_create_planning_bundle_creates_linked_resources(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+        now = datetime.now().astimezone().replace(microsecond=0)
+        event_start = (now + timedelta(hours=2)).isoformat()
+        event_end = (now + timedelta(hours=3)).isoformat()
+        reminder_time = (now + timedelta(hours=1, minutes=50)).isoformat()
+
+        created = await self.service.handle_create_planning_bundle(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "created_via": "manual",
+                "source_channel": "app",
+                "source_message_id": "msg_local_001",
+                "source_session_id": "app:main",
+                "tasks": [
+                    {
+                        "title": "Prepare agenda",
+                        "priority": "high",
+                    }
+                ],
+                "events": [
+                    {
+                        "title": "Planning",
+                        "start_at": event_start,
+                        "end_at": event_end,
+                    }
+                ],
+                "reminders": [
+                    {
+                        "title": "Join room",
+                        "time": reminder_time,
+                        "repeat": "once",
+                    }
+                ],
+            },
+        ))
+
+        self.assertEqual(created.status, 201)
+        payload = json.loads(created.text)["data"]
+        self.assertEqual(payload["counts"], {"tasks": 1, "events": 1, "reminders": 1, "notifications": 0})
+        self.assertEqual(payload["tasks"][0]["created_via"], "manual")
+        self.assertEqual(payload["events"][0]["linked_task_id"], payload["tasks"][0]["task_id"])
+        self.assertEqual(payload["reminders"][0]["linked_event_id"], payload["events"][0]["event_id"])
+        self.assertEqual(payload["reminders"][0]["status"], "scheduled")
+        self.assertEqual(
+            [event["event_type"] for event in ws.sent[-3:]],
+            ["task.created", "event.created", "reminder.created"],
+        )
+
+    async def test_planning_timeline_supports_date_filter(self) -> None:
+        self.service.resources.create_task({
+            "title": "Today task",
+            "priority": "high",
+            "due_at": "2026-04-09T18:00:00+08:00",
+        })
+        self.service.resources.create_task({
+            "title": "Tomorrow task",
+            "priority": "medium",
+            "due_at": "2026-04-10T10:00:00+08:00",
+        })
+        self.service.resources.create_event({
+            "title": "Overnight shift",
+            "start_at": "2026-04-08T23:00:00+08:00",
+            "end_at": "2026-04-09T02:00:00+08:00",
+        })
+        reminder = self.service.resources.create_reminder({
+            "title": "Today reminder",
+            "time": "2026-04-09T11:00:00+08:00",
+            "repeat": "once",
+            "enabled": True,
+        })
+        await self.service.reminder_scheduler.sync_reminder(reminder["reminder_id"])
+        await self.service.refresh_planning_state()
+
+        filtered = await self.service.handle_planning_timeline(FakeRequest(
+            headers=self.headers,
+            query={"date": "2026-04-09"},
+        ))
+
+        self.assertEqual(filtered.status, 200)
+        items = json.loads(filtered.text)["data"]["items"]
+        self.assertEqual(
+            [item["title"] for item in items],
+            ["Overnight shift", "Today reminder", "Today task"],
+        )
 
     async def test_device_commands_route_handles_offline_and_success(self) -> None:
         offline = await self.service.handle_device_command(FakeRequest(

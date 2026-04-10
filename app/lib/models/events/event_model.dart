@@ -43,6 +43,12 @@ class EventModel {
   final List<String> conflictSummaries;
   final Map<String, dynamic> planningMetadata;
 
+  DateTime? get startDateTime => _tryParseDateTime(startAt);
+
+  DateTime? get endDateTime => _tryParseDateTime(endAt);
+
+  DateTime? get updatedDateTime => _tryParseDateTime(updatedAt ?? createdAt);
+
   EventModel copyWith({
     String? title,
     String? description,
@@ -214,4 +220,11 @@ List<String> _readConflictSummaries(Map<String, dynamic> json) {
     }
   }
   return summaries.toSet().toList();
+}
+
+DateTime? _tryParseDateTime(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(value);
 }

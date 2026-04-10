@@ -77,6 +77,9 @@ class PlanningBundleService:
         source_channel: str | None = None,
         source_message_id: str | None = None,
         source_session_id: str | None = None,
+        linked_task_id: str | None = None,
+        linked_event_id: str | None = None,
+        linked_reminder_id: str | None = None,
     ) -> dict[str, Any]:
         merged = deepcopy(dict(source_metadata or {}))
         explicit = {
@@ -85,6 +88,9 @@ class PlanningBundleService:
             "source_channel": source_channel,
             "source_message_id": source_message_id,
             "source_session_id": source_session_id,
+            "linked_task_id": linked_task_id,
+            "linked_event_id": linked_event_id,
+            "linked_reminder_id": linked_reminder_id,
         }
         for key, value in explicit.items():
             if value is not None:
@@ -171,6 +177,11 @@ class PlanningBundleService:
             )
             for payload in (notifications or [])
         ]
+        created_tasks, created_events, created_reminders = self._auto_link_created_resources(
+            created_tasks=created_tasks,
+            created_events=created_events,
+            created_reminders=created_reminders,
+        )
 
         return {
             "bundle_id": resolved_bundle_id,
@@ -189,3 +200,43 @@ class PlanningBundleService:
 
     def new_bundle_id(self) -> str:
         return self._id_factory()
+
+    def _auto_link_created_resources(
+        self,
+        *,
+        created_tasks: list[dict[str, Any]],
+        created_events: list[dict[str, Any]],
+        created_reminders: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        task_id = created_tasks[0]["task_id"] if len(created_tasks) == 1 else None
+        event_id = created_events[0]["event_id"] if len(created_events) == 1 else None
+        reminder_id = created_reminders[0]["reminder_id"] if len(created_reminders) == 1 else None
+
+        linked_tasks: list[dict[str, Any]] = []
+        for item in created_tasks:
+            patch: dict[str, Any] = {}
+            if event_id and not item.get("linked_event_id"):
+                patch["linked_event_id"] = event_id
+            if reminder_id and not item.get("linked_reminder_id"):
+                patch["linked_reminder_id"] = reminder_id
+            linked_tasks.append(self.resources.update_task(item["task_id"], patch) if patch else item)
+
+        linked_events: list[dict[str, Any]] = []
+        for item in created_events:
+            patch = {}
+            if task_id and not item.get("linked_task_id"):
+                patch["linked_task_id"] = task_id
+            if reminder_id and not item.get("linked_reminder_id"):
+                patch["linked_reminder_id"] = reminder_id
+            linked_events.append(self.resources.update_event(item["event_id"], patch) if patch else item)
+
+        linked_reminders: list[dict[str, Any]] = []
+        for item in created_reminders:
+            patch = {}
+            if task_id and not item.get("linked_task_id"):
+                patch["linked_task_id"] = task_id
+            if event_id and not item.get("linked_event_id"):
+                patch["linked_event_id"] = event_id
+            linked_reminders.append(self.resources.update_reminder(item["reminder_id"], patch) if patch else item)
+
+        return linked_tasks, linked_events, linked_reminders

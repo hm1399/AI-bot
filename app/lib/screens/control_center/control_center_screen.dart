@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../models/home/runtime_state_model.dart';
+import '../../models/planning/planning_editor_models.dart';
 import '../../models/reminders/reminder_model.dart';
 import '../../providers/app_providers.dart';
+import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
 import '../../widgets/common/status_pill.dart';
 import '../../widgets/control/notification_panel.dart';
 import '../../widgets/control/reminder_panel.dart';
+import '../../widgets/planning/planning_editor_dialog.dart';
 import 'control_center_permissions.dart';
 
 class ControlCenterScreen extends ConsumerStatefulWidget {
@@ -53,10 +56,7 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
       deviceConnected: runtime.device.connected,
       commandPending: runtime.device.lastCommand.isPending,
     );
-    final planning = _ControlCenterPlanningSnapshot.fromSources(
-      state: state,
-      controller: controller,
-    );
+    final planning = _ControlCenterPlanningSnapshot.fromSources(state: state);
 
     final controls = runtime.device.controls;
     final runtimeSyncToken =
@@ -215,133 +215,23 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
           items: state.reminders,
           statusMessage: state.remindersMessage,
           onRefresh: controller.loadReminders,
-          onAdd: () => _openReminderEditor(context),
+          onAdd: () => showPlanningEditorDialog(
+            context,
+            kind: PlanningEditorKind.reminder,
+            origin: 'control_center_manual',
+          ),
           onToggleEnabled: (ReminderModel item, bool enabled) =>
               controller.setReminderEnabled(item.id, enabled),
-          onEdit: (ReminderModel item) =>
-              _openReminderEditor(context, existing: item),
+          onEdit: (ReminderModel item) => showPlanningEditorDialog(
+            context,
+            kind: PlanningEditorKind.reminder,
+            origin: 'control_center_manual',
+            reminder: item,
+          ),
           onDelete: (ReminderModel item) => controller.deleteReminder(item.id),
         ),
       ],
     );
-  }
-
-  Future<void> _openReminderEditor(
-    BuildContext context, {
-    ReminderModel? existing,
-  }) async {
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final messageController = TextEditingController(
-      text: existing?.message ?? '',
-    );
-    final timeController = TextEditingController(text: existing?.time ?? '');
-    var repeat = existing?.repeat ?? 'daily';
-    var enabled = existing?.enabled ?? true;
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setState) {
-            return AlertDialog(
-              title: Text(existing == null ? 'Add Reminder' : 'Edit Reminder'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    TextField(
-                      controller: titleController,
-                      autofocus: true,
-                      decoration: const InputDecoration(labelText: 'Title'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: messageController,
-                      decoration: const InputDecoration(labelText: 'Message'),
-                      minLines: 2,
-                      maxLines: 4,
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: timeController,
-                      decoration: const InputDecoration(
-                        labelText: 'Time',
-                        hintText: '09:00',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: repeat,
-                      decoration: const InputDecoration(labelText: 'Repeat'),
-                      items: const <DropdownMenuItem<String>>[
-                        DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                        DropdownMenuItem(
-                          value: 'weekdays',
-                          child: Text('Weekdays'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'weekends',
-                          child: Text('Weekends'),
-                        ),
-                        DropdownMenuItem(value: 'once', child: Text('Once')),
-                      ],
-                      onChanged: (String? value) {
-                        if (value != null) {
-                          setState(() => repeat = value);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile.adaptive(
-                      value: enabled,
-                      onChanged: (bool value) {
-                        setState(() => enabled = value);
-                      },
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Enabled'),
-                    ),
-                  ],
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (saved == true) {
-      final reminder = ReminderModel(
-        id:
-            existing?.id ??
-            'rem_local_${DateTime.now().millisecondsSinceEpoch}',
-        title: titleController.text.trim(),
-        message: messageController.text.trim(),
-        time: timeController.text.trim(),
-        repeat: repeat,
-        enabled: enabled,
-        createdAt: existing?.createdAt ?? DateTime.now().toIso8601String(),
-        updatedAt: DateTime.now().toIso8601String(),
-      );
-      if (existing == null) {
-        await ref.read(appControllerProvider.notifier).createReminder(reminder);
-      } else {
-        await ref.read(appControllerProvider.notifier).updateReminder(reminder);
-      }
-    }
-
-    titleController.dispose();
-    messageController.dispose();
-    timeController.dispose();
   }
 }
 
@@ -683,145 +573,22 @@ class _ControlCenterPlanningSnapshot {
   final String nextTimelineLabel;
 
   factory _ControlCenterPlanningSnapshot.fromSources({
-    required Object state,
-    required Object controller,
+    required AppState state,
   }) {
-    final overview = _coerceStringMap(
-      _readPlanningProperty(
-        state: state,
-        controller: controller,
-        name: 'planningOverview',
-      ),
-    );
-    final timeline = _coerceList(
-      _readPlanningProperty(
-        state: state,
-        controller: controller,
-        name: 'planningTimeline',
-      ),
-    );
-    final conflicts = _coerceList(
-      _readPlanningProperty(
-        state: state,
-        controller: controller,
-        name: 'planningConflicts',
-      ),
-    );
-    final dynamic dynamicState = state;
-    final reminders = (dynamicState.reminders as List<dynamic>)
-        .whereType<ReminderModel>()
+    final overview = state.planningOverview;
+    final timeline = state.planningTimeline;
+    final conflicts = state.planningConflicts;
+    final reminders = state.reminders
         .where((ReminderModel item) => item.enabled)
         .length;
 
     return _ControlCenterPlanningSnapshot(
-      activeReminders:
-          _lookupInt(overview, <String>[
-            'active_reminders',
-            'activeReminderCount',
-          ]) ??
-          reminders,
-      conflictCount:
-          _lookupInt(overview, <String>['conflict_count', 'conflictCount']) ??
-          conflicts.length,
+      activeReminders: overview?.activeReminderCount ?? reminders,
+      conflictCount: overview?.conflictCount ?? conflicts.length,
       nextTimelineLabel:
-          _lookupString(overview, <String>[
-            'next_item_title',
-            'nextItemTitle',
-            'next_event_title',
-            'nextEventTitle',
-          ]) ??
-          _deriveTimelineLabel(timeline) ??
+          overview?.nextItemTitle ??
+          (timeline.isEmpty ? null : timeline.first.title) ??
           'Open Tasks for the full workbench view',
     );
   }
-}
-
-Object? _readPlanningProperty({
-  required Object state,
-  required Object controller,
-  required String name,
-}) {
-  Object? readFrom(Object target) {
-    try {
-      final dynamic dynamicTarget = target;
-      switch (name) {
-        case 'planningOverview':
-          return dynamicTarget.planningOverview;
-        case 'planningTimeline':
-          return dynamicTarget.planningTimeline;
-        case 'planningConflicts':
-          return dynamicTarget.planningConflicts;
-      }
-    } catch (_) {
-      return null;
-    }
-    return null;
-  }
-
-  return readFrom(state) ?? readFrom(controller);
-}
-
-Map<String, dynamic> _coerceStringMap(Object? value) {
-  if (value is Map<String, dynamic>) {
-    return value;
-  }
-  if (value is Map) {
-    return value.map<String, dynamic>(
-      (Object? key, Object? item) => MapEntry(key.toString(), item),
-    );
-  }
-  return <String, dynamic>{};
-}
-
-List<Object?> _coerceList(Object? value) {
-  if (value is List<Object?>) {
-    return value;
-  }
-  if (value is List) {
-    return value.cast<Object?>();
-  }
-  return const <Object?>[];
-}
-
-String? _lookupString(Map<String, dynamic> map, List<String> keys) {
-  for (final key in keys) {
-    final value = map[key];
-    if (value is String && value.trim().isNotEmpty) {
-      return value.trim();
-    }
-    if (value is num || value is bool) {
-      return value.toString();
-    }
-  }
-  return null;
-}
-
-int? _lookupInt(Map<String, dynamic> map, List<String> keys) {
-  for (final key in keys) {
-    final value = map[key];
-    if (value is int) {
-      return value;
-    }
-    if (value is num) {
-      return value.toInt();
-    }
-    if (value is String) {
-      final parsed = int.tryParse(value);
-      if (parsed != null) {
-        return parsed;
-      }
-    }
-  }
-  return null;
-}
-
-String? _deriveTimelineLabel(List<Object?> timeline) {
-  for (final item in timeline) {
-    final map = _coerceStringMap(item);
-    final label = _lookupString(map, <String>['title', 'summary', 'label']);
-    if (label != null && label.isNotEmpty) {
-      return label;
-    }
-  }
-  return null;
 }

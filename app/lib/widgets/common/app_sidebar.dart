@@ -111,6 +111,8 @@ class _SidebarItem extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: selected ? chrome.textPrimary : chrome.textSecondary,
                   ),

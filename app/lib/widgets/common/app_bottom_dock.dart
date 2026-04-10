@@ -92,6 +92,9 @@ class _DockItem extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: selected ? chrome.textPrimary : chrome.textTertiary,
                   ),

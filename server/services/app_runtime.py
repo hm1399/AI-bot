@@ -5,7 +5,7 @@ from collections import deque
 import hmac
 import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +81,7 @@ class AppRuntimeService:
         )
         self.settings = SettingsService(self.cfg, self._runtime_dir)
         self.resources = AppResourceService(self._runtime_dir)
-        self.planning_bundle_service = PlanningBundleService()
+        self.planning_bundle_service = PlanningBundleService(self.resources)
         self.planning_projection_service = PlanningProjectionService()
         self.planning_summary_service = PlanningSummaryService()
         self.reminder_scheduler = ReminderScheduler(
@@ -116,7 +116,11 @@ class AppRuntimeService:
         app.router.add_get("/api/app/v1/reminders", self.handle_list_reminders)
         app.router.add_post("/api/app/v1/reminders", self.handle_create_reminder)
         app.router.add_patch("/api/app/v1/reminders/{reminder_id}", self.handle_patch_reminder)
+        app.router.add_post("/api/app/v1/reminders/{reminder_id}/actions", self.handle_post_reminder_action)
+        app.router.add_post("/api/app/v1/reminders/{reminder_id}/snooze", self.handle_snooze_reminder)
+        app.router.add_post("/api/app/v1/reminders/{reminder_id}/complete", self.handle_complete_reminder)
         app.router.add_delete("/api/app/v1/reminders/{reminder_id}", self.handle_delete_reminder)
+        app.router.add_post("/api/app/v1/planning/bundles", self.handle_create_planning_bundle)
         app.router.add_get("/api/app/v1/planning/overview", self.handle_planning_overview)
         app.router.add_get("/api/app/v1/planning/timeline", self.handle_planning_timeline)
         app.router.add_get("/api/app/v1/planning/conflicts", self.handle_planning_conflicts)
@@ -690,7 +694,15 @@ class AppRuntimeService:
         if payload is None:
             return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
         try:
-            task = self.resources.create_task(payload)
+            task = self.resources.create_task(
+                self.planning_bundle_service.attach_metadata(
+                    payload,
+                    source_metadata={
+                        "created_via": "app_manual",
+                        "source_channel": "app",
+                    },
+                )
+            )
         except ResourceValidationError as exc:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
         await self.refresh_planning_state()
@@ -739,7 +751,15 @@ class AppRuntimeService:
         if payload is None:
             return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
         try:
-            event = self.resources.create_event(payload)
+            event = self.resources.create_event(
+                self.planning_bundle_service.attach_metadata(
+                    payload,
+                    source_metadata={
+                        "created_via": "app_manual",
+                        "source_channel": "app",
+                    },
+                )
+            )
         except ResourceValidationError as exc:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
         await self.refresh_planning_state()
@@ -856,7 +876,15 @@ class AppRuntimeService:
         if payload is None:
             return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
         try:
-            reminder = self.resources.create_reminder(payload)
+            reminder = self.resources.create_reminder(
+                self.planning_bundle_service.attach_metadata(
+                    payload,
+                    source_metadata={
+                        "created_via": "app_manual",
+                        "source_channel": "app",
+                    },
+                )
+            )
         except ResourceValidationError as exc:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
         reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
@@ -870,6 +898,19 @@ class AppRuntimeService:
         payload = await self._read_json(request)
         if payload is None:
             return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        runtime_fields = {
+            "completed_at",
+            "last_triggered_at",
+            "next_trigger_at",
+            "snoozed_until",
+            "status",
+        }
+        if runtime_fields.intersection(payload):
+            return self._error(
+                "INVALID_ARGUMENT",
+                "runtime reminder fields must use the reminder action endpoints",
+                status=400,
+            )
         try:
             reminder = self.resources.update_reminder(request.match_info["reminder_id"], payload)
         except ResourceValidationError as exc:
@@ -880,6 +921,23 @@ class AppRuntimeService:
         await self.refresh_planning_state()
         await self._broadcast_event("reminder.updated", payload={"reminder": reminder}, scope="global")
         return self._ok(reminder)
+
+    async def handle_post_reminder_action(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        action = str(payload.get("action") or "").strip().lower()
+        if action == "snooze":
+            return await self.handle_snooze_reminder(request)
+        if action == "complete":
+            return await self.handle_complete_reminder(request)
+        return self._error(
+            "INVALID_ARGUMENT",
+            "action must be one of: complete, snooze",
+            status=400,
+        )
 
     async def handle_delete_reminder(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -893,6 +951,132 @@ class AppRuntimeService:
         await self._broadcast_event("reminder.deleted", payload={"reminder": reminder}, scope="global")
         return self._ok({"deleted": True, "reminder_id": reminder["reminder_id"]})
 
+    async def handle_snooze_reminder(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            payload = {}
+        until = str(
+            payload.get("until")
+            or payload.get("snoozed_until")
+            or ""
+        ).strip() or None
+        raw_minutes = payload.get("minutes") if "minutes" in payload else payload.get("delay_minutes")
+        if raw_minutes is None:
+            delay_minutes = 10
+        else:
+            try:
+                delay_minutes = int(raw_minutes)
+            except (TypeError, ValueError):
+                return self._error("INVALID_ARGUMENT", "minutes must be a positive integer", status=400)
+            if delay_minutes < 1:
+                return self._error("INVALID_ARGUMENT", "minutes must be a positive integer", status=400)
+        try:
+            reminder = await self.reminder_scheduler.snooze_reminder(
+                request.match_info["reminder_id"],
+                snoozed_until=until,
+                delay_minutes=delay_minutes,
+            )
+        except ValueError as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+        if reminder is None:
+            return self._error("REMINDER_NOT_FOUND", "reminder does not exist", status=404)
+        await self.refresh_planning_state()
+        await self._broadcast_event("reminder.updated", payload={"reminder": reminder}, scope="global")
+        return self._ok(reminder)
+
+    async def handle_complete_reminder(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        reminder = await self.reminder_scheduler.complete_reminder(request.match_info["reminder_id"])
+        if reminder is None:
+            return self._error("REMINDER_NOT_FOUND", "reminder does not exist", status=404)
+        await self.refresh_planning_state()
+        await self._broadcast_event("reminder.updated", payload={"reminder": reminder}, scope="global")
+        return self._ok(reminder)
+
+    async def handle_create_planning_bundle(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        task_payloads = list(payload.get("tasks") or [])
+        event_payloads = list(payload.get("events") or [])
+        reminder_payloads = list(payload.get("reminders") or [])
+        notification_payloads = list(payload.get("notifications") or [])
+        if isinstance(payload.get("task"), dict):
+            task_payloads.append(dict(payload["task"]))
+        if isinstance(payload.get("event"), dict):
+            event_payloads.append(dict(payload["event"]))
+        if isinstance(payload.get("reminder"), dict):
+            reminder_payloads.append(dict(payload["reminder"]))
+        if isinstance(payload.get("notification"), dict):
+            notification_payloads.append(dict(payload["notification"]))
+
+        if not any((task_payloads, event_payloads, reminder_payloads, notification_payloads)):
+            return self._error(
+                "INVALID_ARGUMENT",
+                "at least one planning resource is required",
+                status=400,
+            )
+
+        source_metadata = payload.get("source_metadata")
+        if source_metadata is None:
+            source_metadata = {}
+        if not isinstance(source_metadata, dict):
+            return self._error("INVALID_ARGUMENT", "source_metadata must be an object", status=400)
+        merged_source_metadata = self.planning_bundle_service.build_source_metadata(
+            {
+                "created_via": "app_manual",
+                "source_channel": "app",
+                **source_metadata,
+            },
+            bundle_id=str(payload.get("bundle_id") or "").strip() or None,
+            created_via=str(payload.get("created_via") or "").strip() or None,
+            source_channel=str(payload.get("source_channel") or "").strip() or None,
+            source_message_id=str(payload.get("source_message_id") or "").strip() or None,
+            source_session_id=str(payload.get("source_session_id") or "").strip() or None,
+            linked_task_id=str(payload.get("linked_task_id") or "").strip() or None,
+            linked_event_id=str(payload.get("linked_event_id") or "").strip() or None,
+            linked_reminder_id=str(payload.get("linked_reminder_id") or "").strip() or None,
+        )
+
+        try:
+            bundle = self.planning_bundle_service.create_bundle(
+                tasks=task_payloads,
+                events=event_payloads,
+                reminders=reminder_payloads,
+                notifications=notification_payloads,
+                source_metadata=merged_source_metadata,
+                bundle_id=str(payload.get("bundle_id") or "").strip() or None,
+            )
+        except (ResourceValidationError, ValueError) as exc:
+            return self._error("INVALID_ARGUMENT", str(exc), status=400)
+
+        synced_reminders: list[dict[str, Any]] = []
+        for reminder in bundle["reminders"]:
+            synced = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
+            synced_reminders.append(synced)
+        bundle["reminders"] = synced_reminders
+
+        await self.refresh_planning_state()
+        for task in bundle["tasks"]:
+            await self._broadcast_event("task.created", payload={"task": task}, scope="global")
+        for event in bundle["events"]:
+            await self._broadcast_event("event.created", payload={"event": event}, scope="global")
+        for reminder in bundle["reminders"]:
+            await self._broadcast_event("reminder.created", payload={"reminder": reminder}, scope="global")
+        for notification in bundle["notifications"]:
+            await self._broadcast_event(
+                "notification.created",
+                payload={"notification": notification},
+                scope="global",
+            )
+        return self._ok(bundle, status=201)
+
     async def handle_planning_overview(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
             return self._error("UNAUTHORIZED", "unauthorized", status=401)
@@ -901,7 +1085,13 @@ class AppRuntimeService:
     async def handle_planning_timeline(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
             return self._error("UNAUTHORIZED", "unauthorized", status=401)
-        return self._ok({"items": self.get_planning_timeline()})
+        target_date = request.query.get("date")
+        if target_date:
+            try:
+                date.fromisoformat(target_date)
+            except ValueError:
+                return self._error("INVALID_ARGUMENT", "date must use YYYY-MM-DD", status=400)
+        return self._ok({"items": self.get_planning_timeline(date=target_date)})
 
     async def handle_planning_conflicts(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -1109,8 +1299,8 @@ class AppRuntimeService:
         planning = self._planning_snapshot()
         return dict(planning["overview"])
 
-    def get_planning_timeline(self) -> list[dict[str, Any]]:
-        planning = self._planning_snapshot()
+    def get_planning_timeline(self, *, date: str | None = None) -> list[dict[str, Any]]:
+        planning = self._planning_snapshot(date=date)
         return [dict(item) for item in planning["timeline"]]
 
     def get_planning_conflicts(self) -> list[dict[str, Any]]:
@@ -1582,13 +1772,14 @@ class AppRuntimeService:
             "notifications": self.resources.notification_store.list_items(),
         }
 
-    def _planning_snapshot(self) -> dict[str, Any]:
+    def _planning_snapshot(self, *, date: str | None = None) -> dict[str, Any]:
         inputs = self._planning_inputs()
         overview = self.planning_projection_service.build_overview(**inputs)
         timeline = self.planning_projection_service.build_timeline(
             tasks=inputs["tasks"],
             events=inputs["events"],
             reminders=inputs["reminders"],
+            target_date=date,
         )
         conflicts = self.planning_projection_service.build_conflicts(
             tasks=inputs["tasks"],
@@ -1857,6 +2048,8 @@ class AppRuntimeService:
             "overview": True,
             "timeline": True,
             "conflicts": True,
+            "bundle_create_path": "/api/app/v1/planning/bundles",
+            "reminder_actions_path": "/api/app/v1/reminders/{reminder_id}/actions",
             "overview_path": "/api/app/v1/planning/overview",
             "timeline_path": "/api/app/v1/planning/timeline",
             "conflicts_path": "/api/app/v1/planning/conflicts",
@@ -1885,7 +2078,9 @@ class AppRuntimeService:
             "events": True,
             "notifications": True,
             "reminders": True,
+            "reminder_actions": True,
             "planning": True,
+            "planning_bundle": True,
             "planning_overview": True,
             "planning_timeline": True,
             "planning_conflicts": True,

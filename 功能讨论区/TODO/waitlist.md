@@ -140,3 +140,11 @@
 - 影响：后续如果继续把 “后端全量 unittest 全绿” 当成提交通道，会被这组既有 bootstrap 测试阻塞，也不利于区分“本轮回归”与“历史测试债务”。
 - 建议动作：后续单独立项修正 bootstrap 测试夹具，使其和当前 `create_http_app()` / `create_agent()` 的依赖契约对齐，再恢复全量后端 suite 作为稳定门禁。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-10-05 移动端底部 dock 在新增 `Agenda` 后已接近拥挤上限
+
+- 发现来源：本轮 `P1-1` 新增 `/app/agenda` 导航入口。
+- 当前状态：`app/lib/widgets/common/app_bottom_dock.dart` 仍是等宽平铺；现在主壳层已存在 `Home / Chat / Agenda / Tasks / Control / Settings` 六个入口。
+- 影响：在更窄的手机宽度下，底部图标加文案的可读性会继续下降，后续如果再新增主入口或做多语言文案，拥挤问题会更明显。
+- 建议动作：后续单独立项评估移动端是否需要改成“图标优先 + 精简文案”、可横向滚动 dock，或把低频入口收进 `More`。
+- 本轮处理：未处理。

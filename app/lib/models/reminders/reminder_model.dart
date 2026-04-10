@@ -57,6 +57,12 @@ class ReminderModel {
   final Map<String, dynamic> planningMetadata;
   final Map<String, dynamic> runtimeMetadata;
 
+  DateTime? get nextTriggerDateTime => _tryParseDateTime(nextTriggerAt);
+
+  DateTime? get snoozedUntilDateTime => _tryParseDateTime(snoozedUntil);
+
+  DateTime? get updatedDateTime => _tryParseDateTime(updatedAt);
+
   ReminderModel copyWith({
     String? title,
     String? message,
@@ -271,4 +277,11 @@ List<String> _readConflictSummaries(Map<String, dynamic> json) {
     }
   }
   return summaries.toSet().toList();
+}
+
+DateTime? _tryParseDateTime(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(value);
 }

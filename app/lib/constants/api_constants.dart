@@ -21,6 +21,7 @@ class ApiConstants {
       '$basePath/notifications/read-all';
   static const String remindersPath = '$basePath/reminders';
   static const String planningPath = '$basePath/planning';
+  static const String planningBundlesPath = '$planningPath/bundles';
   static const String planningOverviewPath = '$planningPath/overview';
   static const String planningTimelinePath = '$planningPath/timeline';
   static const String planningConflictsPath = '$planningPath/conflicts';

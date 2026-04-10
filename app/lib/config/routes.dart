@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../screens/agenda/agenda_screen.dart';
 import '../screens/chat/chat_screen.dart';
 import '../screens/connect/connect_screen.dart';
 import '../screens/control_center/control_center_screen.dart';
@@ -39,6 +40,11 @@ final routerProvider = Provider<GoRouter>((Ref ref) {
             path: '/app/chat',
             builder: (BuildContext context, GoRouterState state) =>
                 const ChatScreen(),
+          ),
+          GoRoute(
+            path: '/app/agenda',
+            builder: (BuildContext context, GoRouterState state) =>
+                const AgendaScreen(),
           ),
           GoRoute(
             path: '/app/tasks',

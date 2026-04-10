@@ -60,6 +60,12 @@ class PlanningBundleServiceTests(unittest.TestCase):
             self.assertEqual(created["tasks"][0]["bundle_id"], "bundle_test_001")
             self.assertEqual(created["events"][0]["source_message_id"], "msg_100")
             self.assertEqual(created["reminders"][0]["source_session_id"], "session_100")
+            self.assertEqual(created["tasks"][0]["linked_event_id"], created["events"][0]["event_id"])
+            self.assertEqual(created["tasks"][0]["linked_reminder_id"], created["reminders"][0]["reminder_id"])
+            self.assertEqual(created["events"][0]["linked_task_id"], created["tasks"][0]["task_id"])
+            self.assertEqual(created["events"][0]["linked_reminder_id"], created["reminders"][0]["reminder_id"])
+            self.assertEqual(created["reminders"][0]["linked_task_id"], created["tasks"][0]["task_id"])
+            self.assertEqual(created["reminders"][0]["linked_event_id"], created["events"][0]["event_id"])
 
 
 class PlanningProjectionServiceTests(unittest.TestCase):
@@ -133,6 +139,63 @@ class PlanningProjectionServiceTests(unittest.TestCase):
         self.assertEqual(
             {conflict["kind"] for conflict in projection["conflicts"]},
             {"event_overlap", "reminder_during_event", "task_due_conflict"},
+        )
+
+    def test_filter_timeline_for_date_returns_only_matching_items(self) -> None:
+        service = PlanningProjectionService()
+        timeline = service.build_timeline(
+            tasks=[
+                {
+                    "task_id": "task_today",
+                    "title": "Due today",
+                    "completed": False,
+                    "due_at": "2026-04-09T18:00:00+08:00",
+                },
+                {
+                    "task_id": "task_other",
+                    "title": "Due tomorrow",
+                    "completed": False,
+                    "due_at": "2026-04-10T09:00:00+08:00",
+                },
+            ],
+            events=[
+                {
+                    "event_id": "event_span",
+                    "title": "Overnight shift",
+                    "start_at": "2026-04-08T23:00:00+08:00",
+                    "end_at": "2026-04-09T02:00:00+08:00",
+                }
+            ],
+            reminders=[
+                {
+                    "reminder_id": "rem_today",
+                    "title": "Drink water",
+                    "time": "2026-04-09T10:00:00+08:00",
+                    "repeat": "once",
+                    "enabled": True,
+                    "next_trigger_at": "2026-04-09T10:00:00+08:00",
+                    "status": "scheduled",
+                },
+                {
+                    "reminder_id": "rem_other",
+                    "title": "Call mom",
+                    "time": "2026-04-10T10:00:00+08:00",
+                    "repeat": "once",
+                    "enabled": True,
+                    "next_trigger_at": "2026-04-10T10:00:00+08:00",
+                    "status": "scheduled",
+                },
+            ],
+        )
+
+        filtered = service.filter_timeline_for_date(
+            timeline,
+            "2026-04-09",
+        )
+
+        self.assertEqual(
+            [item["resource_id"] for item in filtered],
+            ["event_span", "rem_today", "task_today"],
         )
 
     def test_summary_service_supports_raw_inputs_and_projection_results(self) -> None:

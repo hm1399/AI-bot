@@ -124,6 +124,14 @@ class FakePlanningBackend:
             "priority": payload.get("priority", "medium"),
             "completed": False,
             "due_at": payload.get("due_at"),
+            "bundle_id": payload.get("bundle_id"),
+            "created_via": payload.get("created_via"),
+            "source_channel": payload.get("source_channel"),
+            "source_message_id": payload.get("source_message_id"),
+            "source_session_id": payload.get("source_session_id"),
+            "linked_task_id": payload.get("linked_task_id"),
+            "linked_event_id": payload.get("linked_event_id"),
+            "linked_reminder_id": payload.get("linked_reminder_id"),
             "updated_at": "2026-04-09T08:10:00+08:00",
         }
         self.tasks.append(task)
@@ -136,6 +144,14 @@ class FakePlanningBackend:
                 task["updated_at"] = "2026-04-09T08:11:00+08:00"
                 return task
         raise KeyError(task_id)
+
+    async def update_event(self, event_id: str, payload: dict[str, object]) -> dict[str, object]:
+        for event in self.events:
+            if event["event_id"] == event_id:
+                event.update(payload)
+                event["updated_at"] = "2026-04-09T08:11:30+08:00"
+                return event
+        raise KeyError(event_id)
 
     async def list_events(self, *, limit: int | None = None) -> dict[str, object]:
         items = list(self.events)
@@ -151,6 +167,14 @@ class FakePlanningBackend:
             "end_at": payload["end_at"],
             "description": payload.get("description"),
             "location": payload.get("location"),
+            "bundle_id": payload.get("bundle_id"),
+            "created_via": payload.get("created_via"),
+            "source_channel": payload.get("source_channel"),
+            "source_message_id": payload.get("source_message_id"),
+            "source_session_id": payload.get("source_session_id"),
+            "linked_task_id": payload.get("linked_task_id"),
+            "linked_event_id": payload.get("linked_event_id"),
+            "linked_reminder_id": payload.get("linked_reminder_id"),
             "updated_at": "2026-04-09T08:12:00+08:00",
         }
         self.events.append(event)
@@ -165,6 +189,14 @@ class FakePlanningBackend:
             "repeat": payload.get("repeat", "daily"),
             "enabled": payload.get("enabled", True),
             "next_trigger_at": payload["time"],
+            "bundle_id": payload.get("bundle_id"),
+            "created_via": payload.get("created_via"),
+            "source_channel": payload.get("source_channel"),
+            "source_message_id": payload.get("source_message_id"),
+            "source_session_id": payload.get("source_session_id"),
+            "linked_task_id": payload.get("linked_task_id"),
+            "linked_event_id": payload.get("linked_event_id"),
+            "linked_reminder_id": payload.get("linked_reminder_id"),
             "updated_at": "2026-04-09T08:13:00+08:00",
         }
         self.reminders.append(reminder)
@@ -175,6 +207,35 @@ class FakePlanningBackend:
             if reminder["reminder_id"] == reminder_id:
                 reminder.update(payload)
                 reminder["updated_at"] = "2026-04-09T08:14:00+08:00"
+                return reminder
+        raise KeyError(reminder_id)
+
+    async def snooze_reminder(
+        self,
+        reminder_id: str,
+        *,
+        snoozed_until: str | None = None,
+        delay_minutes: int = 10,
+    ) -> dict[str, object]:
+        del delay_minutes
+        for reminder in self.reminders:
+            if reminder["reminder_id"] == reminder_id:
+                reminder["enabled"] = True
+                reminder["status"] = "snoozed"
+                reminder["snoozed_until"] = snoozed_until
+                reminder["next_trigger_at"] = snoozed_until
+                reminder["updated_at"] = "2026-04-09T08:14:30+08:00"
+                return reminder
+        raise KeyError(reminder_id)
+
+    async def complete_reminder(self, reminder_id: str) -> dict[str, object]:
+        for reminder in self.reminders:
+            if reminder["reminder_id"] == reminder_id:
+                reminder["enabled"] = False
+                reminder["status"] = "completed"
+                reminder["completed_at"] = "2026-04-09T08:15:00+08:00"
+                reminder["next_trigger_at"] = None
+                reminder["updated_at"] = "2026-04-09T08:15:00+08:00"
                 return reminder
         raise KeyError(reminder_id)
 
@@ -304,6 +365,9 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
             payload["normalized_times"]["due_at"],
             "2026-04-09T17:00:00+08:00",
         )
+        self.assertEqual(payload["result"]["task"]["created_via"], "agent")
+        self.assertEqual(payload["result"]["task"]["source_channel"], "agent")
+        self.assertTrue(payload["result"]["task"]["bundle_id"].startswith("planning_"))
 
     async def test_planning_tool_create_event_reports_conflicts(self) -> None:
         result = await self.agent.tools.execute(
@@ -340,6 +404,8 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
             payload["normalized_times"]["time"],
             "2026-04-09T20:15:00+08:00",
         )
+        self.assertEqual(payload["result"]["reminder"]["bundle_id"], payload["bundle_id"])
+        self.assertEqual(payload["result"]["reminder"]["created_via"], "agent")
 
     async def test_planning_tool_complete_task_returns_updated_task_id(self) -> None:
         result = await self.agent.tools.execute(
@@ -370,8 +436,59 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["action"], "snooze_reminder")
         self.assertEqual(payload["resource_ids"]["reminder_id"], "rem_today")
         self.assertEqual(
-            payload["normalized_times"]["time"],
+            payload["normalized_times"]["snoozed_until"],
             "2026-04-09T15:30:00+08:00",
+        )
+        self.assertEqual(payload["result"]["reminder"]["status"], "snoozed")
+
+    async def test_planning_tool_persists_bundle_metadata_and_links_across_creates(self) -> None:
+        planning_tool = self.agent.tools.get("planning")
+        assert planning_tool is not None
+        planning_tool.start_turn()
+
+        task_payload = json.loads(await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_task",
+                "title": "Renew passport",
+            },
+        ))
+        event_payload = json.loads(await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_event",
+                "title": "Passport office visit",
+                "start_at": "2026-04-09T09:30:00+08:00",
+                "end_at": "2026-04-09T10:30:00+08:00",
+            },
+        ))
+        reminder_payload = json.loads(await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_reminder",
+                "title": "Bring documents",
+                "time": "2026-04-09T09:00:00+08:00",
+                "repeat": "once",
+            },
+        ))
+
+        task = task_payload["result"]["task"]
+        event = event_payload["result"]["event"]
+        reminder = reminder_payload["result"]["reminder"]
+
+        self.assertEqual(task["bundle_id"], event["bundle_id"])
+        self.assertEqual(event["bundle_id"], reminder["bundle_id"])
+        self.assertEqual(task["created_via"], "agent")
+        self.assertEqual(event["linked_task_id"], task["task_id"])
+        self.assertEqual(reminder["linked_task_id"], task["task_id"])
+        self.assertEqual(reminder["linked_event_id"], event["event_id"])
+        self.assertEqual(
+            self.backend.tasks[-1]["linked_event_id"],
+            event["event_id"],
+        )
+        self.assertEqual(
+            self.backend.events[-1]["linked_reminder_id"],
+            reminder["reminder_id"],
         )
 
     async def test_planning_tool_list_today_returns_filtered_resources(self) -> None:

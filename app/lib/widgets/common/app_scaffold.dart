@@ -23,6 +23,11 @@ class AppScaffold extends ConsumerWidget {
     final tabs = <({String label, IconData icon, String path})>[
       (label: 'Home', icon: Icons.dashboard_outlined, path: '/app/home'),
       (label: 'Chat', icon: Icons.chat_bubble_outline, path: '/app/chat'),
+      (
+        label: 'Agenda',
+        icon: Icons.calendar_month_outlined,
+        path: '/app/agenda',
+      ),
       (label: 'Tasks', icon: Icons.checklist_outlined, path: '/app/tasks'),
       (label: 'Control', icon: Icons.tune, path: '/app/control'),
       (label: 'Settings', icon: Icons.settings_outlined, path: '/app/settings'),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -110,6 +111,11 @@ class AppPlanningBackend:
         await self._emit("event.created", {"event": event})
         return event
 
+    async def update_event(self, event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        event = self.resources.update_event(event_id, payload)
+        await self._emit("event.updated", {"event": event})
+        return event
+
     async def create_reminder(self, payload: dict[str, Any]) -> dict[str, Any]:
         reminder = self.resources.create_reminder(payload)
         if self.reminder_scheduler is None:
@@ -125,6 +131,53 @@ class AppPlanningBackend:
             await self._emit("reminder.updated", {"reminder": reminder})
             return reminder
         reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
+        await self._emit("reminder.updated", {"reminder": reminder})
+        return reminder
+
+    async def snooze_reminder(
+        self,
+        reminder_id: str,
+        *,
+        snoozed_until: str | None = None,
+        delay_minutes: int = 10,
+    ) -> dict[str, Any]:
+        if self.reminder_scheduler is None:
+            reminder = self.resources.update_reminder(
+                reminder_id,
+                {
+                    "enabled": True,
+                    "snoozed_until": snoozed_until,
+                    "next_trigger_at": snoozed_until,
+                    "status": "snoozed",
+                },
+            )
+        else:
+            reminder = await self.reminder_scheduler.snooze_reminder(
+                reminder_id,
+                snoozed_until=snoozed_until,
+                delay_minutes=delay_minutes,
+            )
+        if reminder is None:
+            raise KeyError(reminder_id)
+        await self._emit("reminder.updated", {"reminder": reminder})
+        return reminder
+
+    async def complete_reminder(self, reminder_id: str) -> dict[str, Any]:
+        if self.reminder_scheduler is None:
+            reminder = self.resources.update_reminder(
+                reminder_id,
+                {
+                    "enabled": False,
+                    "completed_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                    "next_trigger_at": None,
+                    "snoozed_until": None,
+                    "status": "completed",
+                },
+            )
+        else:
+            reminder = await self.reminder_scheduler.complete_reminder(reminder_id)
+        if reminder is None:
+            raise KeyError(reminder_id)
         await self._emit("reminder.updated", {"reminder": reminder})
         return reminder
 

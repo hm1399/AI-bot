@@ -43,6 +43,10 @@ class TaskModel {
   final List<String> conflictSummaries;
   final Map<String, dynamic> planningMetadata;
 
+  DateTime? get dueDateTime => _tryParseDateTime(dueAt);
+
+  DateTime? get updatedDateTime => _tryParseDateTime(updatedAt ?? createdAt);
+
   TaskModel copyWith({
     String? title,
     String? description,
@@ -208,4 +212,11 @@ List<String> _readConflictSummaries(Map<String, dynamic> json) {
     }
   }
   return summaries.toSet().toList();
+}
+
+DateTime? _tryParseDateTime(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(value);
 }

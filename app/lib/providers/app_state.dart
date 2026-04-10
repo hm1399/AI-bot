@@ -102,6 +102,36 @@ class AppState {
   List<MessageModel> get currentMessages =>
       messagesBySession[currentSessionId] ?? const <MessageModel>[];
 
+  bool get planningTimelineReady =>
+      planningTimelineStatus == FeatureStatus.ready ||
+      planningTimelineStatus == FeatureStatus.demo;
+
+  FeatureStatus get planningWorkbenchStatus {
+    const severity = <FeatureStatus, int>{
+      FeatureStatus.error: 5,
+      FeatureStatus.notReady: 4,
+      FeatureStatus.loading: 3,
+      FeatureStatus.demo: 2,
+      FeatureStatus.ready: 2,
+      FeatureStatus.idle: 1,
+    };
+    final statuses = <FeatureStatus>[
+      planningOverviewStatus,
+      planningTimelineStatus,
+      planningConflictsStatus,
+    ];
+    statuses.sort(
+      (FeatureStatus left, FeatureStatus right) =>
+          (severity[right] ?? 0).compareTo(severity[left] ?? 0),
+    );
+    return statuses.first;
+  }
+
+  String? get planningWorkbenchMessage =>
+      planningTimelineMessage ??
+      planningOverviewMessage ??
+      planningConflictsMessage;
+
   AppState copyWith({
     ConnectionConfigModel? connection,
     bool? isConnecting,
