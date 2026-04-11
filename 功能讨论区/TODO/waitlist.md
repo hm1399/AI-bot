@@ -244,3 +244,11 @@
 - 影响：如果后续有人按“字符串数组”去配 `allowed_scripts`，配置层看起来合法，但运行时 `run_script` 仍会报未 allowlist，容易产生“配置已生效”的误判。
 - 建议动作：后续单独立项，二选一收口这个契约：要么把 `allowed_scripts` 明确收紧为对象配置，要么补齐“字符串数组”的真实解析语义，并同步更新文档与示例。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-10 `Connect` 连接配置与 `Settings` 里的 `server_url/server_port` 已形成双数据源
+
+- 发现来源：本轮“机器人首次配对与前端配网”调研。
+- 当前状态：`app/lib/models/connect/connection_config_model.dart` + `app/lib/services/storage/auth_storage_service.dart` 持久化的是 operator console 实际连接用的 `host/port/token`；同时 `app/lib/models/settings/settings_model.dart` / `server/services/app_api/settings_service.py` 还维护了一份 `server_url/server_port` 设置字段。
+- 影响：后续一旦机器人 pairing 默认值、App 实际连接地址和 Settings 里的服务端地址三者不一致，用户可能会把机器人配到 A 地址，而 operator console 自己连在 B 地址，造成“App 在线、机器人离线”的隐性错配。
+- 建议动作：后续单独立项统一“谁是前端侧唯一可信的服务端地址来源”，至少要明确 `Connect` 与 `Settings` 的职责边界，避免再叠第三套来源。
+- 本轮处理：未处理。
