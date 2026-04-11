@@ -228,3 +228,11 @@
 - 影响：后续如果只看工具代码，容易高估“当前 build 已开放给 AI 的电脑端能力”；反过来，`read_file / write_file / edit_file / exec` 的实际边界又比“只限 workspace”更宽，产品口径和安全口径都容易漂移。
 - 建议动作：后续单独立项，明确一份“当前 runtime 已启用工具矩阵 + 权限边界”文档，或把 bootstrap 接线补齐并补前端权限提示。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-08 `server/workspace/skills/computer-control/SKILL.md` 与 `server/workspace/SOUL.md` 仍把电脑控制等同于 raw `exec`
+
+- 发现来源：本轮 `P1-3 设备控制产品化 / 电脑控制产品化` 调研。
+- 当前状态：`server/workspace/skills/computer-control/SKILL.md` 仍标记 `always: true`，并直接指导使用 `exec` 打开应用、操作文件和查进程；`server/workspace/SOUL.md` 也把“控制电脑”直接表述为 `exec` 能力。
+- 影响：即使后续补出结构化 `computer_control` 服务层，agent 仍可能绕过未来的白名单、确认和审计链路，导致产品口径和实际执行边界不一致。
+- 建议动作：后续实现 `P1-3` 时，同步把这两处口径改成“结构化 `computer_control` 优先、raw `exec` 仅限调试/后备”，并明确高风险外发动作必须走确认流。
+- 本轮处理：未处理。
