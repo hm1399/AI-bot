@@ -16,6 +16,7 @@ from loguru import logger
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.subagent import SubagentManager
+from nanobot.agent.tools.computer_control import ComputerControlTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
@@ -32,6 +33,7 @@ from nanobot.session.manager import Session, SessionManager
 if TYPE_CHECKING:
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig
     from nanobot.cron.service import CronService
+    from nanobot.agent.tools.computer_control import ComputerControlBackend
     from nanobot.agent.tools.planning import PlanningBackend
 
 
@@ -69,6 +71,7 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         planning_backend: PlanningBackend | None = None,
+        computer_control_backend: ComputerControlBackend | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -87,6 +90,7 @@ class AgentLoop:
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self.planning_backend = planning_backend
+        self.computer_control_backend = computer_control_backend
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -129,6 +133,8 @@ class AgentLoop:
             restrict_to_workspace=self.restrict_to_workspace,
             path_append=self.exec_config.path_append,
         ))
+        if self.computer_control_backend is not None:
+            self.tools.register(ComputerControlTool(self.computer_control_backend))
         self.tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
         self.tools.register(WebFetchTool(proxy=self.web_proxy))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
@@ -168,10 +174,10 @@ class AgentLoop:
         task_id: str | None = None,
     ) -> None:
         """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron"):
+        for name in ("message", "spawn", "cron", "computer_control"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
-                    if name == "message":
+                    if name in {"message", "computer_control"}:
                         tool.set_context(channel, chat_id, message_id, task_id)
                     else:
                         tool.set_context(channel, chat_id)

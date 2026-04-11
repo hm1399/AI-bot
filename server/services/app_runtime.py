@@ -23,6 +23,7 @@ from services.app_api import (
     ResourceValidationError,
     SettingsService,
 )
+from services.computer_control import ComputerControlError, ComputerControlService
 from services.planning import (
     PlanningBundleService,
     PlanningProjectionService,
@@ -42,6 +43,7 @@ class AppRuntimeService:
         sessions: SessionManager,
         device_channel: DeviceChannel,
         desktop_voice_service: Any | None = None,
+        computer_control_service: ComputerControlService | None = None,
         version: str,
         start_time: float,
     ) -> None:
@@ -82,6 +84,11 @@ class AppRuntimeService:
         )
         self.settings = SettingsService(self.cfg, self._runtime_dir)
         self.resources = AppResourceService(self._runtime_dir)
+        self.computer_control_service = computer_control_service or ComputerControlService(
+            self.cfg,
+            runtime_dir=self._runtime_dir,
+        )
+        self.computer_control_service.set_event_callback(self.on_computer_action_event)
         self.planning_bundle_service = PlanningBundleService(self.resources)
         self.planning_projection_service = PlanningProjectionService()
         self.planning_summary_service = PlanningSummaryService()
@@ -138,6 +145,11 @@ class AppRuntimeService:
         app.router.add_post("/api/app/v1/runtime/todo-summary", self.handle_set_todo_summary)
         app.router.add_get("/api/app/v1/runtime/calendar-summary", self.handle_calendar_summary)
         app.router.add_post("/api/app/v1/runtime/calendar-summary", self.handle_set_calendar_summary)
+        app.router.add_get("/api/app/v1/computer/state", self.handle_computer_state)
+        app.router.add_post("/api/app/v1/computer/actions", self.handle_create_computer_action)
+        app.router.add_post("/api/app/v1/computer/actions/{action_id}/confirm", self.handle_confirm_computer_action)
+        app.router.add_post("/api/app/v1/computer/actions/{action_id}/cancel", self.handle_cancel_computer_action)
+        app.router.add_get("/api/app/v1/computer/actions/recent", self.handle_list_recent_computer_actions)
         app.router.add_get("/api/app/v1/device", self.handle_device)
         app.router.add_post("/api/app/v1/device/speak", self.handle_device_speak)
         app.router.add_post("/api/app/v1/device/commands", self.handle_device_command)
@@ -475,6 +487,20 @@ class AppRuntimeService:
             scope="global",
         )
 
+    async def on_computer_action_event(
+        self,
+        *,
+        event_type: str,
+        action: dict[str, Any],
+    ) -> None:
+        await self._broadcast_event(
+            event_type,
+            payload={"action": action},
+            scope="global",
+            session_id=str(action.get("source_session_id") or "").strip() or None,
+            task_id=str(action.get("action_id") or "").strip() or None,
+        )
+
     async def on_reminder_triggered(
         self,
         *,
@@ -542,29 +568,21 @@ class AppRuntimeService:
             return self._error("INVALID_ARGUMENT", str(exc), status=400)
 
         self.device_channel.set_weather_config(self.cfg.get("weather", {}))
+        apply_results = await self._build_settings_apply_results(
+            payload=payload,
+            settings=settings,
+        )
+        settings_payload = {
+            "settings": settings,
+            "apply_results": apply_results,
+        }
 
         await self._broadcast_event(
             "settings.updated",
-            payload=settings,
+            payload=settings_payload,
             scope="global",
         )
-
-        if "device_volume" in payload and self.device_channel.connected:
-            try:
-                result = await self.device_channel.execute_app_command(
-                    "set_volume",
-                    {"level": int(settings["device_volume"])},
-                    client_command_id=f"settings_volume_{uuid.uuid4().hex[:8]}",
-                )
-            except (RuntimeError, ValueError):
-                logger.exception("Failed to apply device volume after settings update")
-            else:
-                await self._broadcast_event(
-                    "device.command.accepted",
-                    payload=result,
-                    scope="global",
-                )
-        return self._ok(settings)
+        return self._ok(settings_payload)
 
     async def handle_test_llm_settings(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -1321,6 +1339,78 @@ class AppRuntimeService:
             return self._error("INVALID_ARGUMENT", error, status=400)
         return self._ok(summary)
 
+    async def handle_computer_state(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        return self._ok(self.computer_control_service.get_state())
+
+    async def handle_create_computer_action(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        kind = str(payload.get("action") or payload.get("kind") or "").strip()
+        if not kind:
+            return self._error("INVALID_ARGUMENT", "action is required", status=400)
+
+        arguments = payload.get("arguments")
+        if arguments is None:
+            arguments = payload.get("params")
+        if arguments is None:
+            arguments = payload.get("target", {})
+        if not isinstance(arguments, dict):
+            return self._error("INVALID_ARGUMENT", "arguments must be an object", status=400)
+
+        try:
+            action = await self.computer_control_service.request_action({
+                **payload,
+                "action": kind,
+                "arguments": arguments,
+                "requested_via": str(payload.get("requested_via") or "app").strip() or "app",
+                "source_session_id": str(
+                    payload.get("source_session_id")
+                    or payload.get("session_id")
+                    or self.get_active_app_session_id()
+                ).strip()
+                or None,
+                "reason": str(payload.get("reason") or "").strip() or None,
+                "requires_confirmation": self._parse_optional_bool(payload.get("requires_confirmation")),
+                "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
+            })
+        except ComputerControlError as exc:
+            return self._error(exc.code, exc.message, status=exc.status)
+
+        return self._ok(action, status=201)
+
+    async def handle_confirm_computer_action(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        try:
+            action = await self.computer_control_service.confirm_action(request.match_info["action_id"])
+        except ComputerControlError as exc:
+            return self._error(exc.code, exc.message, status=exc.status)
+        return self._ok(action)
+
+    async def handle_cancel_computer_action(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        try:
+            action = await self.computer_control_service.cancel_action(request.match_info["action_id"])
+        except ComputerControlError as exc:
+            return self._error(exc.code, exc.message, status=exc.status)
+        return self._ok(action)
+
+    async def handle_list_recent_computer_actions(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        limit = self._parse_limit(request.query.get("limit"), default=20, maximum=100)
+        return self._ok({
+            "items": self.computer_control_service.list_recent_actions(limit=limit),
+        })
+
     async def handle_device(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
             return self._error("UNAUTHORIZED", "unauthorized", status=401)
@@ -1437,6 +1527,7 @@ class AppRuntimeService:
             "chat": {
                 "active_session_id": self.get_active_app_session_id(),
             },
+            "computer_control": self._computer_control_runtime_state(),
             "device": self.device_channel.get_snapshot(),
             "desktop_voice": self._desktop_voice_runtime(),
             "voice": self._voice_runtime_state(),
@@ -1520,6 +1611,109 @@ class AppRuntimeService:
             },
             scope="global",
         )
+
+    async def _build_settings_apply_results(
+        self,
+        *,
+        payload: dict[str, Any],
+        settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        results: dict[str, Any] = {}
+        save_and_apply_fields = {
+            "device_volume",
+            "led_enabled",
+            "led_brightness",
+            "led_color",
+        }
+        config_only_fields = {
+            "led_mode",
+            "wake_word",
+            "auto_listen",
+        }
+
+        for field in payload:
+            if field in save_and_apply_fields:
+                results[field] = await self._apply_device_setting(
+                    field=field,
+                    value=settings.get(field),
+                )
+            elif field in config_only_fields:
+                results[field] = {
+                    "mode": "config_only",
+                    "status": "saved_only",
+                    "reason": "config_saved_but_not_runtime_applied",
+                }
+        return results
+
+    async def _apply_device_setting(
+        self,
+        *,
+        field: str,
+        value: Any,
+    ) -> dict[str, Any]:
+        if field == "device_volume":
+            command = "set_volume"
+            params = {"level": int(value)}
+        elif field == "led_enabled":
+            command = "toggle_led"
+            params = {"enabled": bool(value)}
+        elif field == "led_brightness":
+            command = "set_led_brightness"
+            params = {"level": int(value)}
+        elif field == "led_color":
+            command = "set_led_color"
+            params = {"color": str(value)}
+        else:
+            return {
+                "mode": "save_and_apply",
+                "status": "failed",
+                "reason": "unsupported_command",
+            }
+        if not self.device_channel.connected:
+            return {
+                "mode": "save_and_apply",
+                "status": "saved_only",
+                "reason": "device_offline",
+                "command": command,
+            }
+
+        client_command_id = f"settings_{field}_{uuid.uuid4().hex[:8]}"
+        try:
+            result = await self.device_channel.execute_app_command(
+                command,
+                params,
+                client_command_id=client_command_id,
+            )
+        except RuntimeError as exc:
+            reason = "device_offline" if str(exc) == "DEVICE_OFFLINE" else "apply_failed"
+            return {
+                "mode": "save_and_apply",
+                "status": "saved_only" if reason == "device_offline" else "failed",
+                "reason": reason,
+                "command": command,
+            }
+        except ValueError as exc:
+            reason = "unsupported_command" if str(exc) == "COMMAND_NOT_SUPPORTED" else "invalid_argument"
+            return {
+                "mode": "save_and_apply",
+                "status": "failed",
+                "reason": reason,
+                "command": command,
+            }
+
+        await self._broadcast_event(
+            "device.command.accepted",
+            payload=result,
+            scope="global",
+        )
+        return {
+            "mode": "save_and_apply",
+            "status": "pending",
+            "reason": None,
+            "command": command,
+            "command_id": result.get("command_id"),
+            "client_command_id": result.get("client_command_id"),
+        }
 
     async def _finalize_task(
         self,
@@ -2218,6 +2412,9 @@ class AppRuntimeService:
             "generated_at": overview.get("generated_at"),
         }
 
+    def _computer_control_runtime_state(self) -> dict[str, Any]:
+        return self.computer_control_service.get_state()
+
     @staticmethod
     def _planning_bootstrap() -> dict[str, Any]:
         return {
@@ -2262,6 +2459,8 @@ class AppRuntimeService:
             "planning_conflicts": True,
             "todo_summary": True,
             "calendar_summary": True,
+            "computer_control": self.computer_control_service.is_available(),
+            "computer_actions": self.computer_control_service.supported_actions(),
             "app_events": True,
             "event_replay": True,
             "app_auth_enabled": bool(self.auth_token),
@@ -2345,6 +2544,16 @@ class AppRuntimeService:
         if lowered in {"0", "false", "no", "off"}:
             return False
         return default
+
+    @staticmethod
+    def _parse_optional_bool(raw: Any) -> bool | None:
+        if raw is None:
+            return None
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, str):
+            return AppRuntimeService._parse_bool(raw, default=None)
+        return None
 
     @staticmethod
     async def _read_json(request: web.Request) -> dict[str, Any] | None:

@@ -28,6 +28,37 @@ device:
 app:
   auth_token: ${APP_AUTH_TOKEN}
   default_session_id: app:main
+  settings:
+    device_volume: 75
+    led_enabled: true
+    led_brightness: 50
+    led_mode: breathing
+    led_color: "#0000ff"
+    wake_word: Hey Assistant
+    auto_listen: true
+
+computer_control:
+  enabled: true
+  allowed_apps:
+    - Safari
+    - Finder
+    - WeChat
+  allowed_shortcuts:
+    - daily-brief
+  allowed_scripts:
+    project-healthcheck:
+      command:
+        - /bin/echo
+        - ok
+  allowed_path_roots:
+    - ~/Desktop
+    - ~/Downloads
+  confirm_medium_risk: false
+  wechat:
+    enabled: false
+    experimental_ui: false
+    allowed_contacts:
+      - 张三
 
 weather:
   api_key: ${OPENWEATHERMAP_API_KEY}

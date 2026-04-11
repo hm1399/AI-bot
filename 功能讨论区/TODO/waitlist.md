@@ -236,3 +236,11 @@
 - 影响：即使后续补出结构化 `computer_control` 服务层，agent 仍可能绕过未来的白名单、确认和审计链路，导致产品口径和实际执行边界不一致。
 - 建议动作：后续实现 `P1-3` 时，同步把这两处口径改成“结构化 `computer_control` 优先、raw `exec` 仅限调试/后备”，并明确高风险外发动作必须走确认流。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-09 `computer_control.allowed_scripts` 的“字符串数组”口径与实际解析行为不一致
+
+- 发现来源：本轮 `P1-3` 主线程静态代码复核。
+- 当前状态：`server/config.py` 仍允许 `computer_control.allowed_scripts` 以“字符串数组”通过校验，但 `server/services/computer_control/policies.py` 的 `_parse_scripts()` 只有在每个脚本项能解析出 `command` 时才会真正纳入 allowlist；纯字符串数组在当前实现下会被静默丢弃。
+- 影响：如果后续有人按“字符串数组”去配 `allowed_scripts`，配置层看起来合法，但运行时 `run_script` 仍会报未 allowlist，容易产生“配置已生效”的误判。
+- 建议动作：后续单独立项，二选一收口这个契约：要么把 `allowed_scripts` 明确收紧为对象配置，要么补齐“字符串数组”的真实解析语义，并同步更新文档与示例。
+- 本轮处理：未处理。

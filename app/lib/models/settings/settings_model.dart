@@ -22,6 +22,7 @@ class AppSettingsModel {
     required this.ledColor,
     required this.wakeWord,
     required this.autoListen,
+    this.applyResults = const <String, SettingApplyResultModel>{},
   });
 
   final String serverUrl;
@@ -44,6 +45,42 @@ class AppSettingsModel {
   final String ledColor;
   final String wakeWord;
   final bool autoListen;
+  final Map<String, SettingApplyResultModel> applyResults;
+
+  bool get hasApplyResults => applyResults.isNotEmpty;
+
+  SettingApplyResultModel? applyResultFor(String field) {
+    return applyResults[field] ?? SettingApplyResultModel.defaultForField(field);
+  }
+
+  String? get applySummary {
+    if (applyResults.isEmpty) {
+      return null;
+    }
+    final values = applyResults.values.toList();
+    final failedCount = values.where((SettingApplyResultModel item) => item.isFailure).length;
+    final pendingCount = values.where((SettingApplyResultModel item) => item.isPending).length;
+    final configOnlyCount = values
+        .where((SettingApplyResultModel item) => item.isConfigOnly)
+        .length;
+    final appliedCount = values
+        .where((SettingApplyResultModel item) => item.isSuccessful && item.isLiveApply)
+        .length;
+    final segments = <String>[];
+    if (appliedCount > 0) {
+      segments.add('$appliedCount live applied');
+    }
+    if (pendingCount > 0) {
+      segments.add('$pendingCount pending');
+    }
+    if (configOnlyCount > 0) {
+      segments.add('$configOnlyCount config only');
+    }
+    if (failedCount > 0) {
+      segments.add('$failedCount failed');
+    }
+    return segments.isEmpty ? 'Settings saved.' : segments.join(' · ');
+  }
 
   AppSettingsModel copyWith({
     String? llmProvider,
@@ -60,6 +97,7 @@ class AppSettingsModel {
     String? ledColor,
     String? wakeWord,
     bool? autoListen,
+    Object? applyResults = _unset,
   }) {
     return AppSettingsModel(
       serverUrl: serverUrl,
@@ -84,6 +122,9 @@ class AppSettingsModel {
       ledColor: ledColor ?? this.ledColor,
       wakeWord: wakeWord ?? this.wakeWord,
       autoListen: autoListen ?? this.autoListen,
+      applyResults: identical(applyResults, _unset)
+          ? this.applyResults
+          : applyResults as Map<String, SettingApplyResultModel>,
     );
   }
 
@@ -107,36 +148,130 @@ class AppSettingsModel {
   }
 
   factory AppSettingsModel.fromJson(Map<String, dynamic> json) {
+    final payload = _extractSettingsPayload(json);
     return AppSettingsModel(
-      serverUrl: json['server_url']?.toString() ?? '',
-      serverPort: json['server_port'] is int
-          ? json['server_port'] as int
-          : int.tryParse(json['server_port']?.toString() ?? '') ?? 8000,
-      llmProvider: json['llm_provider']?.toString() ?? 'server-managed',
-      llmModel: json['llm_model']?.toString() ?? '',
-      llmApiKeyConfigured: json['llm_api_key_configured'] == true,
-      llmBaseUrl: json['llm_base_url']?.toString(),
-      sttProvider: json['stt_provider']?.toString() ?? 'server-managed',
-      sttModel: json['stt_model']?.toString() ?? '',
-      sttLanguage: json['stt_language']?.toString() ?? 'en-US',
-      ttsProvider: json['tts_provider']?.toString() ?? 'server-managed',
-      ttsModel: json['tts_model']?.toString() ?? '',
-      ttsVoice: json['tts_voice']?.toString() ?? 'alloy',
-      ttsSpeed: json['tts_speed'] is num
-          ? (json['tts_speed'] as num).toDouble()
-          : double.tryParse(json['tts_speed']?.toString() ?? '') ?? 1.0,
-      deviceVolume: json['device_volume'] is int
-          ? json['device_volume'] as int
-          : int.tryParse(json['device_volume']?.toString() ?? '') ?? 70,
-      ledEnabled: json['led_enabled'] == true,
-      ledBrightness: json['led_brightness'] is int
-          ? json['led_brightness'] as int
-          : int.tryParse(json['led_brightness']?.toString() ?? '') ?? 50,
-      ledMode: json['led_mode']?.toString() ?? 'breathing',
-      ledColor: json['led_color']?.toString() ?? '#2563eb',
-      wakeWord: json['wake_word']?.toString() ?? 'Hey Assistant',
-      autoListen: json['auto_listen'] == true,
+      serverUrl: payload['server_url']?.toString() ?? '',
+      serverPort: payload['server_port'] is int
+          ? payload['server_port'] as int
+          : int.tryParse(payload['server_port']?.toString() ?? '') ?? 8000,
+      llmProvider: payload['llm_provider']?.toString() ?? 'server-managed',
+      llmModel: payload['llm_model']?.toString() ?? '',
+      llmApiKeyConfigured: payload['llm_api_key_configured'] == true,
+      llmBaseUrl: payload['llm_base_url']?.toString(),
+      sttProvider: payload['stt_provider']?.toString() ?? 'server-managed',
+      sttModel: payload['stt_model']?.toString() ?? '',
+      sttLanguage: payload['stt_language']?.toString() ?? 'en-US',
+      ttsProvider: payload['tts_provider']?.toString() ?? 'server-managed',
+      ttsModel: payload['tts_model']?.toString() ?? '',
+      ttsVoice: payload['tts_voice']?.toString() ?? 'alloy',
+      ttsSpeed: payload['tts_speed'] is num
+          ? (payload['tts_speed'] as num).toDouble()
+          : double.tryParse(payload['tts_speed']?.toString() ?? '') ?? 1.0,
+      deviceVolume: payload['device_volume'] is int
+          ? payload['device_volume'] as int
+          : int.tryParse(payload['device_volume']?.toString() ?? '') ?? 70,
+      ledEnabled: payload['led_enabled'] == true,
+      ledBrightness: payload['led_brightness'] is int
+          ? payload['led_brightness'] as int
+          : int.tryParse(payload['led_brightness']?.toString() ?? '') ?? 50,
+      ledMode: payload['led_mode']?.toString() ?? 'breathing',
+      ledColor: payload['led_color']?.toString() ?? '#2563eb',
+      wakeWord: payload['wake_word']?.toString() ?? 'Hey Assistant',
+      autoListen: payload['auto_listen'] == true,
+      applyResults: _extractApplyResults(json),
     );
+  }
+}
+
+class SettingsSaveResultModel {
+  const SettingsSaveResultModel({
+    required this.settings,
+    required this.applyResults,
+  });
+
+  final AppSettingsModel settings;
+  final Map<String, SettingApplyResultModel> applyResults;
+
+  String? get summary => settings.applySummary;
+
+  factory SettingsSaveResultModel.fromJson(Map<String, dynamic> json) {
+    final settings = AppSettingsModel.fromJson(json);
+    return SettingsSaveResultModel(
+      settings: settings,
+      applyResults: settings.applyResults,
+    );
+  }
+}
+
+class SettingApplyResultModel {
+  const SettingApplyResultModel({
+    required this.field,
+    required this.mode,
+    required this.status,
+    this.message,
+    this.errorCode,
+    this.updatedAt,
+  });
+
+  final String field;
+  final String mode;
+  final String status;
+  final String? message;
+  final String? errorCode;
+  final String? updatedAt;
+
+  bool get isLiveApply => mode == 'save_and_apply' || mode == 'live_apply';
+  bool get isConfigOnly => mode == 'config_only' || mode == 'save_only';
+  bool get isPending => status == 'pending' || status == 'queued';
+  bool get isSuccessful =>
+      status == 'applied' ||
+      status == 'completed' ||
+      status == 'succeeded' ||
+      status == 'saved_only';
+  bool get isFailure => status == 'failed' || status == 'error';
+
+  String get modeLabel => switch (mode) {
+    'config_only' || 'save_only' => 'Config Only',
+    'save_and_apply' || 'live_apply' => 'Live Apply',
+    _ => 'Unknown Mode',
+  };
+
+  String get statusLabel => switch (status) {
+    'saved_only' => 'Saved Only',
+    'applied' || 'completed' || 'succeeded' => 'Applied',
+    'pending' || 'queued' => 'Pending',
+    'failed' || 'error' => 'Failed',
+    'skipped' => 'Skipped',
+    _ => status.replaceAll('_', ' '),
+  };
+
+  factory SettingApplyResultModel.fromJson(
+    String field,
+    Map<String, dynamic> json,
+  ) {
+    final reason = json['reason']?.toString();
+    return SettingApplyResultModel(
+      field: field,
+      mode: json['mode']?.toString() ?? _defaultApplyMode(field) ?? 'unknown',
+      status: json['status']?.toString() ?? 'idle',
+      message:
+          json['message']?.toString() ??
+          _asMap(json['error'])['message']?.toString() ??
+          _applyReasonMessage(field, reason),
+      errorCode:
+          json['error_code']?.toString() ??
+          _asMap(json['error'])['code']?.toString() ??
+          reason,
+      updatedAt: json['updated_at']?.toString(),
+    );
+  }
+
+  static SettingApplyResultModel? defaultForField(String field) {
+    final mode = _defaultApplyMode(field);
+    if (mode == null) {
+      return null;
+    }
+    return SettingApplyResultModel(field: field, mode: mode, status: 'idle');
   }
 }
 
@@ -214,5 +349,77 @@ class AiConnectionTestModel {
       model: json['model']?.toString() ?? '',
       message: json['message']?.toString() ?? '',
     );
+  }
+}
+
+Map<String, dynamic> _extractSettingsPayload(Map<String, dynamic> json) {
+  final nested = json['settings'];
+  if (nested is Map<String, dynamic>) {
+    return nested;
+  }
+  return json;
+}
+
+Map<String, SettingApplyResultModel> _extractApplyResults(
+  Map<String, dynamic> json,
+) {
+  final root = _coerceApplyResultPayload(json['apply_results']);
+  if (root.isNotEmpty) {
+    return root;
+  }
+  final settings = _extractSettingsPayload(json);
+  return _coerceApplyResultPayload(settings['apply_results']);
+}
+
+Map<String, SettingApplyResultModel> _coerceApplyResultPayload(dynamic value) {
+  if (value is! Map<String, dynamic>) {
+    return const <String, SettingApplyResultModel>{};
+  }
+  final next = <String, SettingApplyResultModel>{};
+  for (final entry in value.entries) {
+    final field = entry.key.trim();
+    final payload = entry.value;
+    if (field.isEmpty || payload is! Map<String, dynamic>) {
+      continue;
+    }
+    next[field] = SettingApplyResultModel.fromJson(field, payload);
+  }
+  return next;
+}
+
+Map<String, dynamic> _asMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return Map<String, dynamic>.from(value);
+  }
+  return <String, dynamic>{};
+}
+
+String? _defaultApplyMode(String field) {
+  return switch (field) {
+    'device_volume' ||
+    'led_enabled' ||
+    'led_brightness' ||
+    'led_color' => 'save_and_apply',
+    'led_mode' || 'wake_word' || 'auto_listen' => 'config_only',
+    _ => null,
+  };
+}
+
+String? _applyReasonMessage(String field, String? reason) {
+  switch (reason) {
+    case 'device_offline':
+      return 'Device is offline. $field was saved but not applied live.';
+    case 'command_timeout':
+      return 'Device command timed out before the hardware confirmed it.';
+    case 'unsupported_command':
+      return 'Device firmware does not support this setting yet.';
+    case 'invalid_argument':
+      return 'Device rejected the runtime payload for this setting.';
+    case 'config_saved_but_not_runtime_applied':
+      return 'Saved as config only. Runtime effect is not guaranteed yet.';
+    case 'apply_failed':
+      return 'Saved, but the device did not confirm runtime apply.';
+    default:
+      return null;
   }
 }

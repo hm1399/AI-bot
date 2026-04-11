@@ -143,6 +143,10 @@ class _SettingsFormState extends State<SettingsForm> {
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged,
         ),
+        if (settings.hasApplyResults) ...<Widget>[
+          const SizedBox(height: LinearSpacing.md),
+          _SettingsApplySummaryCard(settings: settings),
+        ],
         const SizedBox(height: LinearSpacing.md),
         _Section(
           title: 'LLM',
@@ -255,6 +259,10 @@ class _SettingsFormState extends State<SettingsForm> {
                       )
                     : null,
               ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(
+                result: settings.applyResultFor('device_volume'),
+              ),
               const SizedBox(height: LinearSpacing.sm),
               SwitchListTile.adaptive(
                 value: settings.ledEnabled,
@@ -265,6 +273,7 @@ class _SettingsFormState extends State<SettingsForm> {
                 contentPadding: EdgeInsets.zero,
                 title: const Text('LED Enabled'),
               ),
+              _FieldApplyHints(result: settings.applyResultFor('led_enabled')),
               _SliderField(
                 label: 'LED Brightness',
                 value: settings.ledBrightness.toDouble(),
@@ -278,6 +287,10 @@ class _SettingsFormState extends State<SettingsForm> {
                       )
                     : null,
               ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(
+                result: settings.applyResultFor('led_brightness'),
+              ),
               const SizedBox(height: LinearSpacing.sm),
               TextField(
                 controller: _ledModeController,
@@ -286,6 +299,8 @@ class _SettingsFormState extends State<SettingsForm> {
                 onChanged: (String value) =>
                     widget.onChanged(settings.copyWith(ledMode: value)),
               ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(result: settings.applyResultFor('led_mode')),
               const SizedBox(height: LinearSpacing.sm),
               TextField(
                 controller: _ledColorController,
@@ -294,6 +309,8 @@ class _SettingsFormState extends State<SettingsForm> {
                 onChanged: (String value) =>
                     widget.onChanged(settings.copyWith(ledColor: value)),
               ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(result: settings.applyResultFor('led_color')),
             ],
           ),
         ),
@@ -327,6 +344,8 @@ class _SettingsFormState extends State<SettingsForm> {
                 onChanged: (String value) =>
                     widget.onChanged(settings.copyWith(wakeWord: value)),
               ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(result: settings.applyResultFor('wake_word')),
               const SizedBox(height: LinearSpacing.sm),
               SwitchListTile.adaptive(
                 value: settings.autoListen,
@@ -340,6 +359,7 @@ class _SettingsFormState extends State<SettingsForm> {
                   'Saved as a backend setting only. It does not confirm an always-on listening loop is running yet.',
                 ),
               ),
+              _FieldApplyHints(result: settings.applyResultFor('auto_listen')),
             ],
           ),
         ),
@@ -466,6 +486,108 @@ class _Section extends StatelessWidget {
   }
 }
 
+class _SettingsApplySummaryCard extends StatelessWidget {
+  const _SettingsApplySummaryCard({required this.settings});
+
+  final AppSettingsModel settings;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = context.linear;
+    final results = settings.applyResults.values.toList();
+    return Container(
+      padding: const EdgeInsets.all(LinearSpacing.md),
+      decoration: BoxDecoration(
+        color: chrome.surface,
+        borderRadius: LinearRadius.card,
+        border: Border.all(color: chrome.borderStandard),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Apply Results',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            settings.applySummary ??
+                'Latest save included field-level apply status from the backend.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          Wrap(
+            spacing: LinearSpacing.xs,
+            runSpacing: LinearSpacing.xs,
+            children: results
+                .map(
+                  (SettingApplyResultModel item) => StatusPill(
+                    label:
+                        '${_applyFieldLabel(item.field)} · ${item.statusLabel}',
+                    tone: _applyTone(item),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FieldApplyHints extends StatelessWidget {
+  const _FieldApplyHints({required this.result});
+
+  final SettingApplyResultModel? result;
+
+  @override
+  Widget build(BuildContext context) {
+    if (result == null) {
+      return const SizedBox.shrink();
+    }
+    final chrome = context.linear;
+    final helper = result!.message?.trim().isNotEmpty == true
+        ? result!.message!.trim()
+        : result!.isConfigOnly
+        ? 'Saved as config only. Runtime effect is not guaranteed yet.'
+        : result!.isPending
+        ? 'Saved and waiting for runtime apply confirmation.'
+        : result!.isFailure
+        ? 'Saved, but runtime apply failed or was rejected.'
+        : 'Saved with runtime apply feedback.';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Wrap(
+          spacing: LinearSpacing.xs,
+          runSpacing: LinearSpacing.xs,
+          children: <Widget>[
+            StatusPill(
+              label: result!.modeLabel,
+              tone: result!.isConfigOnly
+                  ? StatusPillTone.neutral
+                  : StatusPillTone.accent,
+            ),
+            StatusPill(
+              label: result!.statusLabel,
+              tone: _applyTone(result!),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          helper,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+        ),
+      ],
+    );
+  }
+}
+
 class _ReadOnlyRow extends StatelessWidget {
   const _ReadOnlyRow({required this.label, required this.value});
 
@@ -540,4 +662,33 @@ class _SliderField extends StatelessWidget {
       ],
     );
   }
+}
+
+StatusPillTone _applyTone(SettingApplyResultModel result) {
+  if (result.isFailure) {
+    return StatusPillTone.danger;
+  }
+  if (result.isPending) {
+    return StatusPillTone.warning;
+  }
+  if (result.isConfigOnly) {
+    return StatusPillTone.neutral;
+  }
+  if (result.isSuccessful) {
+    return StatusPillTone.success;
+  }
+  return StatusPillTone.neutral;
+}
+
+String _applyFieldLabel(String field) {
+  return switch (field) {
+    'device_volume' => 'Device Volume',
+    'led_enabled' => 'LED Enabled',
+    'led_brightness' => 'LED Brightness',
+    'led_mode' => 'LED Mode',
+    'led_color' => 'LED Color',
+    'wake_word' => 'Wake Word',
+    'auto_listen' => 'Auto Listen',
+    _ => field.replaceAll('_', ' '),
+  };
 }

@@ -10,6 +10,7 @@ import '../models/chat/message_model.dart';
 import '../models/chat/session_model.dart';
 import '../models/connect/bootstrap_model.dart';
 import '../models/connect/connection_config_model.dart';
+import '../models/control/computer_action_model.dart';
 import '../models/events/event_model.dart';
 import '../models/notifications/notification_model.dart';
 import '../models/planning/planning_conflict_model.dart';
@@ -24,6 +25,7 @@ import '../services/bootstrap/bootstrap_service.dart';
 import '../services/chat/chat_service.dart';
 import '../services/chat/voice_capture_service.dart';
 import '../services/connect/connect_service.dart';
+import '../services/control/computer_control_service.dart';
 import '../services/demo/demo_service_bundle.dart';
 import '../services/events/events_service.dart';
 import '../services/home/device_service.dart';
@@ -87,6 +89,9 @@ final deviceServiceProvider = Provider<DeviceService>(
 );
 final settingsServiceProvider = Provider<SettingsService>(
   (Ref ref) => SettingsService(ref.read(apiClientProvider)),
+);
+final computerControlServiceProvider = Provider<ComputerControlService>(
+  (Ref ref) => ComputerControlService(ref.read(apiClientProvider)),
 );
 final tasksServiceProvider = Provider<TasksService>(
   (Ref ref) => TasksService(ref.read(apiClientProvider)),
@@ -230,6 +235,7 @@ class AppController extends StateNotifier<AppState> {
       }
       await loadMessages();
       await refreshPlanningWorkbench();
+      await loadComputerControl(silent: true);
     } catch (error) {
       ref.read(wsReconnectServiceProvider).disconnect();
       _apiClient.clearConnection();
@@ -282,18 +288,19 @@ class AppController extends StateNotifier<AppState> {
           DemoServiceBundle.bootstrap.eventStream.resume.latestEventId,
     );
     await ref.read(connectServiceProvider).saveConnection(demoConnection);
+    final demoBootstrap = _demoBootstrap();
     state = state.copyWith(
       connection: demoConnection,
       isConnected: true,
       isDemoMode: true,
       eventStreamConnected: true,
-      bootstrap: DemoServiceBundle.bootstrap,
-      capabilities: DemoServiceBundle.bootstrap.capabilities,
+      bootstrap: demoBootstrap,
+      capabilities: demoBootstrap.capabilities,
       runtimeState: DemoServiceBundle.runtime,
       sessions: DemoServiceBundle.sessions,
       messagesBySession: DemoServiceBundle.messagesBySession,
       settingsStatus: FeatureStatus.demo,
-      settings: DemoServiceBundle.settings,
+      settings: _demoSettings(),
       tasksStatus: FeatureStatus.demo,
       tasks: DemoServiceBundle.tasks,
       eventsStatus: FeatureStatus.demo,
@@ -349,15 +356,16 @@ class AppController extends StateNotifier<AppState> {
         latestEventId:
             DemoServiceBundle.bootstrap.eventStream.resume.latestEventId,
       );
+      final demoBootstrap = _demoBootstrap();
       state = state.copyWith(
         connection: nextConnection,
-        bootstrap: DemoServiceBundle.bootstrap,
-        capabilities: DemoServiceBundle.bootstrap.capabilities,
+        bootstrap: demoBootstrap,
+        capabilities: demoBootstrap.capabilities,
         runtimeState: DemoServiceBundle.runtime,
         sessions: DemoServiceBundle.sessions,
         messagesBySession: DemoServiceBundle.messagesBySession,
         settingsStatus: FeatureStatus.demo,
-        settings: DemoServiceBundle.settings,
+        settings: _demoSettings(),
         tasksStatus: FeatureStatus.demo,
         tasks: DemoServiceBundle.tasks,
         eventsStatus: FeatureStatus.demo,
@@ -417,6 +425,7 @@ class AppController extends StateNotifier<AppState> {
       await loadNotifications();
       await loadReminders();
       await refreshPlanningWorkbench();
+      await loadComputerControl(silent: true);
     } on ApiError catch (error) {
       state = state.copyWith(globalMessage: error.message);
     }
@@ -1009,7 +1018,7 @@ class AppController extends StateNotifier<AppState> {
     if (state.isDemoMode) {
       state = state.copyWith(
         settingsStatus: FeatureStatus.demo,
-        settings: DemoServiceBundle.settings,
+        settings: _demoSettings(),
         settingsMessage: 'Demo mode keeps settings local.',
       );
       return;
@@ -1037,13 +1046,16 @@ class AppController extends StateNotifier<AppState> {
 
   Future<void> saveSettings(AppSettingsModel draft, {String? apiKey}) async {
     if (state.isDemoMode) {
+      final nextSettings = draft.copyWith(
+        llmApiKeyConfigured:
+            state.settings?.llmApiKeyConfigured == true ||
+            (apiKey?.trim().isNotEmpty ?? false),
+        applyResults: _demoApplyResults(),
+      );
       state = state.copyWith(
-        settings: draft.copyWith(
-          llmApiKeyConfigured:
-              state.settings?.llmApiKeyConfigured == true ||
-              (apiKey?.trim().isNotEmpty ?? false),
-        ),
-        settingsMessage: 'Demo settings updated locally.',
+        settings: nextSettings,
+        settingsMessage:
+            nextSettings.applySummary ?? 'Demo settings updated locally.',
       );
       return;
     }
@@ -1054,8 +1066,129 @@ class AppController extends StateNotifier<AppState> {
     state = state.copyWith(
       settingsStatus: FeatureStatus.ready,
       settings: next,
-      settingsMessage: 'Settings saved through the backend.',
+      settingsMessage:
+          next.applySummary ?? 'Settings saved through the backend.',
     );
+  }
+
+  Future<void> loadComputerControl({bool silent = false}) async {
+    final bootstrap = state.bootstrap;
+    if (bootstrap == null) {
+      return;
+    }
+
+    final supportedActions = _computerControlSupportedActions();
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        bootstrap: _demoBootstrap(),
+        globalMessage: silent ? state.globalMessage : 'Demo mode has no live computer control.',
+      );
+      return;
+    }
+
+    if (!_computerControlAvailable()) {
+      state = state.copyWith(
+        bootstrap: bootstrap.copyWith(
+          computerControl: _computerControlSeed(
+            statusMessage: 'Structured computer actions are unavailable on this backend.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    _apiClient.setConnection(state.connection);
+    try {
+      final snapshot = await ref
+          .read(computerControlServiceProvider)
+          .getState(fallbackSupportedActions: supportedActions);
+      state = state.copyWith(
+        bootstrap: bootstrap.copyWith(computerControl: snapshot),
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        bootstrap: bootstrap.copyWith(
+          computerControl: _computerControlSeed(
+            statusMessage: error.isBackendNotReady
+                ? AppConfig.backendNotReadyMessage
+                : error.message,
+          ),
+        ),
+        globalMessage: silent ? state.globalMessage : error.message,
+      );
+    }
+  }
+
+  Future<void> runComputerAction(ComputerActionRequest request) async {
+    if (!_computerControlAvailable()) {
+      state = state.copyWith(
+        globalMessage: 'Computer actions are not available on this backend.',
+      );
+      return;
+    }
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        globalMessage: 'Demo mode does not execute live computer actions.',
+      );
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final action = await ref
+          .read(computerControlServiceProvider)
+          .createAction(request);
+      _storeComputerControl(
+        _computerControlSeed(clearStatusMessage: true).upsertAction(action),
+        globalMessage: _computerActionMessage(action),
+      );
+    } on ApiError catch (error) {
+      _storeComputerControl(
+        _computerControlSeed(statusMessage: error.message),
+        globalMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> confirmComputerAction(String actionId) async {
+    if (actionId.trim().isEmpty || state.isDemoMode) {
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final action = await ref
+          .read(computerControlServiceProvider)
+          .confirmAction(actionId);
+      _storeComputerControl(
+        _computerControlSeed(clearStatusMessage: true).upsertAction(action),
+        globalMessage: _computerActionMessage(action),
+      );
+    } on ApiError catch (error) {
+      _storeComputerControl(
+        _computerControlSeed(statusMessage: error.message),
+        globalMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> cancelComputerAction(String actionId) async {
+    if (actionId.trim().isEmpty || state.isDemoMode) {
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final action = await ref
+          .read(computerControlServiceProvider)
+          .cancelAction(actionId);
+      _storeComputerControl(
+        _computerControlSeed(clearStatusMessage: true).upsertAction(action),
+        globalMessage: _computerActionMessage(action),
+      );
+    } on ApiError catch (error) {
+      _storeComputerControl(
+        _computerControlSeed(statusMessage: error.message),
+        globalMessage: error.message,
+      );
+    }
   }
 
   Future<void> testAiConnection({
@@ -1743,6 +1876,149 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  bool _computerControlAvailable() {
+    final bootstrap = state.bootstrap;
+    if (bootstrap == null) {
+      return false;
+    }
+    return state.capabilities.computerControl ||
+        state.capabilities.computerActions.isNotEmpty ||
+        bootstrap.computerControl.hasStructuredActions;
+  }
+
+  List<String> _computerControlSupportedActions() {
+    final capabilityActions = state.capabilities.computerActions;
+    if (capabilityActions.isNotEmpty) {
+      return capabilityActions;
+    }
+    return state.bootstrap?.computerControl.supportedActions ?? const <String>[];
+  }
+
+  ComputerControlStateModel _computerControlSeed({
+    String? statusMessage,
+    bool clearStatusMessage = false,
+  }) {
+    final current = state.bootstrap?.computerControl ??
+        const ComputerControlStateModel();
+    return current.copyWith(
+      available: current.available || state.capabilities.computerControl,
+      supportedActions: _computerControlSupportedActions(),
+      statusMessage: clearStatusMessage
+          ? null
+          : statusMessage ?? current.statusMessage,
+    );
+  }
+
+  void _storeComputerControl(
+    ComputerControlStateModel computerControl, {
+    String? globalMessage,
+  }) {
+    final bootstrap = state.bootstrap;
+    if (bootstrap == null) {
+      if (globalMessage != null) {
+        state = state.copyWith(globalMessage: globalMessage);
+      }
+      return;
+    }
+    state = state.copyWith(
+      bootstrap: bootstrap.copyWith(computerControl: computerControl),
+      globalMessage: globalMessage ?? state.globalMessage,
+    );
+  }
+
+  ComputerActionModel? _actionFromEvent(AppEventModel event) {
+    final raw = event.payload['action'];
+    if (raw is Map<String, dynamic>) {
+      return ComputerActionModel.fromJson(raw);
+    }
+    if (event.payload.containsKey('action_id') ||
+        event.payload.containsKey('kind') ||
+        event.payload.containsKey('action')) {
+      return ComputerActionModel.fromJson(event.payload);
+    }
+    return null;
+  }
+
+  String _computerActionMessage(ComputerActionModel action) {
+    final summary = action.displaySummary;
+    if (action.isAwaitingConfirmation) {
+      return 'Computer action needs approval: $summary.';
+    }
+    if (action.isSuccessful) {
+      return 'Computer action completed: $summary.';
+    }
+    if (action.isFailed) {
+      final detail = action.outputSummary;
+      return detail == null || detail.isEmpty
+          ? 'Computer action failed: $summary.'
+          : 'Computer action failed: $summary ($detail).';
+    }
+    return 'Computer action requested: $summary.';
+  }
+
+  String? _deviceCommandFailureDetail(String? error) {
+    return switch (error) {
+      'command_timeout' => 'timed out before the device confirmed it',
+      'device_offline' => 'device is offline',
+      'unsupported_command' => 'firmware does not support this command yet',
+      'invalid_argument' => 'firmware rejected the command parameters',
+      'apply_failed' => 'device did not confirm the apply result',
+      _ => error?.trim().isNotEmpty == true ? error!.trim() : null,
+    };
+  }
+
+  BootstrapModel _demoBootstrap() {
+    return DemoServiceBundle.bootstrap.copyWith(
+      computerControl: const ComputerControlStateModel(
+        statusMessage: 'Structured computer actions require a live backend.',
+      ),
+    );
+  }
+
+  AppSettingsModel _demoSettings() {
+    return DemoServiceBundle.settings.copyWith(applyResults: _demoApplyResults());
+  }
+
+  Map<String, SettingApplyResultModel> _demoApplyResults() {
+    return const <String, SettingApplyResultModel>{
+      'device_volume': SettingApplyResultModel(
+        field: 'device_volume',
+        mode: 'save_and_apply',
+        status: 'pending',
+      ),
+      'led_enabled': SettingApplyResultModel(
+        field: 'led_enabled',
+        mode: 'save_and_apply',
+        status: 'pending',
+      ),
+      'led_brightness': SettingApplyResultModel(
+        field: 'led_brightness',
+        mode: 'save_and_apply',
+        status: 'pending',
+      ),
+      'led_color': SettingApplyResultModel(
+        field: 'led_color',
+        mode: 'save_and_apply',
+        status: 'pending',
+      ),
+      'led_mode': SettingApplyResultModel(
+        field: 'led_mode',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'wake_word': SettingApplyResultModel(
+        field: 'wake_word',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'auto_listen': SettingApplyResultModel(
+        field: 'auto_listen',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+    };
+  }
+
   bool _planningAvailable() {
     final bootstrapPlanning =
         state.bootstrap?.planning ?? const <String, dynamic>{};
@@ -1995,6 +2271,21 @@ class AppController extends StateNotifier<AppState> {
       case 'planning.changed':
         unawaited(refreshPlanningWorkbench());
         break;
+      case 'computer.action.created':
+      case 'computer.action.updated':
+      case 'computer.action.completed':
+      case 'computer.action.cancelled':
+      case 'computer.action.requires_confirmation':
+        final action = _actionFromEvent(event);
+        if (action == null) {
+          unawaited(loadComputerControl(silent: true));
+          break;
+        }
+        _storeComputerControl(
+          _computerControlSeed(clearStatusMessage: true).upsertAction(action),
+          globalMessage: _computerActionMessage(action),
+        );
+        break;
       case 'session.updated':
         final rawSession = event.payload['session'];
         if (rawSession is Map<String, dynamic>) {
@@ -2223,10 +2514,12 @@ class AppController extends StateNotifier<AppState> {
         }
         break;
       case 'settings.updated':
+        final settings = AppSettingsModel.fromJson(event.payload);
         state = state.copyWith(
           settingsStatus: FeatureStatus.ready,
-          settings: AppSettingsModel.fromJson(event.payload),
-          settingsMessage: 'Settings refreshed from backend.',
+          settings: settings,
+          settingsMessage:
+              settings.applySummary ?? 'Settings refreshed from backend.',
         );
         break;
       case 'device.command.accepted':
@@ -2242,14 +2535,19 @@ class AppController extends StateNotifier<AppState> {
         final command = event.payload['command']?.toString();
         final ok = event.payload['ok'] == true;
         final error = event.payload['error']?.toString().trim();
+        final failureDetail = _deviceCommandFailureDetail(error);
         state = state.copyWith(
           globalMessage: ok
               ? command == null || command.isEmpty
                     ? 'Device command completed.'
                     : 'Device command completed: $command.'
               : command == null || command.isEmpty
-              ? 'Device command failed${error != null && error.isNotEmpty ? ': $error' : '.'}'
-              : 'Device command failed: $command${error != null && error.isNotEmpty ? ' ($error)' : ''}.',
+              ? failureDetail == null
+                    ? 'Device command failed.'
+                    : 'Device command failed: $failureDetail.'
+              : failureDetail == null
+              ? 'Device command failed: $command.'
+              : 'Device command failed: $command ($failureDetail).',
         );
         unawaited(refreshRuntime());
         break;

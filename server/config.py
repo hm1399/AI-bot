@@ -44,7 +44,7 @@ def load_yaml_config() -> dict:
         raise FileNotFoundError(f"配置文件不存在: {CONFIG_YAML}")
 
     with open(CONFIG_YAML, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
 
     # weather API key 环境变量覆盖
     weather_cfg = cfg.get("weather", {})
@@ -85,6 +85,18 @@ def load_yaml_config() -> dict:
         api_key = os.environ.get(env_name, "")
     cfg.setdefault("nanobot", {})["api_key"] = api_key
     cfg["nanobot"].setdefault("provider_timeout_seconds", DEFAULT_PROVIDER_TIMEOUT_SECONDS)
+
+    computer_cfg = cfg.setdefault("computer_control", {})
+    computer_cfg.setdefault("enabled", False)
+    computer_cfg.setdefault("allowed_apps", [])
+    computer_cfg.setdefault("allowed_shortcuts", [])
+    computer_cfg.setdefault("allowed_scripts", {})
+    computer_cfg.setdefault("allowed_path_roots", [])
+    computer_cfg.setdefault("confirm_medium_risk", False)
+    wechat_cfg = computer_cfg.setdefault("wechat", {})
+    wechat_cfg.setdefault("enabled", False)
+    wechat_cfg.setdefault("experimental_ui", False)
+    wechat_cfg.setdefault("allowed_contacts", [])
 
     return cfg
 
@@ -201,6 +213,44 @@ def validate_config(cfg: dict) -> list[str]:
     app_token = cfg.get("app", {}).get("auth_token", "")
     if app_token and (not isinstance(app_token, str) or len(app_token.strip()) < 8):
         errors.append("app.auth_token 至少需要 8 个字符，或留空表示关闭 App API 认证")
+
+    computer_cfg = cfg.get("computer_control", {})
+    if computer_cfg and not isinstance(computer_cfg, dict):
+        errors.append("computer_control 必须是对象")
+    else:
+        if "enabled" in computer_cfg and not isinstance(computer_cfg.get("enabled"), bool):
+            errors.append("computer_control.enabled 必须是布尔值")
+        if "confirm_medium_risk" in computer_cfg and not isinstance(computer_cfg.get("confirm_medium_risk"), bool):
+            errors.append("computer_control.confirm_medium_risk 必须是布尔值")
+        for key in ("allowed_apps", "allowed_shortcuts", "allowed_path_roots"):
+            value = computer_cfg.get(key, [])
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                errors.append(f"computer_control.{key} 必须是字符串数组")
+        allowed_scripts = computer_cfg.get("allowed_scripts", {})
+        if not isinstance(allowed_scripts, (dict, list)):
+            errors.append("computer_control.allowed_scripts 必须是对象或字符串数组")
+        elif isinstance(allowed_scripts, list) and any(not isinstance(item, str) for item in allowed_scripts):
+            errors.append("computer_control.allowed_scripts 列表项必须是字符串")
+        elif isinstance(allowed_scripts, dict):
+            for script_id, payload in allowed_scripts.items():
+                if not isinstance(script_id, str) or not script_id.strip():
+                    errors.append("computer_control.allowed_scripts 的 key 必须是非空字符串")
+                    continue
+                if not isinstance(payload, (str, list, dict)):
+                    errors.append(
+                        f"computer_control.allowed_scripts.{script_id} 必须是字符串、数组或对象"
+                    )
+        wechat_cfg = computer_cfg.get("wechat", {})
+        if not isinstance(wechat_cfg, dict):
+            errors.append("computer_control.wechat 必须是对象")
+        else:
+            if "enabled" in wechat_cfg and not isinstance(wechat_cfg.get("enabled"), bool):
+                errors.append("computer_control.wechat.enabled 必须是布尔值")
+            if "experimental_ui" in wechat_cfg and not isinstance(wechat_cfg.get("experimental_ui"), bool):
+                errors.append("computer_control.wechat.experimental_ui 必须是布尔值")
+            allowed_contacts = wechat_cfg.get("allowed_contacts", [])
+            if not isinstance(allowed_contacts, list) or any(not isinstance(item, str) for item in allowed_contacts):
+                errors.append("computer_control.wechat.allowed_contacts 必须是字符串数组")
 
     # 运行时依赖检查（在真正实例化服务前先给出明确错误）
     dependency_requirements = [

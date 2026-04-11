@@ -20,9 +20,9 @@ class SettingsService {
     return _apiClient.put(
       ApiConstants.settingsPath,
       body: update.toJson(),
-      parser: (dynamic data) => AppSettingsModel.fromJson(
+      parser: (dynamic data) => SettingsSaveResultModel.fromJson(
         data is Map<String, dynamic> ? data : <String, dynamic>{},
-      ),
+      ).settings,
     );
   }
 

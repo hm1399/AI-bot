@@ -39,9 +39,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(appControllerProvider);
-    final settings = _draft ?? state.settings;
+    final savedSettings = state.settings;
+    final settings = _draft ?? savedSettings;
     final hasDraftChanges =
         _draft != null || _apiKeyController.text.trim().isNotEmpty;
+    final statusMessage =
+        state.settingsMessage ?? savedSettings?.applySummary;
 
     if (settings == null) {
       return ListView(
@@ -71,7 +74,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       settings: settings,
       themeMode: state.themeMode,
       apiKeyController: _apiKeyController,
-      statusMessage: state.settingsMessage,
+      statusMessage: statusMessage,
       canEdit:
           state.settingsStatus == FeatureStatus.ready ||
           state.settingsStatus == FeatureStatus.demo,

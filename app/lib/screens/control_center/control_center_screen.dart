@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../models/control/computer_action_model.dart';
 import '../../models/home/runtime_state_model.dart';
 import '../../models/planning/planning_editor_models.dart';
 import '../../models/reminders/reminder_model.dart';
@@ -8,6 +9,7 @@ import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
 import '../../widgets/common/status_pill.dart';
+import '../../widgets/control/computer_action_panel.dart';
 import '../../widgets/control/notification_panel.dart';
 import '../../widgets/control/reminder_panel.dart';
 import '../../widgets/planning/planning_editor_dialog.dart';
@@ -36,6 +38,9 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
       await ref.read(appControllerProvider.notifier).loadReminders();
       await ref.read(appControllerProvider.notifier).loadSettings();
       await ref.read(appControllerProvider.notifier).refreshPlanningWorkbench();
+      await ref.read(appControllerProvider.notifier).loadComputerControl(
+        silent: true,
+      );
     });
   }
 
@@ -52,6 +57,16 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     final settings = state.settings;
     final runtime = state.runtimeState;
     final chrome = context.linear;
+    final computerControl = state.bootstrap?.computerControl ??
+        ComputerControlStateModel(
+          available: state.capabilities.computerControl,
+          supportedActions: state.capabilities.computerActions,
+        );
+    final showComputerActions =
+        state.capabilities.computerControl ||
+        state.capabilities.computerActions.isNotEmpty ||
+        computerControl.hasStructuredActions ||
+        computerControl.statusMessage != null;
     final commandsAvailable = canSendDeviceCommands(
       deviceConnected: runtime.device.connected,
       commandPending: runtime.device.lastCommand.isPending,
@@ -87,6 +102,7 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
                 await controller.loadNotifications();
                 await controller.loadReminders();
                 await controller.refreshPlanningWorkbench();
+                await controller.loadComputerControl(silent: true);
               },
               icon: const Icon(Icons.refresh),
             ),
@@ -211,6 +227,16 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
           },
         ),
         const SizedBox(height: LinearSpacing.md),
+        if (showComputerActions) ...<Widget>[
+          ComputerActionPanel(
+            state: computerControl,
+            onRefresh: () => controller.loadComputerControl(),
+            onRunAction: controller.runComputerAction,
+            onConfirmAction: controller.confirmComputerAction,
+            onCancelAction: controller.cancelComputerAction,
+          ),
+          const SizedBox(height: LinearSpacing.md),
+        ],
         ReminderPanel(
           items: state.reminders,
           statusMessage: state.remindersMessage,

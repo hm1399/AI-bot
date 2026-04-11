@@ -1,4 +1,5 @@
 import '../chat/session_model.dart';
+import '../control/computer_action_model.dart';
 import '../home/runtime_state_model.dart';
 
 class DesktopVoiceCapabilitiesModel {
@@ -61,6 +62,8 @@ class CapabilitiesModel {
     required this.appEvents,
     required this.eventReplay,
     required this.appAuthEnabled,
+    this.computerControl = false,
+    this.computerActions = const <String>[],
     this.planning = false,
     this.planningOverview = false,
     this.planningTimeline = false,
@@ -85,10 +88,66 @@ class CapabilitiesModel {
   final bool appEvents;
   final bool eventReplay;
   final bool appAuthEnabled;
+  final bool computerControl;
+  final List<String> computerActions;
   final bool planning;
   final bool planningOverview;
   final bool planningTimeline;
   final bool planningConflicts;
+
+  CapabilitiesModel copyWith({
+    bool? chat,
+    bool? deviceControl,
+    bool? deviceCommands,
+    bool? voicePipeline,
+    DesktopVoiceCapabilitiesModel? desktopVoice,
+    bool? wakeWord,
+    bool? autoListen,
+    bool? whatsappBridge,
+    bool? settings,
+    bool? tasks,
+    bool? events,
+    bool? notifications,
+    bool? reminders,
+    bool? todoSummary,
+    bool? calendarSummary,
+    bool? appEvents,
+    bool? eventReplay,
+    bool? appAuthEnabled,
+    bool? computerControl,
+    List<String>? computerActions,
+    bool? planning,
+    bool? planningOverview,
+    bool? planningTimeline,
+    bool? planningConflicts,
+  }) {
+    return CapabilitiesModel(
+      chat: chat ?? this.chat,
+      deviceControl: deviceControl ?? this.deviceControl,
+      deviceCommands: deviceCommands ?? this.deviceCommands,
+      voicePipeline: voicePipeline ?? this.voicePipeline,
+      desktopVoice: desktopVoice ?? this.desktopVoice,
+      wakeWord: wakeWord ?? this.wakeWord,
+      autoListen: autoListen ?? this.autoListen,
+      whatsappBridge: whatsappBridge ?? this.whatsappBridge,
+      settings: settings ?? this.settings,
+      tasks: tasks ?? this.tasks,
+      events: events ?? this.events,
+      notifications: notifications ?? this.notifications,
+      reminders: reminders ?? this.reminders,
+      todoSummary: todoSummary ?? this.todoSummary,
+      calendarSummary: calendarSummary ?? this.calendarSummary,
+      appEvents: appEvents ?? this.appEvents,
+      eventReplay: eventReplay ?? this.eventReplay,
+      appAuthEnabled: appAuthEnabled ?? this.appAuthEnabled,
+      computerControl: computerControl ?? this.computerControl,
+      computerActions: computerActions ?? this.computerActions,
+      planning: planning ?? this.planning,
+      planningOverview: planningOverview ?? this.planningOverview,
+      planningTimeline: planningTimeline ?? this.planningTimeline,
+      planningConflicts: planningConflicts ?? this.planningConflicts,
+    );
+  }
 
   factory CapabilitiesModel.fromJson(Map<String, dynamic> json) {
     final planning = _asMap(json['planning']);
@@ -115,6 +174,13 @@ class CapabilitiesModel {
       appEvents: json['app_events'] == true,
       eventReplay: json['event_replay'] == true,
       appAuthEnabled: json['app_auth_enabled'] == true,
+      computerControl:
+          json['computer_control'] == true ||
+          _readStringList(json, const <String>['computer_actions']).isNotEmpty,
+      computerActions: _readStringList(
+        json,
+        const <String>['computer_actions'],
+      ),
       planning:
           _readBool(json, const <String>['planning']) || planning.isNotEmpty,
       planningOverview:
@@ -155,6 +221,8 @@ class CapabilitiesModel {
       appEvents: false,
       eventReplay: false,
       appAuthEnabled: false,
+      computerControl: false,
+      computerActions: const <String>[],
       planning: false,
       planningOverview: false,
       planningTimeline: false,
@@ -217,6 +285,7 @@ class BootstrapModel {
     required this.sessions,
     required this.eventStream,
     this.planning = const <String, dynamic>{},
+    this.computerControl = const ComputerControlStateModel(),
   });
 
   final String serverVersion;
@@ -225,24 +294,45 @@ class BootstrapModel {
   final List<SessionModel> sessions;
   final EventStreamModel eventStream;
   final Map<String, dynamic> planning;
+  final ComputerControlStateModel computerControl;
+
+  BootstrapModel copyWith({
+    String? serverVersion,
+    CapabilitiesModel? capabilities,
+    RuntimeStateModel? runtime,
+    List<SessionModel>? sessions,
+    EventStreamModel? eventStream,
+    Map<String, dynamic>? planning,
+    ComputerControlStateModel? computerControl,
+  }) {
+    return BootstrapModel(
+      serverVersion: serverVersion ?? this.serverVersion,
+      capabilities: capabilities ?? this.capabilities,
+      runtime: runtime ?? this.runtime,
+      sessions: sessions ?? this.sessions,
+      eventStream: eventStream ?? this.eventStream,
+      planning: planning ?? this.planning,
+      computerControl: computerControl ?? this.computerControl,
+    );
+  }
 
   factory BootstrapModel.fromJson(Map<String, dynamic> json) {
     final rawSessions = json['sessions'] is List
         ? json['sessions'] as List<dynamic>
         : const <dynamic>[];
+    final capabilities = CapabilitiesModel.fromJson(
+      json['capabilities'] is Map<String, dynamic>
+          ? json['capabilities'] as Map<String, dynamic>
+          : <String, dynamic>{},
+    );
+    final runtimePayload = json['runtime'] is Map<String, dynamic>
+        ? json['runtime'] as Map<String, dynamic>
+        : <String, dynamic>{};
 
     return BootstrapModel(
       serverVersion: json['server_version']?.toString() ?? '',
-      capabilities: CapabilitiesModel.fromJson(
-        json['capabilities'] is Map<String, dynamic>
-            ? json['capabilities'] as Map<String, dynamic>
-            : <String, dynamic>{},
-      ),
-      runtime: RuntimeStateModel.fromJson(
-        json['runtime'] is Map<String, dynamic>
-            ? json['runtime'] as Map<String, dynamic>
-            : <String, dynamic>{},
-      ),
+      capabilities: capabilities,
+      runtime: RuntimeStateModel.fromJson(runtimePayload),
       sessions: rawSessions
           .map(
             (dynamic item) => SessionModel.fromJson(
@@ -256,6 +346,10 @@ class BootstrapModel {
             : <String, dynamic>{},
       ),
       planning: _extractBootstrapPlanning(json),
+      computerControl: ComputerControlStateModel.fromJson(
+        _extractComputerControlPayload(json, runtimePayload),
+        fallbackSupportedActions: capabilities.computerActions,
+      ),
     );
   }
 }
@@ -292,6 +386,17 @@ Map<String, dynamic> _asMap(dynamic value) {
   return <String, dynamic>{};
 }
 
+Map<String, dynamic> _extractComputerControlPayload(
+  Map<String, dynamic> bootstrapJson,
+  Map<String, dynamic> runtimeJson,
+) {
+  final control = _asMap(bootstrapJson['computer_control']);
+  if (control.isNotEmpty) {
+    return control;
+  }
+  return _asMap(runtimeJson['computer_control']);
+}
+
 bool _readBool(Map<String, dynamic> json, List<String> keys) {
   for (final key in keys) {
     final value = json[key];
@@ -307,4 +412,17 @@ bool _readBool(Map<String, dynamic> json, List<String> keys) {
     }
   }
   return false;
+}
+
+List<String> _readStringList(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is List) {
+      return value
+          .map((dynamic item) => item?.toString().trim() ?? '')
+          .where((String item) => item.isNotEmpty)
+          .toList();
+    }
+  }
+  return const <String>[];
 }

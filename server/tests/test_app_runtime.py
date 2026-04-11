@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.session.manager import SessionManager
+from services.computer_control import ComputerControlService
 from services.app_runtime import AppRuntimeService
 
 
@@ -58,6 +59,7 @@ class DummyDeviceChannel:
         }
         self.last_outbound: OutboundMessage | None = None
         self.last_command: dict[str, Any] | None = None
+        self.command_history: list[dict[str, Any]] = []
         self.weather_config: dict[str, Any] | None = None
         self.active_app_session_resolver = None
 
@@ -85,6 +87,7 @@ class DummyDeviceChannel:
             "params": params,
             "client_command_id": client_command_id,
         }
+        self.command_history.append(dict(self.last_command))
         self._snapshot["last_command"] = {
             "command_id": "cmd_srv_001",
             "client_command_id": client_command_id,
@@ -102,6 +105,32 @@ class DummyDeviceChannel:
             "status": "pending",
             "device": self.get_snapshot(),
         }
+
+
+class FakeComputerAdapter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def open_app(self, *, app: str) -> dict[str, Any]:
+        self.calls.append(("open_app", {"app": app}))
+        return {"opened": app}
+
+    async def run_script(
+        self,
+        *,
+        script_id: str,
+        command: list[str],
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append((
+            "run_script",
+            {
+                "script_id": script_id,
+                "command": list(command),
+                "cwd": cwd,
+            },
+        ))
+        return {"script_id": script_id, "stdout": "ok"}
 
 
 class FakeRequest:
@@ -141,17 +170,40 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.bus = MessageBus()
         self.sessions = SessionManager(workspace)
         self.device = DummyDeviceChannel()
+        self.computer_adapter = FakeComputerAdapter()
+        self.computer_control = ComputerControlService(
+            {
+                "computer_control": {
+                    "enabled": True,
+                    "allowed_apps": ["Safari"],
+                    "allowed_scripts": {
+                        "project-healthcheck": {
+                            "command": ["/bin/echo", "ok"],
+                        }
+                    },
+                    "allowed_path_roots": [self.tmpdir.name],
+                    "confirm_medium_risk": True,
+                }
+            },
+            runtime_dir=workspace / "runtime",
+            adapter=self.computer_adapter,
+        )
         self.service = AppRuntimeService(
             {
                 "app": {
                     "auth_token": "app-local-123",
                     "default_session_id": "app:main",
                 },
+                "computer_control": {
+                    "enabled": True,
+                    "allowed_apps": ["Safari"],
+                },
                 "whatsapp": {"enabled": True},
             },
             bus=self.bus,
             sessions=self.sessions,
             device_channel=self.device,
+            computer_control_service=self.computer_control,
             version="0.6.0",
             start_time=0,
         )
@@ -179,11 +231,14 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payload["data"]["capabilities"]["notifications"])
         self.assertTrue(payload["data"]["capabilities"]["planning"])
         self.assertTrue(payload["data"]["capabilities"]["planning_overview"])
+        self.assertTrue(payload["data"]["capabilities"]["computer_control"])
+        self.assertIn("open_app", payload["data"]["capabilities"]["computer_actions"])
         self.assertEqual(
             payload["data"]["planning"]["overview_path"],
             "/api/app/v1/planning/overview",
         )
         self.assertTrue(payload["data"]["runtime"]["planning"]["available"])
+        self.assertTrue(payload["data"]["runtime"]["computer_control"]["available"])
 
     async def test_post_message_enqueues_app_task(self) -> None:
         response = await self.service.handle_post_message(FakeRequest(
@@ -278,6 +333,77 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(runtime["planning"]["overview_ready"])
         self.assertTrue(runtime["planning"]["timeline_ready"])
         self.assertTrue(runtime["planning"]["conflicts_ready"])
+        self.assertIn("computer_control", runtime)
+        self.assertTrue(runtime["computer_control"]["available"])
+        self.assertIn("open_app", runtime["computer_control"]["supported_actions"])
+
+    async def test_computer_state_and_action_routes_emit_runtime_events(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+
+        state_response = await self.service.handle_computer_state(FakeRequest(headers=self.headers))
+        self.assertEqual(state_response.status, 200)
+        state_payload = json.loads(state_response.text)["data"]
+        self.assertTrue(state_payload["available"])
+        self.assertIn("run_script", state_payload["supported_actions"])
+
+        created = await self.service.handle_create_computer_action(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "action": "open_app",
+                "arguments": {"app": "Safari"},
+                "source_session_id": "app:main",
+            },
+        ))
+        self.assertEqual(created.status, 201)
+        created_payload = json.loads(created.text)["data"]
+        self.assertEqual(created_payload["status"], "completed")
+        self.assertEqual(created_payload["result"]["opened"], "Safari")
+
+        event_types = [event["event_type"] for event in ws.sent]
+        self.assertIn("computer.action.created", event_types)
+        self.assertIn("computer.action.updated", event_types)
+        self.assertIn("computer.action.completed", event_types)
+        self.assertEqual(self.computer_adapter.calls[0][0], "open_app")
+
+    async def test_computer_action_confirm_and_cancel_routes(self) -> None:
+        awaiting = await self.service.handle_create_computer_action(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "action": "run_script",
+                "arguments": {"script_id": "project-healthcheck"},
+                "source_session_id": "app:main",
+            },
+        ))
+        self.assertEqual(awaiting.status, 201)
+        awaiting_payload = json.loads(awaiting.text)["data"]
+        self.assertEqual(awaiting_payload["status"], "awaiting_confirmation")
+
+        confirmed = await self.service.handle_confirm_computer_action(FakeRequest(
+            headers=self.headers,
+            match_info={"action_id": awaiting_payload["action_id"]},
+        ))
+        self.assertEqual(confirmed.status, 200)
+        confirmed_payload = json.loads(confirmed.text)["data"]
+        self.assertEqual(confirmed_payload["status"], "completed")
+
+        second = await self.service.handle_create_computer_action(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "action": "run_script",
+                "arguments": {"script_id": "project-healthcheck"},
+                "source_session_id": "app:main",
+            },
+        ))
+        second_payload = json.loads(second.text)["data"]
+
+        cancelled = await self.service.handle_cancel_computer_action(FakeRequest(
+            headers=self.headers,
+            match_info={"action_id": second_payload["action_id"]},
+        ))
+        self.assertEqual(cancelled.status, 200)
+        cancelled_payload = json.loads(cancelled.text)["data"]
+        self.assertEqual(cancelled_payload["status"], "cancelled")
 
     async def test_get_messages_supports_before_after_pagination(self) -> None:
         session = self.sessions.get_or_create("app:main")
@@ -550,14 +676,31 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
             headers=self.headers,
             json_body={
                 "device_volume": 75,
+                "led_mode": "breathing",
                 "wake_word": "Hey Assistant",
                 "llm_api_key": "secret-key",
             },
         ))
         self.assertEqual(updated.status, 200)
         updated_payload = json.loads(updated.text)
-        self.assertEqual(updated_payload["data"]["device_volume"], 75)
-        self.assertTrue(updated_payload["data"]["llm_api_key_configured"])
+        self.assertEqual(updated_payload["data"]["settings"]["device_volume"], 75)
+        self.assertTrue(updated_payload["data"]["settings"]["llm_api_key_configured"])
+        self.assertEqual(
+            updated_payload["data"]["apply_results"]["device_volume"]["status"],
+            "saved_only",
+        )
+        self.assertEqual(
+            updated_payload["data"]["apply_results"]["device_volume"]["reason"],
+            "device_offline",
+        )
+        self.assertEqual(
+            updated_payload["data"]["apply_results"]["led_mode"]["status"],
+            "saved_only",
+        )
+        self.assertEqual(
+            updated_payload["data"]["apply_results"]["wake_word"]["mode"],
+            "config_only",
+        )
 
         with patch.object(
             self.service.settings,
@@ -583,13 +726,33 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
 
         updated = await self.service.handle_put_settings(FakeRequest(
             headers=self.headers,
-            json_body={"device_volume": 42},
+            json_body={
+                "device_volume": 42,
+                "led_enabled": False,
+                "led_brightness": 33,
+                "led_color": "#112233",
+                "led_mode": "breathing",
+                "auto_listen": True,
+            },
         ))
 
         self.assertEqual(updated.status, 200)
         self.assertIsNotNone(self.device.last_command)
-        self.assertEqual(self.device.last_command["command"], "set_volume")
-        self.assertEqual(self.device.last_command["params"]["level"], 42)
+        updated_payload = json.loads(updated.text)["data"]
+        self.assertEqual(updated_payload["apply_results"]["device_volume"]["status"], "pending")
+        self.assertEqual(updated_payload["apply_results"]["led_enabled"]["status"], "pending")
+        self.assertEqual(updated_payload["apply_results"]["led_brightness"]["status"], "pending")
+        self.assertEqual(updated_payload["apply_results"]["led_color"]["status"], "pending")
+        self.assertEqual(updated_payload["apply_results"]["led_mode"]["status"], "saved_only")
+        self.assertEqual(updated_payload["apply_results"]["auto_listen"]["mode"], "config_only")
+        self.assertEqual(
+            [item["command"] for item in self.device.command_history],
+            ["set_volume", "toggle_led", "set_led_brightness", "set_led_color"],
+        )
+        self.assertEqual(self.device.command_history[0]["params"]["level"], 42)
+        self.assertEqual(self.device.command_history[1]["params"]["enabled"], False)
+        self.assertEqual(self.device.command_history[2]["params"]["level"], 33)
+        self.assertEqual(self.device.command_history[3]["params"]["color"], "#112233")
 
     async def test_tasks_events_notifications_and_reminders_crud(self) -> None:
         ws = FakeWebSocket()

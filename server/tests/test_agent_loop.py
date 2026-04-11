@@ -246,6 +246,39 @@ class FakePlanningBackend:
         return {"items": items}
 
 
+class FakeComputerControlBackend:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def request_action(self, payload: dict[str, object]) -> dict[str, object]:
+        self.calls.append(dict(payload))
+        action = str(payload.get("action") or "")
+        if action == "wechat_send_prepared_message":
+            return {
+                "action_id": "cc_action_confirm",
+                "action": action,
+                "status": "awaiting_confirmation",
+                "confirmation_needed": True,
+                "risk_level": "high",
+                "message": "Waiting for user confirmation.",
+                "result": {
+                    "target": payload.get("target"),
+                },
+            }
+
+        return {
+            "action_id": "cc_action_done",
+            "action": action,
+            "status": "completed",
+            "confirmation_needed": False,
+            "risk_level": "low",
+            "message": "Action completed.",
+            "result": {
+                "target": payload.get("target"),
+            },
+        }
+
+
 def _load_bootstrap_module():
     sys.modules.pop("bootstrap", None)
     fake_app_runtime = types.ModuleType("services.app_runtime")
@@ -615,6 +648,126 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(user_entry["message_id"], "msg_user")
         self.assertEqual(user_entry["client_message_id"], "client_user")
         self.assertEqual(assistant_entry["message_id"], "msg_assistant")
+
+
+class AgentLoopComputerControlToolTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self._tmpdir.name)
+        self.backend = FakeComputerControlBackend()
+
+    async def asyncTearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    async def test_computer_control_tool_is_optional(self) -> None:
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=FakeProvider(),
+            workspace=self.workspace,
+        )
+        controlled_agent = AgentLoop(
+            bus=MessageBus(),
+            provider=FakeProvider(),
+            workspace=self.workspace,
+            computer_control_backend=self.backend,
+        )
+
+        self.assertFalse(agent.tools.has("computer_control"))
+        self.assertTrue(controlled_agent.tools.has("computer_control"))
+
+    async def test_computer_control_tool_calls_structured_backend(self) -> None:
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=FakeProvider(),
+            workspace=self.workspace,
+            computer_control_backend=self.backend,
+        )
+        tool = agent.tools.get("computer_control")
+        assert tool is not None
+        tool.set_context("app", "main", "msg_user", "runtime_task")
+        tool.start_turn()
+
+        result = await agent.tools.execute(
+            "computer_control",
+            {
+                "action": "open_app",
+                "target": {"app": "Safari"},
+                "reason": "Open the browser for the user",
+            },
+        )
+
+        payload = json.loads(result)
+        self.assertEqual(payload["action"], "open_app")
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(self.backend.calls[0]["target"], {"app": "Safari"})
+        self.assertEqual(self.backend.calls[0]["reason"], "Open the browser for the user")
+        self.assertEqual(self.backend.calls[0]["source_channel"], "app")
+        self.assertEqual(self.backend.calls[0]["source_session_id"], "app:main")
+        self.assertEqual(self.backend.calls[0]["source_message_id"], "msg_user")
+        self.assertEqual(self.backend.calls[0]["task_id"], "runtime_task")
+
+        turn_results = tool.consume_turn_results()
+        self.assertEqual(turn_results[0]["action_id"], "cc_action_done")
+
+    async def test_computer_control_tool_result_is_preserved_in_response_metadata_and_session(self) -> None:
+        provider = SequencedProvider(
+            [
+                LLMResponse(
+                    content=None,
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="call_1",
+                            name="computer_control",
+                            arguments={
+                                "action": "wechat_send_prepared_message",
+                                "target": {"contact": "Alice", "draft": "hi"},
+                                "reason": "Send the prepared outbound message after confirmation",
+                            },
+                        )
+                    ],
+                ),
+                LLMResponse(content="已为你准备好，等你确认再发送。"),
+            ]
+        )
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=self.workspace,
+            computer_control_backend=self.backend,
+        )
+        msg = InboundMessage(
+            channel="app",
+            sender_id="u",
+            chat_id="main",
+            content="给 Alice 发一条 hi",
+            metadata={
+                "task_id": "runtime_task",
+                "message_id": "msg_user",
+                "assistant_message_id": "msg_assistant",
+            },
+        )
+
+        response = await agent._process_message(msg)
+
+        self.assertIsNotNone(response)
+        control_results = response.metadata["tool_results"]["computer_control"]
+        self.assertEqual(control_results[0]["action_id"], "cc_action_confirm")
+        self.assertTrue(control_results[0]["confirmation_needed"])
+        self.assertEqual(self.backend.calls[0]["source_channel"], "app")
+        self.assertEqual(self.backend.calls[0]["source_session_id"], "app:main")
+        self.assertEqual(self.backend.calls[0]["source_message_id"], "msg_user")
+
+        session = agent.sessions.get_or_create("app:main")
+        persisted = [
+            entry for entry in session.messages
+            if entry.get("role") == "assistant"
+            and entry.get("content") == "已为你准备好，等你确认再发送。"
+        ]
+        self.assertEqual(len(persisted), 1)
+        self.assertEqual(
+            persisted[0]["tool_results"]["computer_control"][0]["action_id"],
+            "cc_action_confirm",
+        )
 
 
 class BootstrapPlanningInjectionTests(unittest.TestCase):

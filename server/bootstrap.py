@@ -4,6 +4,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -23,6 +24,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.providers.litellm_provider import LiteLLMProvider
 from nanobot.session.manager import SessionManager
 from services.app_runtime import AppRuntimeService
+from services.computer_control import ComputerControlService
 
 if TYPE_CHECKING:
     from channels.device_channel import DeviceChannel
@@ -185,6 +187,32 @@ class AppPlanningBackend:
         return self.resources.list_reminders(limit=limit)
 
 
+class _NullDesktopVoiceService:
+    enable_local_microphone = False
+
+    def get_snapshot(self) -> dict[str, Any]:
+        return {
+            "connected": False,
+            "ready": False,
+            "status": "idle",
+            "capture_active": False,
+            "client_count": 0,
+            "device_feedback_available": False,
+            "asr_available": False,
+            "wake_word_active": False,
+            "auto_listen_active": False,
+        }
+
+    def register_routes(self, app: web.Application) -> None:
+        return None
+
+    def set_event_observer(self, observer: Any) -> None:
+        return None
+
+    def set_active_app_session_resolver(self, resolver: Any) -> None:
+        return None
+
+
 def setup_logging() -> None:
     """配置 loguru: 控制台 INFO + 文件 DEBUG。"""
     logger.remove()
@@ -323,11 +351,13 @@ def create_http_app(
     bus: MessageBus,
     agent: AgentLoop,
     device_channel: DeviceChannel,
-    desktop_voice_service: DesktopVoiceService,
+    desktop_voice_service: DesktopVoiceService | None = None,
     *,
     start_time: float,
+    computer_control_service: ComputerControlService | None = None,
 ) -> web.Application:
     """Create the aiohttp application and register routes."""
+    from nanobot.agent.tools.computer_control import ComputerControlTool
 
     @web.middleware
     async def cors_middleware(
@@ -347,12 +377,26 @@ def create_http_app(
         response.headers["Access-Control-Allow-Methods"] = _CORS_ALLOW_METHODS
         return response
 
+    resolved_sessions = getattr(agent, "sessions", None)
+    if not hasattr(resolved_sessions, "workspace"):
+        resolved_sessions = SessionManager(WORKSPACE_DIR)
+
+    resolved_desktop_voice_service = desktop_voice_service or _NullDesktopVoiceService()
+    runtime_dir = getattr(resolved_sessions, "workspace", WORKSPACE_DIR)
+    if not isinstance(runtime_dir, Path):
+        runtime_dir = WORKSPACE_DIR
+    resolved_computer_control_service = computer_control_service or ComputerControlService(
+        cfg,
+        runtime_dir=runtime_dir / "runtime",
+    )
+
     app_runtime = AppRuntimeService(
         cfg,
         bus=bus,
-        sessions=agent.sessions,
+        sessions=resolved_sessions,
         device_channel=device_channel,
-        desktop_voice_service=desktop_voice_service,
+        desktop_voice_service=resolved_desktop_voice_service,
+        computer_control_service=resolved_computer_control_service,
         version=VERSION,
         start_time=start_time,
     )
@@ -366,14 +410,34 @@ def create_http_app(
     bus.add_observer(app_runtime)
     agent.task_observer = app_runtime
     agent.planning_backend = shared_planning_backend
-    agent.tools.register(PlanningTool(shared_planning_backend))
-    device_channel.set_event_observer(app_runtime)
-    device_channel.set_desktop_voice_bridge(desktop_voice_service)
-    desktop_voice_service.set_event_observer(app_runtime)
+    setattr(agent, "computer_control_service", resolved_computer_control_service)
+    if hasattr(agent, "computer_control_backend"):
+        agent.computer_control_backend = (
+            resolved_computer_control_service
+            if resolved_computer_control_service.supported_actions()
+            else None
+        )
+    if hasattr(agent, "tools") and hasattr(agent.tools, "register"):
+        if (
+            resolved_computer_control_service.supported_actions()
+            and hasattr(agent.tools, "has")
+            and not agent.tools.has("computer_control")
+        ):
+            agent.tools.register(
+                ComputerControlTool(resolved_computer_control_service)
+            )
+        agent.tools.register(PlanningTool(shared_planning_backend))
+    if hasattr(device_channel, "set_event_observer"):
+        device_channel.set_event_observer(app_runtime)
+    if hasattr(device_channel, "set_desktop_voice_bridge"):
+        device_channel.set_desktop_voice_bridge(resolved_desktop_voice_service)
+    if hasattr(resolved_desktop_voice_service, "set_event_observer"):
+        resolved_desktop_voice_service.set_event_observer(app_runtime)
 
     async def health_handler(request: web.Request) -> web.Response:
         nanobot_cfg = cfg.get("nanobot", {})
         uptime = time.monotonic() - start_time
+        device_state = getattr(getattr(device_channel, "state", None), "value", None) or "unknown"
         return web.json_response({
             "status": "ok",
             "version": VERSION,
@@ -383,7 +447,7 @@ def create_http_app(
             "asr_model": cfg.get("asr", {}).get("model", "base"),
             "tts_voice": cfg.get("tts", {}).get("voice", "zh-CN-XiaoxiaoNeural"),
             "device_connected": device_channel.connected,
-            "device_state": device_channel.state.value,
+            "device_state": device_state,
         })
 
     async def device_info_handler(request: web.Request) -> web.Response:
@@ -393,13 +457,15 @@ def create_http_app(
     app.router.add_get("/api/health", health_handler)
     app.router.add_get("/api/device", device_info_handler)
     device_channel.register_routes(app)
-    desktop_voice_service.register_routes(app)
+    if hasattr(resolved_desktop_voice_service, "register_routes"):
+        resolved_desktop_voice_service.register_routes(app)
     app_runtime.register_routes(app)
 
     app["bus"] = bus
     app["agent"] = agent
     app["device_channel"] = device_channel
-    app["desktop_voice_service"] = desktop_voice_service
+    app["desktop_voice_service"] = resolved_desktop_voice_service
+    app["computer_control_service"] = resolved_computer_control_service
     app["config"] = cfg
     app["app_runtime"] = app_runtime
     return app
@@ -469,6 +535,10 @@ def log_startup_summary(runtime: RuntimeComponents) -> None:
     logger.info(
         "  Desktop Voice: embedded-local-mic {}",
         "enabled" if runtime.desktop_voice_service.enable_local_microphone else "disabled",
+    )
+    logger.info(
+        "  Computer Control: {}",
+        "enabled" if runtime.config.get("computer_control", {}).get("enabled", False) else "disabled",
     )
     wa_cfg = runtime.config.get("whatsapp", {})
     logger.info(

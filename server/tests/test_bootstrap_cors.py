@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from bootstrap import _CORS_ALLOW_HEADERS, _CORS_ALLOW_METHODS, create_http_app
+from nanobot.agent.tools.registry import ToolRegistry
 
 
 class DummyBus:
@@ -24,6 +25,36 @@ class DummyAgent:
     def __init__(self) -> None:
         self.sessions = object()
         self.task_observer = None
+
+
+class DummyAgentWithTools(DummyAgent):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tools = ToolRegistry()
+        self.computer_control_backend = None
+
+
+class FakeComputerControlService:
+    def __init__(self) -> None:
+        self.event_callback = None
+
+    def set_event_callback(self, callback) -> None:
+        self.event_callback = callback
+
+    def supported_actions(self) -> list[str]:
+        return ["open_app"]
+
+    def is_available(self) -> bool:
+        return True
+
+    def get_state(self) -> dict[str, object]:
+        return {
+            "available": True,
+            "supported_actions": ["open_app"],
+            "pending_actions": [],
+            "recent_actions": [],
+            "permission_hints": [],
+        }
 
 
 class DummyDeviceChannel:
@@ -45,6 +76,9 @@ class DummyDeviceChannel:
 
     def set_event_observer(self, observer) -> None:
         self._observer = observer
+
+    def set_active_app_session_resolver(self, resolver) -> None:
+        self._resolver = resolver
 
     async def _handle_ws(self, request: web.Request) -> web.Response:
         return web.Response(status=200)
@@ -90,3 +124,20 @@ class BootstrapCorsTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, 200)
         self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
+
+    async def test_create_http_app_registers_computer_control_tool_when_service_is_present(self) -> None:
+        agent = DummyAgentWithTools()
+        service = FakeComputerControlService()
+
+        app = create_http_app(
+            {"app": {}},
+            DummyBus(),
+            agent,
+            DummyDeviceChannel(),
+            start_time=0,
+            computer_control_service=service,
+        )
+
+        self.assertTrue(agent.tools.has("computer_control"))
+        self.assertIs(agent.computer_control_backend, service)
+        self.assertIs(app["computer_control_service"], service)
