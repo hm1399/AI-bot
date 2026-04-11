@@ -148,3 +148,43 @@
 - 影响：在更窄的手机宽度下，底部图标加文案的可读性会继续下降，后续如果再新增主入口或做多语言文案，拥挤问题会更明显。
 - 建议动作：后续单独立项评估移动端是否需要改成“图标优先 + 精简文案”、可横向滚动 dock，或把低频入口收进 `More`。
 - 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-01 `SessionManager` 仍是整份 JSONL 重写，后续会成为聊天性能热点
+
+- 发现来源：本轮任务调度与性能优化调研。
+- 当前状态：`server/nanobot/session/manager.py` 的 `save()` 仍按整个 session 文件重写，聊天消息越多，单次保存越重。
+- 影响：会话历史增长后，消息写入、会话切换和 session 列表衍生统计都会更容易出现耗时抖动；并发写入策略也会越来越脆弱。
+- 建议动作：后续单独立项，把聊天热路径从 JSONL 迁到更稳的持久层，优先评估 `SQLite + WAL`，并把会话列表依赖的摘要字段改成增量维护。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-02 `MessageBus` 仍是无界队列且 observer 在入队前同步执行
+
+- 发现来源：本轮任务调度与性能优化调研。
+- 当前状态：`server/nanobot/bus/queue.py` 中 `inbound` / `outbound` 仍是无界 `asyncio.Queue()`，并且 `publish_inbound()` / `publish_outbound()` 会先同步 `await _notify()` 再真正 `put()`。
+- 影响：流量波峰时缺少背压保护；一旦 observer 变慢，消息甚至还没入队就先被拖住，容易放大延迟。
+- 建议动作：后续单独立项，为消息队列补 `maxsize`、优先级和观测指标，并把“补 task_id/message_id”与“重型 observer 逻辑”分层，减少入队前阻塞。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-03 App 事件广播仍会被慢 WebSocket 客户端拖住
+
+- 发现来源：本轮任务调度与性能优化调研。
+- 当前状态：`server/services/app_runtime.py` 的 `_broadcast_event()` 仍是逐个 `await ws.send_json(event)` 广播，没有每客户端独立发送队列。
+- 影响：只要某个前端连接特别慢、挂起或网络抖动，就可能拖慢整轮事件广播，影响其他正常客户端的实时体验。
+- 建议动作：后续单独立项，为每个 WebSocket 客户端增加独立发送队列和 writer task，并对高频 progress 类事件增加合并/丢弃策略。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-04 `UnifiedOutboundRouter` 单消费者模型容易形成出站串行堵塞
+
+- 发现来源：本轮任务调度与性能优化调研。
+- 当前状态：`server/services/outbound_router.py` 目前用单个 consumer 统一处理 `device / desktop_voice / whatsapp / app` 出站消息。
+- 影响：任一慢通道都会形成 head-of-line blocking，例如设备回放或外部渠道发送变慢时，其他通道消息也会跟着排队。
+- 建议动作：后续单独立项，把出站路由拆成至少 `app_realtime / device_voice / external_channels` 三条 lane，避免互相拖累。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-05 Reminder 调度仍是固定间隔全量轮询
+
+- 发现来源：本轮任务调度与性能优化调研。
+- 当前状态：`server/services/reminder_scheduler.py` 仍按固定 `poll_interval_s=15.0` 周期醒来，并对全部 reminder 做检查。
+- 影响：提醒数量增长后会出现无谓空转，且到点精度受轮询间隔限制，不利于后续扩展更复杂的日程/提醒体系。
+- 建议动作：后续单独立项，把 reminder 调度改成基于 `next_trigger_at` 的最小堆或等价 next-fire 调度模型；如果未来进入多进程/多实例阶段，再评估 APScheduler / Redis Streams。
+- 本轮处理：未处理。
