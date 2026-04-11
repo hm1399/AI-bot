@@ -5,6 +5,14 @@
 - 只记录本轮调研或文档同步时发现、但未在当前任务内处理的问题。
 - 每条使用 checkpoint 记录，等待主线程确认后再决定是否立项或回填。
 
+### Checkpoint 2026-04-11-01 `app/DESIGN.md` 的壳层口径已落后于当前产品结构
+
+- 发现来源：本轮 Chat 页面桌面化改版调研。
+- 当前状态：`app/DESIGN.md` 仍写着保留“五个主区”，并建议不要把主壳层换成左侧 Linear 式 sidebar；但当前产品实际已经有 `Agenda`，且 `app/lib/widgets/common/app_scaffold.dart` 也已经采用桌面左侧导航。
+- 影响：后续如果机械照抄 `DESIGN.md`，容易把“视觉规范”与“现有产品 IA”混为一谈，导致实现时错误回退导航结构。
+- 建议动作：后续单独立项更新 `app/DESIGN.md`，把现有壳层与 `Agenda` 纳入正式口径；在当前 Chat 任务中，应只沿用其视觉/密度/控件风格约束，不回退整体 IA。
+- 本轮处理：未处理。
+
 ### Checkpoint 2026-04-06-01 验收文档路径尚未登记到 `todo.md`
 
 - 发现来源：本轮文档并发检查。
@@ -187,4 +195,36 @@
 - 当前状态：`server/services/reminder_scheduler.py` 仍按固定 `poll_interval_s=15.0` 周期醒来，并对全部 reminder 做检查。
 - 影响：提醒数量增长后会出现无谓空转，且到点精度受轮询间隔限制，不利于后续扩展更复杂的日程/提醒体系。
 - 建议动作：后续单独立项，把 reminder 调度改成基于 `next_trigger_at` 的最小堆或等价 next-fire 调度模型；如果未来进入多进程/多实例阶段，再评估 APScheduler / Redis Streams。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-06 `voice_handoff_card.dart` 已退化为 Chat 改版后的兼容旧组件
+
+- 发现来源：本轮 Chat 页面桌面化重构。
+- 当前状态：新的 Chat 页面已经把语音状态收敛为轻量 `ChatStatusStrip`，不再使用 `app/lib/widgets/chat/voice_handoff_card.dart` 这类右侧大卡。
+- 影响：后续如果继续把 `VoiceHandoffCard` 当成 Chat 主路径组件维护，容易让桌面聊天页再次回到 dashboard 式布局，也会增加阅读噪音。
+- 建议动作：后续单独立项决定是删除该旧组件，还是明确保留为其他场景的兼容卡片；当前任务不顺手清理。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-07 `chat_session_panel.dart` 已降级为兼容外壳，主路径实际改用 dialog/list 组合
+
+- 发现来源：本轮 Chat 页面桌面化重构。
+- 当前状态：会话管理主交互已经迁到 `ChatSessionDialog + ChatSessionList`；`app/lib/widgets/chat/chat_session_panel.dart` 目前更像兼容旧调用形态的外壳层。
+- 影响：后续如果不明确这层的新定位，后续 agent 容易在 `panel`、`dialog`、`list` 三处重复加能力，重新制造分叉。
+- 建议动作：后续单独立项决定是否彻底删掉 `panel` 兼容层，或明确只保留一个唯一主入口组件。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-06 `desktop_voice.*` 事件已发出，但 Flutter 端仍未消费细粒度语音事件
+
+- 发现来源：本轮 `AI 电脑端能力调研`。
+- 当前状态：`server/services/app_runtime.py` 已广播 `desktop_voice.state.changed / transcript / response / error` 事件，但 `app/lib/providers/app_providers.dart` 当前没有对应 case；前端主要只通过 `refreshRuntime()` 的聚合状态感知桌面语音桥是否 ready。
+- 影响：桌面麦克风链路虽然已经存在，但 App 内目前缺少实时 transcript / response / error 的细粒度可视反馈，语音联调和用户理解成本偏高。
+- 建议动作：后续单独立项，为 Chat 或 Control Center 增加 Voice Activity 视图，直接消费 `desktop_voice.*` 事件，而不是只看 runtime 摘要。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-11-07 Agent 工具基础设施与当前 runtime 接线范围已有口径偏差
+
+- 发现来源：本轮 `AI 电脑端能力调研`。
+- 当前状态：代码层已经有 `CronTool`、MCP 包装层和 `web_search` 支持，但当前 `server/bootstrap.py` 没把 `cron_service`、`mcp_servers`、`brave_api_key`、`restrict_to_workspace` 接进 `AgentLoop` 启动路径。
+- 影响：后续如果只看工具代码，容易高估“当前 build 已开放给 AI 的电脑端能力”；反过来，`read_file / write_file / edit_file / exec` 的实际边界又比“只限 workspace”更宽，产品口径和安全口径都容易漂移。
+- 建议动作：后续单独立项，明确一份“当前 runtime 已启用工具矩阵 + 权限边界”文档，或把 bootstrap 接线补齐并补前端权限提示。
 - 本轮处理：未处理。
