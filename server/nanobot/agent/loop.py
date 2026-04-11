@@ -624,6 +624,16 @@ class AgentLoop:
         assistant_message_id = msg_metadata.get("assistant_message_id")
         task_id = msg_metadata.get("task_id")
         client_message_id = msg_metadata.get("client_message_id")
+        metadata_passthrough_keys = (
+            "source",
+            "source_channel",
+            "interaction_surface",
+            "capture_source",
+            "voice_path",
+            "reply_language",
+            "emotion",
+            "app_session_id",
+        )
         user_id_assigned = False
         assistant_id_assigned = False
         assistant_tool_results_assigned = False
@@ -662,6 +672,9 @@ class AgentLoop:
                     entry.setdefault("client_message_id", client_message_id)
                 if task_id:
                     entry.setdefault("task_id", task_id)
+                for key in metadata_passthrough_keys:
+                    if msg_metadata.get(key) is not None:
+                        entry.setdefault(key, msg_metadata.get(key))
                 user_id_assigned = True
             elif (
                 role == "assistant"
@@ -673,6 +686,9 @@ class AgentLoop:
                     entry.setdefault("message_id", assistant_message_id)
                 if task_id:
                     entry.setdefault("task_id", task_id)
+                for key in metadata_passthrough_keys:
+                    if msg_metadata.get(key) is not None:
+                        entry.setdefault(key, msg_metadata.get(key))
                 assistant_id_assigned = True
                 if assistant_tool_results and not assistant_tool_results_assigned:
                     entry["tool_results"] = deepcopy(assistant_tool_results)

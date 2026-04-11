@@ -4,6 +4,7 @@ class ApiConstants {
   static const String bootstrapPath = '$basePath/bootstrap';
   static const String capabilitiesPath = '$basePath/capabilities';
   static const String sessionsPath = '$basePath/sessions';
+  static const String sessionsActivePath = '$sessionsPath/active';
   static const String runtimeStatePath = '$basePath/runtime/state';
   static const String runtimeStopPath = '$basePath/runtime/stop';
   static const String todoSummaryPath = '$basePath/runtime/todo-summary';

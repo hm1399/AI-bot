@@ -21,6 +21,7 @@ class DemoServiceBundle {
       messageCount: 3,
       pinned: true,
       archived: false,
+      active: true,
     ),
     SessionModel(
       sessionId: 'app:demo-briefing',
@@ -33,6 +34,7 @@ class DemoServiceBundle {
       messageCount: 2,
       pinned: false,
       archived: false,
+      active: false,
     ),
   ];
 

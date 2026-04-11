@@ -1,3 +1,5 @@
+import '../common/source_context_model.dart';
+
 class ReminderModel {
   const ReminderModel({
     required this.id,
@@ -11,6 +13,8 @@ class ReminderModel {
     this.bundleId,
     this.createdVia,
     this.sourceChannel,
+    this.interactionSurface,
+    this.captureSource,
     this.sourceSessionId,
     this.sourceMessageId,
     this.linkedTaskId,
@@ -40,6 +44,8 @@ class ReminderModel {
   final String? bundleId;
   final String? createdVia;
   final String? sourceChannel;
+  final String? interactionSurface;
+  final String? captureSource;
   final String? sourceSessionId;
   final String? sourceMessageId;
   final String? linkedTaskId;
@@ -56,6 +62,15 @@ class ReminderModel {
   final String? status;
   final Map<String, dynamic> planningMetadata;
   final Map<String, dynamic> runtimeMetadata;
+
+  SourceContextModel get sourceContext => SourceContextModel.fromMetadata(
+    sourceChannel: sourceChannel,
+    interactionSurface: interactionSurface,
+    captureSource: captureSource,
+    createdVia: createdVia,
+  );
+
+  String get sourceLabel => sourceContext.label;
 
   DateTime? get nextTriggerDateTime => _tryParseDateTime(nextTriggerAt);
 
@@ -82,6 +97,8 @@ class ReminderModel {
       bundleId: bundleId,
       createdVia: createdVia,
       sourceChannel: sourceChannel,
+      interactionSurface: interactionSurface,
+      captureSource: captureSource,
       sourceSessionId: sourceSessionId,
       sourceMessageId: sourceMessageId,
       linkedTaskId: linkedTaskId,
@@ -123,6 +140,12 @@ class ReminderModel {
       ]),
       sourceChannel: _readNullableString(planningMetadata, const <String>[
         'source_channel',
+      ]),
+      interactionSurface: _readNullableString(planningMetadata, const <String>[
+        'interaction_surface',
+      ]),
+      captureSource: _readNullableString(planningMetadata, const <String>[
+        'capture_source',
       ]),
       sourceSessionId: _readNullableString(planningMetadata, const <String>[
         'source_session_id',
@@ -175,6 +198,8 @@ class ReminderModel {
       if (bundleId != null) 'bundle_id': bundleId,
       if (createdVia != null) 'created_via': createdVia,
       if (sourceChannel != null) 'source_channel': sourceChannel,
+      if (interactionSurface != null) 'interaction_surface': interactionSurface,
+      if (captureSource != null) 'capture_source': captureSource,
       if (sourceSessionId != null) 'source_session_id': sourceSessionId,
       if (sourceMessageId != null) 'source_message_id': sourceMessageId,
       if (linkedTaskId != null) 'linked_task_id': linkedTaskId,
@@ -203,6 +228,8 @@ Map<String, dynamic> _extractPlanningMetadata(Map<String, dynamic> json) {
     'bundle_id',
     'created_via',
     'source_channel',
+    'interaction_surface',
+    'capture_source',
     'source_session_id',
     'source_message_id',
     'linked_task_id',

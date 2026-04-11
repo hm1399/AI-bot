@@ -59,12 +59,16 @@ class DummyDeviceChannel:
         self.last_outbound: OutboundMessage | None = None
         self.last_command: dict[str, Any] | None = None
         self.weather_config: dict[str, Any] | None = None
+        self.active_app_session_resolver = None
 
     def get_snapshot(self) -> dict[str, Any]:
         return dict(self._snapshot)
 
     def set_weather_config(self, config: dict[str, Any]) -> None:
         self.weather_config = dict(config)
+
+    def set_active_app_session_resolver(self, resolver) -> None:
+        self.active_app_session_resolver = resolver
 
     async def send_outbound(self, out_msg: OutboundMessage) -> None:
         self.last_outbound = out_msg
@@ -201,6 +205,71 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(runtime["current_task"])
         self.assertEqual(len(runtime["task_queue"]), 1)
         self.assertEqual(runtime["task_queue"][0]["task_id"], task_id)
+
+    async def test_patch_session_rejects_archiving_last_active_conversation(self) -> None:
+        self.service._ensure_app_session("app:main", title="主对话")
+        response = await self.service.handle_patch_session(FakeRequest(
+            headers=self.headers,
+            match_info={"session_id": "app:main"},
+            json_body={"archived": True},
+        ))
+
+        self.assertEqual(response.status, 409)
+        payload = json.loads(response.text)
+        self.assertEqual(payload["error"]["code"], "INVALID_STATE")
+        self.assertEqual(self.service.get_active_app_session_id(), "app:main")
+
+    async def test_patch_session_archives_current_session_and_falls_back_to_other_active_session(self) -> None:
+        self.service._ensure_app_session("app:main", title="主对话")
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+
+        created = await self.service.handle_create_session(FakeRequest(
+            headers=self.headers,
+            json_body={"title": "Second thread"},
+        ))
+        created_session_id = json.loads(created.text)["data"]["session_id"]
+
+        archived = await self.service.handle_patch_session(FakeRequest(
+            headers=self.headers,
+            match_info={"session_id": created_session_id},
+            json_body={"archived": True},
+        ))
+
+        self.assertEqual(archived.status, 200)
+        archived_payload = json.loads(archived.text)["data"]
+        self.assertTrue(archived_payload["archived"])
+        self.assertEqual(self.service.get_active_app_session_id(), "app:main")
+        updated_sessions = [
+            event["payload"]["session"]["session_id"]
+            for event in ws.sent
+            if event["event_type"] == "session.updated"
+        ]
+        self.assertIn(created_session_id, updated_sessions)
+        self.assertIn("app:main", updated_sessions)
+
+    async def test_archived_session_cannot_become_active(self) -> None:
+        self.service._ensure_app_session("app:main", title="主对话")
+        created = await self.service.handle_create_session(FakeRequest(
+            headers=self.headers,
+            json_body={"title": "Archive me"},
+        ))
+        session_id = json.loads(created.text)["data"]["session_id"]
+
+        archived = await self.service.handle_patch_session(FakeRequest(
+            headers=self.headers,
+            match_info={"session_id": session_id},
+            json_body={"archived": True},
+        ))
+        self.assertEqual(archived.status, 200)
+
+        activated = await self.service.handle_set_active_session(FakeRequest(
+            headers=self.headers,
+            json_body={"session_id": session_id},
+        ))
+        self.assertEqual(activated.status, 409)
+        payload = json.loads(activated.text)
+        self.assertEqual(payload["error"]["code"], "INVALID_STATE")
 
     async def test_runtime_state_exposes_planning_runtime_flags(self) -> None:
         runtime = await self.service.get_runtime_state()
@@ -396,6 +465,79 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
             [event["event_type"] for event in ws.sent[before:before + 2]],
             ["runtime.task.current_changed", "runtime.task.queue_changed"],
         )
+
+    async def test_completed_session_message_event_keeps_source_metadata(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+
+        await self.service.on_outbound_published(
+            OutboundMessage(
+                channel="device",
+                chat_id="esp32",
+                content="Done.",
+                metadata={
+                    "task_id": "task_123",
+                    "assistant_message_id": "msg_assistant_123",
+                    "app_session_id": "app:main",
+                    "source_channel": "device",
+                    "interaction_surface": "device_press",
+                    "capture_source": "device_mic",
+                    "reply_language": "Chinese",
+                    "tool_results": {
+                        "planning": [{"action": "create_task"}],
+                    },
+                },
+            )
+        )
+
+        completed_events = [
+            event for event in ws.sent if event["event_type"] == "session.message.completed"
+        ]
+        self.assertEqual(len(completed_events), 1)
+        metadata = completed_events[0]["payload"]["message"]["metadata"]
+        self.assertEqual(metadata["source_channel"], "device")
+        self.assertEqual(metadata["interaction_surface"], "device_press")
+        self.assertEqual(metadata["capture_source"], "device_mic")
+        self.assertEqual(metadata["app_session_id"], "app:main")
+        self.assertEqual(metadata["reply_language"], "Chinese")
+        self.assertIn("tool_results", metadata)
+
+    async def test_get_messages_preserves_persisted_source_metadata(self) -> None:
+        session = self.sessions.get_or_create("app:main")
+        session.metadata.update({
+            "channel": "app",
+            "title": "主对话",
+            "pinned": True,
+            "archived": False,
+        })
+        session.messages.append(
+            {
+                "role": "assistant",
+                "content": "Handled from device context.",
+                "timestamp": "2026-04-10T10:00:00+08:00",
+                "message_id": "msg_assistant_1",
+                "task_id": "task_1",
+                "source_channel": "device",
+                "interaction_surface": "device_press",
+                "capture_source": "device_mic",
+                "app_session_id": "app:main",
+                "tool_results": {"planning": [{"action": "create_task"}]},
+            }
+        )
+        self.sessions.save(session)
+
+        response = await self.service.handle_get_messages(FakeRequest(
+            headers=self.headers,
+            match_info={"session_id": "app:main"},
+        ))
+
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)["data"]["items"][0]["metadata"]
+        self.assertEqual(payload["source_channel"], "device")
+        self.assertEqual(payload["interaction_surface"], "device_press")
+        self.assertEqual(payload["capture_source"], "device_mic")
+        self.assertEqual(payload["app_session_id"], "app:main")
+        self.assertIn("tool_results", payload)
 
     async def test_settings_get_put_and_test_routes(self) -> None:
         response = await self.service.handle_get_settings(FakeRequest(headers=self.headers))

@@ -6,7 +6,7 @@ import json
 import re
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from aiohttp import WSMsgType, web
 from loguru import logger
@@ -63,6 +63,7 @@ class DesktopVoiceService:
         self.default_app_session_id = default_app_session_id
         self.enable_local_microphone = enable_local_microphone
         self._event_observer: Any | None = None
+        self._active_app_session_resolver: Callable[[], str | None] | None = None
         self._clients: set[web.WebSocketResponse] = set()
         self._client_order: dict[web.WebSocketResponse, int] = {}
         self._client_seq = 0
@@ -104,6 +105,26 @@ class DesktopVoiceService:
 
     def set_event_observer(self, observer: Any) -> None:
         self._event_observer = observer
+
+    def set_active_app_session_resolver(
+        self,
+        resolver: Callable[[], str | None],
+    ) -> None:
+        self._active_app_session_resolver = resolver
+
+    def _resolve_app_session_id(self, candidate: str | None = None) -> str:
+        cleaned = str(candidate or "").strip()
+        if cleaned.startswith("app:"):
+            return cleaned
+        if self._active_app_session_resolver is not None:
+            try:
+                resolved = str(self._active_app_session_resolver() or "").strip()
+            except Exception:
+                logger.exception("Failed to resolve active app session")
+            else:
+                if resolved.startswith("app:"):
+                    return resolved
+        return self.default_app_session_id
 
     def get_snapshot(self) -> dict[str, Any]:
         local_available = self._local_microphone_available()
@@ -193,7 +214,7 @@ class DesktopVoiceService:
         try:
             await self._start_embedded_capture(
                 interaction_surface="device_press",
-                app_session_id=self.default_app_session_id,
+                app_session_id=self._resolve_app_session_id(),
             )
             return True
         except Exception:
@@ -541,7 +562,7 @@ class DesktopVoiceService:
 
         interaction_surface = str(data.get("interaction_surface") or "desktop_manual").strip()
         capture_source = str(data.get("capture_source") or "desktop_mic").strip()
-        app_session_id = str(data.get("app_session_id") or self.default_app_session_id).strip()
+        app_session_id = self._resolve_app_session_id(data.get("app_session_id"))
         if capture_source != "desktop_mic":
             await self._send_error("invalid_capture_source", "capture_source must be desktop_mic")
             return
@@ -702,7 +723,7 @@ class DesktopVoiceService:
     async def _run_asr_and_publish(self, capture: dict[str, Any], pcm_data: bytes) -> None:
         interaction_surface = str(capture.get("interaction_surface") or "").strip()
         capture_source = str(capture.get("capture_source") or "desktop_mic").strip()
-        app_session_id = str(capture.get("app_session_id") or self.default_app_session_id).strip()
+        app_session_id = self._resolve_app_session_id(capture.get("app_session_id"))
 
         try:
             if len(pcm_data) < MIN_AUDIO_BYTES:

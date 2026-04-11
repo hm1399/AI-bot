@@ -2,16 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../../models/chat/message_model.dart';
 import '../../models/chat/session_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
-import '../../widgets/chat/chat_session_panel.dart';
+import '../../widgets/chat/chat_session_dialog.dart';
 import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/message_input.dart';
-import '../../widgets/chat/voice_handoff_card.dart';
-import '../../widgets/common/status_pill.dart';
+
+enum _ActiveConversationAction { rename, togglePin, toggleArchive, copyId }
 
 class ChatScreen extends ConsumerWidget {
   const ChatScreen({super.key});
@@ -21,10 +20,11 @@ class ChatScreen extends ConsumerWidget {
     final state = ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
     final voice = ref.watch(voiceUiStateProvider);
-    final currentSession = state.sessions.where(
-      (SessionModel item) => item.sessionId == state.currentSessionId,
-    );
-    final activeSession = currentSession.isEmpty ? null : currentSession.first;
+    final voiceReady = ref.watch(voiceAvailableProvider);
+    final activeSession = state.sessions
+        .where((SessionModel item) => item.sessionId == state.currentSessionId)
+        .firstOrNull;
+    final canSendMessage = activeSession != null && !activeSession.archived;
 
     Future<void> copySessionId(String sessionId) async {
       await Clipboard.setData(ClipboardData(text: sessionId));
@@ -35,447 +35,535 @@ class ChatScreen extends ConsumerWidget {
       }
     }
 
+    Future<String?> showSessionTitleDialog({
+      required String title,
+      required String confirmLabel,
+      String initialValue = '',
+      String hintText = 'New conversation',
+    }) async {
+      final titleController = TextEditingController(text: initialValue);
+      final submitted = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: titleController,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'Title',
+                hintText: hintText,
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(confirmLabel),
+              ),
+            ],
+          );
+        },
+      );
+      final value = submitted == true ? titleController.text.trim() : null;
+      titleController.dispose();
+      return value;
+    }
+
+    Future<void> createSession() async {
+      final title = await showSessionTitleDialog(
+        title: 'New Conversation',
+        confirmLabel: 'Create',
+        hintText: 'Leave blank to auto-title later',
+      );
+      if (title != null) {
+        await controller.createSession(title: title);
+      }
+    }
+
+    Future<void> renameSession(SessionModel session) async {
+      final title = await showSessionTitleDialog(
+        title: 'Rename Conversation',
+        confirmLabel: 'Save',
+        initialValue: session.title,
+      );
+      if (title != null) {
+        await controller.renameSession(session.sessionId, title);
+      }
+    }
+
+    Future<void> showSessionsDialog() async {
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext dialogContext) {
+          return Consumer(
+            builder:
+                (BuildContext context, WidgetRef dialogRef, Widget? child) {
+                  final dialogState = dialogRef.watch(appControllerProvider);
+                  final currentListMode = dialogRef.watch(
+                    chatSessionListModeProvider,
+                  );
+
+                  return ChatSessionDialog(
+                    sessions: dialogState.sessions,
+                    currentSessionId: dialogState.currentSessionId,
+                    sessionListMode: currentListMode,
+                    onSessionListModeChanged: (ChatSessionListMode value) {
+                      dialogRef
+                              .read(chatSessionListModeProvider.notifier)
+                              .state =
+                          value;
+                    },
+                    onSelect: (String sessionId) async {
+                      Navigator.of(dialogContext).pop();
+                      await controller.selectSession(sessionId);
+                    },
+                    onCreate: () async {
+                      Navigator.of(dialogContext).pop();
+                      await createSession();
+                    },
+                    onRefresh: controller.loadSessions,
+                    onCopySessionId: copySessionId,
+                    onRename: (SessionModel session) async {
+                      Navigator.of(dialogContext).pop();
+                      await renameSession(session);
+                    },
+                    onSetPinned: (SessionModel session, bool pinned) =>
+                        controller.setSessionPinned(session.sessionId, pinned),
+                    onSetArchived: (SessionModel session, bool archived) async {
+                      Navigator.of(dialogContext).pop();
+                      await controller.setSessionArchived(
+                        session.sessionId,
+                        archived,
+                      );
+                    },
+                  );
+                },
+          );
+        },
+      );
+    }
+
+    Future<void> handleConversationAction(
+      _ActiveConversationAction action,
+    ) async {
+      if (activeSession == null) {
+        return;
+      }
+      switch (action) {
+        case _ActiveConversationAction.rename:
+          await renameSession(activeSession);
+          return;
+        case _ActiveConversationAction.togglePin:
+          await controller.setSessionPinned(
+            activeSession.sessionId,
+            !activeSession.pinned,
+          );
+          return;
+        case _ActiveConversationAction.toggleArchive:
+          await controller.setSessionArchived(
+            activeSession.sessionId,
+            !activeSession.archived,
+          );
+          return;
+        case _ActiveConversationAction.copyId:
+          await copySessionId(activeSession.sessionId);
+          return;
+      }
+    }
+
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        final useDesktopShell = constraints.maxWidth >= 1180;
-        final conversationView = _ConversationView(
-          state: state,
-          activeSession: activeSession,
-          voice: voice,
-          onShowSessions: () => _showSessionSheet(context, ref, state),
-          onCopySessionId: copySessionId,
-          onRefreshConversation: () async {
-            await controller.loadMessages();
-            await controller.loadSessions();
-          },
+        final pageWidth = constraints.maxWidth;
+        final targetWidth = pageWidth >= 900
+            ? (pageWidth * 0.92).clamp(920.0, 1320.0)
+            : pageWidth;
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            pageWidth >= 900 ? LinearSpacing.lg : LinearSpacing.sm,
+            LinearSpacing.sm,
+            pageWidth >= 900 ? LinearSpacing.lg : LinearSpacing.sm,
+            LinearSpacing.sm,
+          ),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              width: targetWidth,
+              child: Column(
+                children: <Widget>[
+                  _ChatHeader(
+                    activeSession: activeSession,
+                    onCreate: createSession,
+                    onShowSessions: showSessionsDialog,
+                    onConversationAction: handleConversationAction,
+                  ),
+                  const SizedBox(height: LinearSpacing.sm),
+                  Expanded(
+                    child: _ConversationPanel(
+                      state: state,
+                      activeSession: activeSession,
+                      onCreateSession: createSession,
+                      onShowSessions: showSessionsDialog,
+                      onRefreshConversation: () async {
+                        await controller.loadMessages();
+                        await controller.loadSessions();
+                      },
+                      voice: voice,
+                      onSend: controller.sendMessage,
+                      onVoiceTap: controller.triggerVoiceInput,
+                      voiceReady: voiceReady,
+                      canSendMessage: canSendMessage,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ChatHeader extends StatelessWidget {
+  const _ChatHeader({
+    required this.activeSession,
+    required this.onCreate,
+    required this.onShowSessions,
+    required this.onConversationAction,
+  });
+
+  final SessionModel? activeSession;
+  final Future<void> Function() onCreate;
+  final Future<void> Function() onShowSessions;
+  final Future<void> Function(_ActiveConversationAction action)
+  onConversationAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = context.linear;
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final stacked = constraints.maxWidth < 760;
+        final actions = Wrap(
+          spacing: LinearSpacing.xs,
+          runSpacing: LinearSpacing.xs,
+          alignment: stacked ? WrapAlignment.start : WrapAlignment.end,
+          children: <Widget>[
+            FilledButton.icon(
+              onPressed: onCreate,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('New'),
+            ),
+            OutlinedButton.icon(
+              onPressed: onShowSessions,
+              icon: const Icon(Icons.chat_outlined, size: 16),
+              label: const Text('Sessions'),
+            ),
+            if (activeSession != null)
+              PopupMenuButton<_ActiveConversationAction>(
+                tooltip: 'Conversation actions',
+                onSelected: onConversationAction,
+                itemBuilder: (BuildContext context) =>
+                    <PopupMenuEntry<_ActiveConversationAction>>[
+                      const PopupMenuItem(
+                        value: _ActiveConversationAction.rename,
+                        child: Text('Rename'),
+                      ),
+                      PopupMenuItem(
+                        value: _ActiveConversationAction.togglePin,
+                        child: Text(activeSession!.pinned ? 'Unpin' : 'Pin'),
+                      ),
+                      PopupMenuItem(
+                        value: _ActiveConversationAction.toggleArchive,
+                        child: Text(
+                          activeSession!.archived ? 'Restore' : 'Archive',
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: _ActiveConversationAction.copyId,
+                        child: Text('Copy ID'),
+                      ),
+                    ],
+                child: Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: LinearSpacing.sm,
+                  ),
+                  decoration: BoxDecoration(
+                    color: chrome.surface,
+                    borderRadius: LinearRadius.control,
+                    border: Border.all(color: chrome.borderStandard),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[Icon(Icons.more_horiz, size: 18)],
+                  ),
+                ),
+              ),
+          ],
         );
 
-        if (!useDesktopShell) {
-          return Column(
-            children: <Widget>[
-              Expanded(child: conversationView),
-              MessageInput(
-                onSend: controller.sendMessage,
-                onVoiceTap: controller.triggerVoiceInput,
-                voiceReady: ref.watch(voiceAvailableProvider),
-                voiceTooltip: voice.bridgeDescription,
+        final content = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              activeSession?.title ?? 'Chat',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            if (_sessionSummary(activeSession) case final String summary)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  summary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+                ),
               ),
+          ],
+        );
+
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              content,
+              const SizedBox(height: LinearSpacing.sm),
+              actions,
             ],
           );
         }
 
         return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
-            SizedBox(
-              width: 320,
-              child: ChatSessionPanel(
-                sessions: state.sessions,
-                currentSessionId: state.currentSessionId,
-                onSelect: controller.selectSession,
-                onCreate: () => _showCreateSessionDialog(context, ref),
-                onRefresh: controller.loadSessions,
-                onCopySessionId: copySessionId,
-              ),
-            ),
+            Expanded(child: content),
             const SizedBox(width: LinearSpacing.md),
-            Expanded(
-              child: Column(
-                children: <Widget>[
-                  Expanded(child: conversationView),
-                  MessageInput(
-                    onSend: controller.sendMessage,
-                    onVoiceTap: controller.triggerVoiceInput,
-                    voiceReady: ref.watch(voiceAvailableProvider),
-                    voiceTooltip: voice.bridgeDescription,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: LinearSpacing.md),
-            SizedBox(width: 300, child: VoiceHandoffCard(voice: voice)),
+            Flexible(child: actions),
           ],
         );
       },
     );
   }
 
-  Future<void> _showCreateSessionDialog(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final titleController = TextEditingController();
-    final created = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('New Conversation'),
-          content: TextField(
-            controller: titleController,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Title',
-              hintText: 'New conversation',
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Create'),
-            ),
-          ],
-        );
-      },
-    );
-    if (created == true) {
-      await ref
-          .read(appControllerProvider.notifier)
-          .createSession(title: titleController.text.trim());
+  String? _sessionSummary(SessionModel? session) {
+    if (session == null) {
+      return null;
     }
-    titleController.dispose();
-  }
-
-  Future<void> _showSessionSheet(
-    BuildContext context,
-    WidgetRef ref,
-    AppState state,
-  ) async {
-    final controller = ref.read(appControllerProvider.notifier);
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Column(
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        'Conversations',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Refresh',
-                      onPressed: controller.loadSessions,
-                      icon: const Icon(Icons.refresh),
-                    ),
-                    IconButton.filledTonal(
-                      tooltip: 'Create conversation',
-                      onPressed: () async {
-                        Navigator.of(context).pop();
-                        await _showCreateSessionDialog(context, ref);
-                      },
-                      icon: const Icon(Icons.add),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: state.sessions.isEmpty
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('No conversations yet.'),
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: state.sessions.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (BuildContext context, int index) {
-                          final session = state.sessions[index];
-                          final selected =
-                              session.sessionId == state.currentSessionId;
-                          return ListTile(
-                            leading: Icon(
-                              selected
-                                  ? Icons.radio_button_checked
-                                  : Icons.radio_button_off,
-                            ),
-                            title: Text(session.title),
-                            subtitle: Text(
-                              session.summary.isEmpty
-                                  ? session.sessionId
-                                  : '${session.summary}\n${session.sessionId}',
-                            ),
-                            isThreeLine: session.summary.isNotEmpty,
-                            trailing: Chip(
-                              label: Text('${session.messageCount}'),
-                            ),
-                            onTap: () async {
-                              Navigator.of(context).pop();
-                              await controller.selectSession(session.sessionId);
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    if (session.archived) {
+      return 'Archived conversation';
+    }
+    if (session.summary.isNotEmpty) {
+      return session.summary;
+    }
+    return null;
   }
 }
 
-class _ConversationView extends StatelessWidget {
-  const _ConversationView({
+class _ConversationPanel extends StatelessWidget {
+  const _ConversationPanel({
     required this.state,
     required this.activeSession,
-    required this.voice,
+    required this.onCreateSession,
     required this.onShowSessions,
-    required this.onCopySessionId,
     required this.onRefreshConversation,
+    required this.voice,
+    required this.onSend,
+    required this.onVoiceTap,
+    required this.voiceReady,
+    required this.canSendMessage,
   });
 
   final AppState state;
   final SessionModel? activeSession;
-  final VoiceUiState voice;
-  final VoidCallback onShowSessions;
-  final Future<void> Function(String sessionId) onCopySessionId;
+  final Future<void> Function() onCreateSession;
+  final Future<void> Function() onShowSessions;
   final Future<void> Function() onRefreshConversation;
+  final VoiceUiState voice;
+  final Future<void> Function(String text) onSend;
+  final Future<void> Function() onVoiceTap;
+  final bool voiceReady;
+  final bool canSendMessage;
 
   @override
   Widget build(BuildContext context) {
     final chrome = context.linear;
     final messageItems = state.currentMessages;
-    final latestStructuredMessage = _latestStructuredMessage(messageItems);
+    final notice = _notice;
 
-    return Column(
-      children: <Widget>[
-        Container(
-          padding: const EdgeInsets.all(LinearSpacing.md),
-          decoration: BoxDecoration(
-            color: chrome.surface,
-            borderRadius: LinearRadius.card,
-            border: Border.all(color: chrome.borderStandard),
-          ),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      activeSession?.title ?? 'No active conversation',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      activeSession == null
-                          ? 'Create a conversation to start sending app text messages.'
-                          : activeSession!.summary.isEmpty
-                          ? 'Conversation ready.'
-                          : activeSession!.summary,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: chrome.textTertiary,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Send natural language instructions here. Structured planning results, normalized times, conflicts, and confirmation requests render inline.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: chrome.textQuaternary,
-                      ),
-                    ),
-                    if (activeSession != null) ...<Widget>[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: LinearSpacing.xs,
-                        runSpacing: LinearSpacing.xs,
-                        children: <Widget>[
-                          StatusPill(
-                            label: state.isDemoMode
-                                ? 'Demo'
-                                : state.eventStreamConnected
-                                ? 'Events Live'
-                                : 'Events Reconnecting',
-                            tone: state.isDemoMode
-                                ? StatusPillTone.accent
-                                : state.eventStreamConnected
-                                ? StatusPillTone.success
-                                : StatusPillTone.warning,
-                          ),
-                          StatusPill(
-                            label: '${activeSession!.messageCount} messages',
-                            icon: Icons.chat_bubble_outline,
-                          ),
-                          StatusPill(
-                            label: latestStructuredMessage == null
-                                ? 'Text to plan'
-                                : 'Structured result ready',
-                            tone: latestStructuredMessage == null
-                                ? StatusPillTone.accent
-                                : StatusPillTone.success,
-                            icon: Icons.account_tree_outlined,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: chrome.surface,
+        borderRadius: LinearRadius.card,
+        border: Border.all(color: chrome.borderStandard),
+      ),
+      child: Column(
+        children: <Widget>[
+          if (state.messagesLoading)
+            const LinearProgressIndicator(minHeight: 2),
+          if (notice != null) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                LinearSpacing.md,
+                LinearSpacing.sm,
+                LinearSpacing.md,
+                LinearSpacing.xs,
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  notice,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: activeSession?.archived == true
+                        ? chrome.warning
+                        : chrome.textQuaternary,
+                  ),
                 ),
               ),
-              const SizedBox(width: LinearSpacing.sm),
-              if (activeSession != null)
-                OutlinedButton.icon(
-                  onPressed: () => onCopySessionId(activeSession!.sessionId),
-                  icon: const Icon(Icons.copy_outlined, size: 16),
-                  label: const Text('Copy ID'),
-                ),
-              const SizedBox(width: LinearSpacing.xs),
-              OutlinedButton.icon(
-                onPressed: onShowSessions,
-                icon: const Icon(Icons.view_sidebar_outlined, size: 16),
-                label: const Text('Sessions'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: LinearSpacing.md),
-        if (MediaQuery.sizeOf(context).width < 1180) ...<Widget>[
-          VoiceHandoffCard(voice: voice),
-          const SizedBox(height: LinearSpacing.md),
-        ],
-        Expanded(
-          child: Container(
-            decoration: BoxDecoration(
-              color: chrome.surface,
-              borderRadius: LinearRadius.card,
-              border: Border.all(color: chrome.borderStandard),
             ),
+            const Divider(height: 1),
+          ],
+          Expanded(
             child: RefreshIndicator(
               onRefresh: onRefreshConversation,
-              child: Column(
-                children: <Widget>[
-                  if (state.messagesLoading)
-                    const LinearProgressIndicator(minHeight: 2),
-                  if (latestStructuredMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        LinearSpacing.md,
-                        LinearSpacing.md,
-                        LinearSpacing.md,
-                        0,
-                      ),
-                      child: _StructuredResultPreview(
-                        message: latestStructuredMessage,
+              child: messageItems.isEmpty
+                  ? _EmptyConversationState(
+                      activeSession: activeSession,
+                      hasSessions: state.sessions.isNotEmpty,
+                      onCreateSession: onCreateSession,
+                      onShowSessions: onShowSessions,
+                    )
+                  : Scrollbar(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(LinearSpacing.md),
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: messageItems.length,
+                        itemBuilder: (BuildContext context, int index) {
+                          return MessageBubble(message: messageItems[index]);
+                        },
                       ),
                     ),
-                  Expanded(
-                    child: messageItems.isEmpty
-                        ? ListView(
-                            padding: const EdgeInsets.all(LinearSpacing.xl),
-                            children: const <Widget>[
-                              Text(
-                                'App text messages are sent from this page. Planning bundles and structured results will appear inline once the assistant returns metadata. Voice interactions still begin with pressing and holding the device, not recording inside the app.',
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(LinearSpacing.md),
-                            itemCount: messageItems.length,
-                            itemBuilder: (BuildContext context, int index) {
-                              return MessageBubble(
-                                message: messageItems[index],
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
             ),
           ),
-        ),
-      ],
+          const Divider(height: 1),
+          MessageInput(
+            onSend: onSend,
+            onVoiceTap: onVoiceTap,
+            enabled: canSendMessage,
+            voiceReady: voiceReady,
+            voiceTooltip: activeSession?.archived == true
+                ? 'Restore this conversation before continuing it.'
+                : activeSession == null
+                ? 'Create or select a conversation before speaking.'
+                : voice.bridgeDescription,
+            embedded: true,
+          ),
+        ],
+      ),
     );
   }
-}
 
-MessageModel? _latestStructuredMessage(List<MessageModel> messages) {
-  for (final message in messages.reversed) {
-    if (message.role == 'assistant' && message.hasPlanningMetadata) {
-      return message;
+  String? get _notice {
+    if (activeSession?.archived == true) {
+      return 'This conversation is archived. Restore it from Sessions to reply.';
     }
+    if (voice.errorMessage != null && voice.errorMessage!.trim().isNotEmpty) {
+      return voice.errorMessage!.trim();
+    }
+    return null;
   }
-  return null;
 }
 
-class _StructuredResultPreview extends StatelessWidget {
-  const _StructuredResultPreview({required this.message});
+class _EmptyConversationState extends StatelessWidget {
+  const _EmptyConversationState({
+    required this.activeSession,
+    required this.hasSessions,
+    required this.onCreateSession,
+    required this.onShowSessions,
+  });
 
-  final MessageModel message;
+  final SessionModel? activeSession;
+  final bool hasSessions;
+  final Future<void> Function() onCreateSession;
+  final Future<void> Function() onShowSessions;
 
   @override
   Widget build(BuildContext context) {
     final chrome = context.linear;
-    final metadata = message.planningMetadata;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(LinearSpacing.md),
-      decoration: BoxDecoration(
-        color: chrome.panel,
-        borderRadius: LinearRadius.card,
-        border: Border.all(
-          color: metadata.requiresUserConfirmation
-              ? chrome.warning
-              : chrome.borderStandard,
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(LinearSpacing.xl),
+      children: <Widget>[
+        const SizedBox(height: 56),
+        Icon(Icons.chat_bubble_outline, size: 36, color: chrome.textTertiary),
+        const SizedBox(height: LinearSpacing.md),
+        Text(
+          _title,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleMedium,
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  'Latest Structured Result',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              if (metadata.bundleId?.isNotEmpty == true)
-                Chip(label: Text('Bundle ${metadata.bundleId}')),
-            ],
-          ),
-          if (message.text.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 6),
-            Text(
-              message.text,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+        const SizedBox(height: LinearSpacing.sm),
+        Text(
+          _description,
+          textAlign: TextAlign.center,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+        ),
+        const SizedBox(height: LinearSpacing.lg),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: LinearSpacing.xs,
+          runSpacing: LinearSpacing.xs,
+          children: <Widget>[
+            FilledButton.icon(
+              onPressed: onCreateSession,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('New Conversation'),
             ),
+            if (hasSessions)
+              OutlinedButton.icon(
+                onPressed: onShowSessions,
+                icon: const Icon(Icons.chat_outlined, size: 16),
+                label: const Text('Browse Sessions'),
+              ),
           ],
-          const SizedBox(height: LinearSpacing.sm),
-          Wrap(
-            spacing: LinearSpacing.xs,
-            runSpacing: LinearSpacing.xs,
-            children: <Widget>[
-              if (metadata.resourceType?.isNotEmpty == true)
-                Chip(label: Text(metadata.resourceType!)),
-              if (metadata.resourceIds.isNotEmpty)
-                Chip(label: Text('${metadata.resourceIds.length} resources')),
-              if (metadata.normalizedTime?.isNotEmpty == true)
-                Chip(label: Text(metadata.normalizedTime!)),
-              if (metadata.conflicts.isNotEmpty)
-                Chip(label: Text('${metadata.conflicts.length} conflicts')),
-              if (metadata.requiresUserConfirmation)
-                Chip(
-                  label: Text(
-                    metadata.confirmationLabel ?? 'Awaiting user confirmation',
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
+
+  String get _title {
+    if (activeSession == null) {
+      return 'No conversation selected';
+    }
+    if (activeSession!.archived) {
+      return 'Archived conversation';
+    }
+    return 'Conversation ready';
+  }
+
+  String get _description {
+    if (activeSession == null) {
+      return 'Create a new conversation or open Sessions to continue an older thread. Once a session is active, the full message history will appear here.';
+    }
+    if (activeSession!.archived) {
+      return 'This session stays readable, but replies are disabled until you restore it from the Sessions dialog.';
+    }
+    return 'Send a message to begin. Structured planning results will stay inside the assistant replies instead of taking over the page.';
+  }
+}
+
+extension<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
 }

@@ -1,3 +1,5 @@
+import '../common/source_context_model.dart';
+
 class MessageModel {
   const MessageModel({
     required this.id,
@@ -23,6 +25,30 @@ class MessageModel {
       PlanningMessageMetadata.fromMetadata(metadata);
 
   bool get hasPlanningMetadata => planningMetadata.hasVisibleContent;
+
+  SourceContextModel get sourceContext {
+    final scopes = _collectSourceMetadataScopes(metadata);
+    return SourceContextModel.fromMetadata(
+      sourceChannel: _firstNonEmptyString(scopes, const <String>[
+        'source_channel',
+        'sourceChannel',
+      ]),
+      interactionSurface: _firstNonEmptyString(scopes, const <String>[
+        'interaction_surface',
+        'interactionSurface',
+      ]),
+      captureSource: _firstNonEmptyString(scopes, const <String>[
+        'capture_source',
+        'captureSource',
+      ]),
+      createdVia: _firstNonEmptyString(scopes, const <String>[
+        'created_via',
+        'createdVia',
+      ]),
+    );
+  }
+
+  String get sourceLabel => sourceContext.label;
 
   MessageModel copyWith({
     String? id,
@@ -65,33 +91,143 @@ class MessageModel {
   }
 }
 
+List<Map<String, dynamic>> _collectSourceMetadataScopes(
+  Map<String, dynamic> metadata,
+) {
+  final root = _coerceStringMap(metadata);
+  if (root.isEmpty) {
+    return const <Map<String, dynamic>>[];
+  }
+  final scopes = <Map<String, dynamic>>[root];
+  for (final key in <String>[
+    'source',
+    'context',
+    'message_context',
+    'messageContext',
+    'interaction',
+  ]) {
+    final nested = _coerceStringMap(root[key]);
+    if (nested.isNotEmpty) {
+      scopes.add(nested);
+    }
+  }
+  return scopes;
+}
+
 class PlanningMessageMetadata {
   const PlanningMessageMetadata({
+    required this.action,
+    required this.summaryMessage,
+    required this.primaryTitle,
     required this.resourceType,
     required this.resourceIds,
-    required this.bundleId,
+    required this.rawBundleId,
     required this.normalizedTime,
     required this.conflicts,
     required this.requiresUserConfirmation,
     required this.confirmationLabel,
+    required this.taskCount,
+    required this.eventCount,
+    required this.reminderCount,
   });
 
+  final String? action;
+  final String? summaryMessage;
+  final String? primaryTitle;
   final String? resourceType;
   final List<String> resourceIds;
-  final String? bundleId;
+  final String? rawBundleId;
   final String? normalizedTime;
   final List<String> conflicts;
   final bool requiresUserConfirmation;
   final String? confirmationLabel;
+  final int taskCount;
+  final int eventCount;
+  final int reminderCount;
+
+  String? get bundleId => null;
+
+  int get resourceCount => resourceIds.length;
+
+  int get totalResourceCount => taskCount + eventCount + reminderCount;
+
+  String get summaryHeading {
+    if (summaryMessage?.isNotEmpty == true) {
+      return summaryMessage!;
+    }
+    if (primaryTitle?.isNotEmpty == true && actionLabel != null) {
+      return '$actionLabel: $primaryTitle';
+    }
+    if (actionLabel != null) {
+      return actionLabel!;
+    }
+    if (requiresUserConfirmation) {
+      return 'Review required';
+    }
+    if (conflicts.isNotEmpty) {
+      return 'Conflict detected';
+    }
+    if (resourceLabel != null) {
+      return 'Planning update';
+    }
+    if (normalizedTime != null) {
+      return 'Time update';
+    }
+    return 'Structured update';
+  }
+
+  String? get actionLabel => _actionLabel(action);
+
+  String? get resourceLabel {
+    final typedLabels = <String>[
+      if (taskCount > 0) _countLabel(taskCount, 'task'),
+      if (eventCount > 0) _countLabel(eventCount, 'event'),
+      if (reminderCount > 0) _countLabel(reminderCount, 'reminder'),
+    ];
+    if (typedLabels.isNotEmpty) {
+      return typedLabels.join(', ');
+    }
+    if (resourceType == null || resourceType!.isEmpty) {
+      if (resourceCount <= 0) {
+        return null;
+      }
+      return resourceCount == 1 ? '1 item' : '$resourceCount items';
+    }
+    if (resourceCount > 1) {
+      return '$resourceCount ${_pluralize(resourceType!)}';
+    }
+    return resourceType;
+  }
+
+  String? get conflictSummary {
+    if (conflicts.isEmpty) {
+      return null;
+    }
+    if (conflicts.length == 1) {
+      return '1 conflict to review';
+    }
+    return '${conflicts.length} conflicts to review';
+  }
+
+  String? get confirmationSummary {
+    if (confirmationLabel != null && confirmationLabel!.isNotEmpty) {
+      return confirmationLabel;
+    }
+    if (!requiresUserConfirmation) {
+      return null;
+    }
+    return 'Review this before the assistant continues.';
+  }
 
   bool get hasVisibleContent =>
-      (resourceType?.isNotEmpty ?? false) ||
-      resourceIds.isNotEmpty ||
-      (bundleId?.isNotEmpty ?? false) ||
+      (summaryMessage?.isNotEmpty ?? false) ||
+      (primaryTitle?.isNotEmpty ?? false) ||
+      (actionLabel?.isNotEmpty ?? false) ||
+      (resourceLabel?.isNotEmpty ?? false) ||
       (normalizedTime?.isNotEmpty ?? false) ||
       conflicts.isNotEmpty ||
       requiresUserConfirmation ||
-      (confirmationLabel?.isNotEmpty ?? false);
+      (confirmationSummary?.isNotEmpty ?? false);
 
   factory PlanningMessageMetadata.fromMetadata(Map<String, dynamic> metadata) {
     final scopes = _collectMetadataScopes(metadata);
@@ -121,26 +257,39 @@ class PlanningMessageMetadata {
           'kind',
         ]) ??
         _inferResourceType(scopes);
+    final confirmationLabel = _firstNonEmptyString(scopes, <String>[
+      'confirmation_prompt',
+      'confirmationPrompt',
+      'confirmation_message',
+      'confirmationMessage',
+      'confirmation_reason',
+      'confirmationReason',
+      'next_action',
+      'nextAction',
+    ]);
 
     return PlanningMessageMetadata(
-      resourceType: resourceType,
+      action: _firstNonEmptyString(scopes, <String>['action']),
+      summaryMessage: _humanizeReadableText(
+        _firstNonEmptyString(scopes, <String>[
+          'message',
+          'summary',
+          'display_message',
+          'displayMessage',
+        ]),
+      ),
+      primaryTitle: _humanizeReadableText(
+        _firstNonEmptyString(scopes, <String>['title']),
+      ),
+      resourceType: _humanizeResourceType(resourceType),
       resourceIds: resourceIds,
-      bundleId: _firstNonEmptyString(scopes, <String>[
+      rawBundleId: _firstNonEmptyString(scopes, <String>[
         'bundle_id',
         'bundleId',
         'plan_bundle_id',
         'planBundleId',
       ]),
-      normalizedTime: _firstNonEmptyString(scopes, <String>[
-        'normalized_time',
-        'normalizedTime',
-        'normalized_at',
-        'normalizedAt',
-        'scheduled_for',
-        'scheduledFor',
-        'target_time',
-        'targetTime',
-      ]),
+      normalizedTime: _readNormalizedTimeSummary(scopes),
       conflicts: _collectConflictLabels(scopes),
       requiresUserConfirmation:
           _firstTrue(scopes, <String>[
@@ -164,16 +313,19 @@ class PlanningMessageMetadata {
                 'confirmationReason',
               ]) !=
               null,
-      confirmationLabel: _firstNonEmptyString(scopes, <String>[
-        'confirmation_prompt',
-        'confirmationPrompt',
-        'confirmation_message',
-        'confirmationMessage',
-        'confirmation_reason',
-        'confirmationReason',
-        'next_action',
-        'nextAction',
-      ]),
+      confirmationLabel: _humanizeReadableText(confirmationLabel),
+      taskCount: _collectDistinctStrings(scopes, <String>[
+        'task_ids',
+        'task_id',
+      ]).length,
+      eventCount: _collectDistinctStrings(scopes, <String>[
+        'event_ids',
+        'event_id',
+      ]).length,
+      reminderCount: _collectDistinctStrings(scopes, <String>[
+        'reminder_ids',
+        'reminder_id',
+      ]).length,
     );
   }
 }
@@ -185,26 +337,48 @@ List<Map<String, dynamic>> _collectMetadataScopes(
   if (root.isEmpty) {
     return const <Map<String, dynamic>>[];
   }
-  final scopes = <Map<String, dynamic>>[root];
-  for (final key in <String>[
-    'planning',
-    'planning_result',
-    'planningResult',
-    'structured_result',
-    'structuredResult',
-    'result',
-    'payload',
-    'bundle',
-    'resource',
-    'resource_reference',
-    'resourceReference',
-    'confirmation',
-  ]) {
-    final nested = _coerceStringMap(root[key]);
-    if (nested.isNotEmpty) {
-      scopes.add(nested);
+  final scopes = <Map<String, dynamic>>[];
+
+  void addScope(Map<String, dynamic> scope) {
+    if (scope.isEmpty) {
+      return;
+    }
+    scopes.add(scope);
+    for (final key in <String>[
+      'planning',
+      'planning_result',
+      'planningResult',
+      'structured_result',
+      'structuredResult',
+      'result',
+      'payload',
+      'bundle',
+      'resource',
+      'resource_reference',
+      'resourceReference',
+      'confirmation',
+      'task',
+      'event',
+      'reminder',
+    ]) {
+      final nested = _coerceStringMap(scope[key]);
+      if (nested.isNotEmpty) {
+        addScope(nested);
+      }
     }
   }
+
+  final toolResults = _coerceStringMap(root['tool_results']);
+  final planningResults = toolResults['planning'];
+  if (planningResults is Iterable) {
+    for (final item in planningResults) {
+      addScope(_coerceStringMap(item));
+    }
+  } else {
+    addScope(_coerceStringMap(planningResults));
+  }
+
+  addScope(root);
   return scopes;
 }
 
@@ -323,17 +497,34 @@ String? _conflictLabel(Object? value) {
   }
   if (value is Map) {
     final map = _coerceStringMap(value);
-    return _firstNonEmptyString(
-      <Map<String, dynamic>>[map],
-      <String>['summary', 'title', 'message', 'reason', 'detail', 'label'],
+    return _humanizeReadableText(
+      _firstNonEmptyString(
+        <Map<String, dynamic>>[map],
+        <String>['summary', 'title', 'message', 'reason', 'detail', 'label'],
+      ),
     );
   }
-  final stringValue = _stringify(value);
+  final stringValue = _humanizeReadableText(_stringify(value));
   return stringValue == null || stringValue.isEmpty ? null : stringValue;
 }
 
 String? _inferResourceType(List<Map<String, dynamic>> scopes) {
   for (final scope in scopes) {
+    final action = _stringify(scope['action'])?.toLowerCase();
+    if (action != null) {
+      if (action.contains('task')) {
+        return 'task';
+      }
+      if (action.contains('event')) {
+        return 'event';
+      }
+      if (action.contains('reminder')) {
+        return 'reminder';
+      }
+      if (action == 'list_today') {
+        return 'planning item';
+      }
+    }
     if (scope.containsKey('task_id') || scope.containsKey('task_ids')) {
       return 'task';
     }
@@ -390,6 +581,255 @@ bool? _toBool(Object? value) {
     return false;
   }
   return null;
+}
+
+String? _readNormalizedTimeSummary(List<Map<String, dynamic>> scopes) {
+  final direct = _firstNonEmptyString(scopes, <String>[
+    'normalized_time',
+    'normalizedTime',
+    'normalized_at',
+    'normalizedAt',
+    'scheduled_for',
+    'scheduledFor',
+    'target_time',
+    'targetTime',
+    'time_summary',
+    'timeSummary',
+  ]);
+  final directSummary = _formatStructuredTimeValue(direct);
+  if (directSummary != null) {
+    return directSummary;
+  }
+
+  for (final scope in scopes) {
+    for (final key in <String>[
+      'normalized_times',
+      'normalizedTimes',
+      'time_window',
+      'timeWindow',
+      'time_range',
+      'timeRange',
+    ]) {
+      final summary = _formatStructuredTimeValue(scope[key]);
+      if (summary != null) {
+        return summary;
+      }
+    }
+  }
+  return null;
+}
+
+String? _formatStructuredTimeValue(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is Map) {
+    final map = _coerceStringMap(value);
+    final summary = _humanizeReadableText(
+      _firstNonEmptyString(
+        <Map<String, dynamic>>[map],
+        <String>['summary', 'label', 'display', 'text'],
+      ),
+    );
+    if (summary != null) {
+      return summary;
+    }
+
+    final start = _firstNonEmptyString(
+      <Map<String, dynamic>>[map],
+      <String>['start', 'from', 'begin', 'at', 'time'],
+    );
+    final end = _firstNonEmptyString(
+      <Map<String, dynamic>>[map],
+      <String>['end', 'to', 'until'],
+    );
+    final date = _firstNonEmptyString(
+      <Map<String, dynamic>>[map],
+      <String>['date', 'day'],
+    );
+
+    final startSummary = _formatTimeLabel(start);
+    final endSummary = _formatTimeLabel(end);
+    final dateSummary = _formatTimeLabel(date);
+
+    if (startSummary != null && endSummary != null) {
+      if (_areSameCalendarDay(start, end)) {
+        final parsedEnd = DateTime.tryParse(end!);
+        final endTimeOnly = parsedEnd == null
+            ? endSummary
+            : _formatClockLabel(
+                parsedEnd.isUtc ? parsedEnd.toLocal() : parsedEnd,
+              );
+        return '$startSummary to $endTimeOnly';
+      }
+      return '$startSummary to $endSummary';
+    }
+    return startSummary ?? dateSummary ?? endSummary;
+  }
+  if (value is Iterable) {
+    final items = value
+        .map(_formatStructuredTimeValue)
+        .whereType<String>()
+        .where((String item) => item.isNotEmpty)
+        .toList();
+    if (items.isEmpty) {
+      return null;
+    }
+    return _dedupe(items).join(' · ');
+  }
+  return _formatTimeLabel(value.toString());
+}
+
+bool _areSameCalendarDay(String? left, String? right) {
+  final leftDate = DateTime.tryParse(left ?? '');
+  final rightDate = DateTime.tryParse(right ?? '');
+  if (leftDate == null || rightDate == null) {
+    return false;
+  }
+  final normalizedLeft = leftDate.isUtc ? leftDate.toLocal() : leftDate;
+  final normalizedRight = rightDate.isUtc ? rightDate.toLocal() : rightDate;
+  return normalizedLeft.year == normalizedRight.year &&
+      normalizedLeft.month == normalizedRight.month &&
+      normalizedLeft.day == normalizedRight.day;
+}
+
+String? _formatTimeLabel(String? value) {
+  final cleaned = value?.trim();
+  if (cleaned == null || cleaned.isEmpty) {
+    return null;
+  }
+  final parsed = DateTime.tryParse(cleaned);
+  if (parsed == null) {
+    return _humanizeReadableText(cleaned);
+  }
+  final local = parsed.isUtc ? parsed.toLocal() : parsed;
+  final hasExplicitTime = RegExp(r'(?:T|\s)\d{2}:\d{2}').hasMatch(cleaned);
+  final datePart =
+      '${_weekdayLabel(local.weekday)}, ${_monthLabel(local.month)} ${local.day}';
+
+  if (!hasExplicitTime) {
+    return datePart;
+  }
+  return '$datePart · ${_formatClockLabel(local)}';
+}
+
+String _formatClockLabel(DateTime value) {
+  final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+  final minute = value.minute.toString().padLeft(2, '0');
+  final suffix = value.hour >= 12 ? 'PM' : 'AM';
+  return '$hour:$minute $suffix';
+}
+
+String _weekdayLabel(int weekday) {
+  return const <String>[
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+    'Sun',
+  ][weekday - 1];
+}
+
+String _monthLabel(int month) {
+  return const <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ][month - 1];
+}
+
+String? _humanizeResourceType(String? value) {
+  final cleaned = value?.trim();
+  if (cleaned == null || cleaned.isEmpty) {
+    return null;
+  }
+  final normalized = cleaned
+      .replaceAll(RegExp(r'[_\-]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim()
+      .toLowerCase();
+  if (normalized.isEmpty) {
+    return null;
+  }
+  return normalized
+      .split(' ')
+      .where((String part) => part.isNotEmpty)
+      .map((String part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+}
+
+String? _actionLabel(String? action) {
+  final cleaned = action?.trim().toLowerCase();
+  switch (cleaned) {
+    case 'create_task':
+      return 'Created task';
+    case 'create_event':
+      return 'Created event';
+    case 'create_reminder':
+      return 'Created reminder';
+    case 'complete_task':
+      return 'Completed task';
+    case 'snooze_reminder':
+      return 'Snoozed reminder';
+    case 'list_today':
+      return 'Today\'s plan';
+  }
+  return null;
+}
+
+String _countLabel(int count, String singular) {
+  if (count == 1) {
+    return '1 $singular';
+  }
+  return '$count ${_pluralize(singular)}';
+}
+
+String _pluralize(String value) {
+  final normalized = value.trim();
+  if (normalized.isEmpty) {
+    return value;
+  }
+  if (normalized.endsWith('s')) {
+    return normalized;
+  }
+  return '${normalized}s';
+}
+
+String? _humanizeReadableText(String? value) {
+  final cleaned = value?.trim();
+  if (cleaned == null || cleaned.isEmpty) {
+    return null;
+  }
+  if (RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(cleaned)) {
+    return cleaned;
+  }
+
+  final normalizedWhitespace = cleaned.replaceAll(RegExp(r'\s+'), ' ');
+  if ((normalizedWhitespace.contains('_') ||
+          normalizedWhitespace.contains('-')) &&
+      !normalizedWhitespace.contains(' ')) {
+    final words = normalizedWhitespace
+        .split(RegExp(r'[_\-]+'))
+        .where((String part) => part.isNotEmpty)
+        .map((String part) => part.toLowerCase())
+        .toList();
+    if (words.isNotEmpty) {
+      final sentence = words.join(' ');
+      return '${sentence[0].toUpperCase()}${sentence.substring(1)}';
+    }
+  }
+  return normalizedWhitespace;
 }
 
 List<String> _dedupe(List<String> values) {

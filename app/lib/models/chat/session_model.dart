@@ -10,6 +10,7 @@ class SessionModel {
     required this.messageCount,
     required this.pinned,
     required this.archived,
+    required this.active,
   });
 
   final String sessionId;
@@ -20,6 +21,7 @@ class SessionModel {
   final int messageCount;
   final bool pinned;
   final bool archived;
+  final bool active;
 
   SessionModel copyWith({
     String? title,
@@ -28,6 +30,7 @@ class SessionModel {
     int? messageCount,
     bool? pinned,
     bool? archived,
+    bool? active,
   }) {
     return SessionModel(
       sessionId: sessionId,
@@ -38,6 +41,7 @@ class SessionModel {
       messageCount: messageCount ?? this.messageCount,
       pinned: pinned ?? this.pinned,
       archived: archived ?? this.archived,
+      active: active ?? this.active,
     );
   }
 
@@ -53,6 +57,7 @@ class SessionModel {
           : int.tryParse(json['message_count']?.toString() ?? '') ?? 0,
       pinned: json['pinned'] == true,
       archived: json['archived'] == true,
+      active: json['active'] == true,
     );
   }
 }

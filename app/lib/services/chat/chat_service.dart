@@ -9,7 +9,7 @@ class ChatService {
   final ApiClient _apiClient;
 
   Future<List<SessionModel>> listSessions({
-    int limit = 20,
+    int limit = 100,
     bool pinnedFirst = true,
   }) {
     return _apiClient.get(
@@ -34,9 +34,54 @@ class ChatService {
   Future<SessionModel> createSession({required String title}) {
     return _apiClient.post(
       ApiConstants.sessionsPath,
-      body: <String, dynamic>{'title': title},
+      body: title.trim().isEmpty
+          ? const <String, dynamic>{}
+          : <String, dynamic>{'title': title},
       parser: (dynamic data) => SessionModel.fromJson(
         data is Map<String, dynamic> ? data : <String, dynamic>{},
+      ),
+    );
+  }
+
+  Future<SessionModel> patchSession(
+    String sessionId, {
+    String? title,
+    bool? pinned,
+    bool? archived,
+    bool? active,
+  }) {
+    final body = <String, dynamic>{};
+    if (title != null) {
+      body['title'] = title;
+    }
+    if (pinned != null) {
+      body['pinned'] = pinned;
+    }
+    if (archived != null) {
+      body['archived'] = archived;
+    }
+    if (active != null) {
+      body['active'] = active;
+    }
+    return _apiClient.patch(
+      '${ApiConstants.sessionsPath}/$sessionId',
+      body: body,
+      parser: (dynamic data) => SessionModel.fromJson(
+        data is Map<String, dynamic> ? data : <String, dynamic>{},
+      ),
+    );
+  }
+
+  Future<SessionModel> setActiveSession(String sessionId) {
+    return _apiClient.post(
+      ApiConstants.sessionsActivePath,
+      body: <String, dynamic>{'session_id': sessionId},
+      parser: (dynamic data) => SessionModel.fromJson(
+        data is Map<String, dynamic>
+            ? (data['session'] is Map<String, dynamic>
+                  ? data['session'] as Map<String, dynamic>
+                  : data)
+            : <String, dynamic>{},
       ),
     );
   }

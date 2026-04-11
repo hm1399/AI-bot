@@ -1300,3 +1300,43 @@
 - `_MetricChip` 增加统一高度与文本截断策略，在保留现有风格前提下让卡片边界更整齐
 - 新增 widget 测试，确保不同信息密度的卡片仍保持一致高度
 - 新增并回填 `功能讨论区/TODO/2026-04-10-首页DeviceSnapshot卡片等高整理计划.md`
+
+---
+
+## 2026-04-11 - Chat 页面桌面化重构与会话交互收口
+
+### Chat 页面桌面化重构
+
+- Chat 从原来的多卡片 dashboard 式布局，重构为单主轴桌面对话页，对话区宽度提升到接近页面主体的 `90%`
+- 顶部头部收敛为极简会话栏，只保留当前会话标题、`New`、`Sessions` 和会话动作菜单
+- 移除聊天主视图中的 `Events Live` 等运行态信息展示，不再把这些状态作为聊天页主视觉内容
+- 右侧常驻语音大卡和顶部 `Latest Structured Result` 总览卡从聊天主布局中移除
+- 输入区改为嵌入式桌面 composer，直接贴合主对话面板底部，整体布局更接近 ChatGPT 网页版
+
+### 会话管理交互改版
+
+- 新增 `app/lib/widgets/chat/chat_session_dialog.dart`，将会话切换与管理收口到桌面 `Dialog`
+- 新增 `app/lib/widgets/chat/chat_session_list.dart`，统一承载 `Active / Archived` 切换、会话列表、空态和菜单动作
+- `app/lib/widgets/chat/chat_session_panel.dart` 从旧左栏大面板拆为兼容外壳，避免继续把会话管理绑死在固定侧栏布局
+- `Sessions` 入口现已支持：
+  - 新建会话
+  - 切换会话
+  - rename
+  - pin / unpin
+  - archive / restore
+  - copy id
+
+### 聊天消息可读化与产品化
+
+- `app/lib/models/chat/message_model.dart` 补齐消息来源解析，能够从 metadata 中提取用户可见的 `sourceLabel`
+- planning 结构化结果开始解析 `tool_results.planning`，不再只依赖扁平 metadata 字段
+- 聊天气泡中的 planning 内容改为用户可读摘要，优先展示动作、标题、时间摘要、冲突提示和确认提示
+- 不再在主聊天 UI 中直接展示 `resource_ids`、raw `bundle_id`、底层 `task / event / reminder` 主键
+- `message_bubble` 视觉进一步收紧，用户气泡亮度下降，时间元信息回到底部，减少消费级聊天气质
+
+### 文档与静态检查
+
+- 新增并回填 `功能讨论区/TODO/2026-04-11-Chat页面桌面化重构与会话交互改版计划.md`
+- 同步更新 `功能讨论区/TODO/waitlist.md`，记录旧 `VoiceHandoffCard` 与 `ChatSessionPanel` 的后续清理事项
+- 对本轮 Chat 相关 Flutter 文件执行 `dart format`
+- 对本轮 Chat 相关 Flutter 文件执行局部静态检查，结果为 `No errors`

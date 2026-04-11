@@ -1,3 +1,5 @@
+import '../common/source_context_model.dart';
+
 class NotificationModel {
   const NotificationModel({
     required this.id,
@@ -11,6 +13,8 @@ class NotificationModel {
     this.bundleId,
     this.createdVia,
     this.sourceChannel,
+    this.interactionSurface,
+    this.captureSource,
     this.sourceSessionId,
     this.sourceMessageId,
     this.linkedTaskId,
@@ -33,6 +37,8 @@ class NotificationModel {
   final String? bundleId;
   final String? createdVia;
   final String? sourceChannel;
+  final String? interactionSurface;
+  final String? captureSource;
   final String? sourceSessionId;
   final String? sourceMessageId;
   final String? linkedTaskId;
@@ -42,6 +48,15 @@ class NotificationModel {
   final Map<String, dynamic> normalizedTimes;
   final List<String> conflictSummaries;
   final Map<String, dynamic> planningMetadata;
+
+  SourceContextModel get sourceContext => SourceContextModel.fromMetadata(
+    sourceChannel: sourceChannel,
+    interactionSurface: interactionSurface,
+    captureSource: captureSource,
+    createdVia: createdVia,
+  );
+
+  String get sourceLabel => sourceContext.label;
 
   NotificationModel copyWith({bool? read}) {
     return NotificationModel(
@@ -56,6 +71,8 @@ class NotificationModel {
       bundleId: bundleId,
       createdVia: createdVia,
       sourceChannel: sourceChannel,
+      interactionSurface: interactionSurface,
+      captureSource: captureSource,
       sourceSessionId: sourceSessionId,
       sourceMessageId: sourceMessageId,
       linkedTaskId: linkedTaskId,
@@ -89,6 +106,12 @@ class NotificationModel {
       ]),
       sourceChannel: _readNullableString(planningMetadata, const <String>[
         'source_channel',
+      ]),
+      interactionSurface: _readNullableString(planningMetadata, const <String>[
+        'interaction_surface',
+      ]),
+      captureSource: _readNullableString(planningMetadata, const <String>[
+        'capture_source',
       ]),
       sourceSessionId: _readNullableString(planningMetadata, const <String>[
         'source_session_id',
@@ -145,6 +168,8 @@ Map<String, dynamic> _extractPlanningMetadata(
     'bundle_id',
     'created_via',
     'source_channel',
+    'interaction_surface',
+    'capture_source',
     'source_session_id',
     'source_message_id',
     'linked_task_id',

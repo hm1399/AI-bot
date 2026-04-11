@@ -561,6 +561,61 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
             "task_created",
         )
 
+    async def test_turn_persists_source_metadata_for_user_and_assistant_messages(self) -> None:
+        provider = SequencedProvider([LLMResponse(content="Sure, continuing this thread.")])
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=self.workspace,
+            planning_backend=FakePlanningBackend(),
+        )
+        msg = InboundMessage(
+            channel="device",
+            sender_id="esp32",
+            chat_id="esp32",
+            content="继续刚才那个提醒",
+            metadata={
+                "task_id": "runtime_task",
+                "message_id": "msg_user",
+                "assistant_message_id": "msg_assistant",
+                "client_message_id": "client_user",
+                "source": "voice",
+                "source_channel": "device",
+                "interaction_surface": "device_press",
+                "capture_source": "device_mic",
+                "voice_path": "device_mic",
+                "reply_language": "Chinese",
+                "emotion": "calm",
+                "app_session_id": "app:main",
+            },
+        )
+
+        response = await agent._process_message(msg, session_key="app:main")
+
+        self.assertIsNotNone(response)
+        session = agent.sessions.get_or_create("app:main")
+        user_entry = next(
+            entry for entry in session.messages if entry.get("role") == "user"
+        )
+        assistant_entry = next(
+            entry
+            for entry in session.messages
+            if entry.get("role") == "assistant"
+            and entry.get("content") == "Sure, continuing this thread."
+        )
+        for entry in (user_entry, assistant_entry):
+            self.assertEqual(entry["task_id"], "runtime_task")
+            self.assertEqual(entry["source_channel"], "device")
+            self.assertEqual(entry["interaction_surface"], "device_press")
+            self.assertEqual(entry["capture_source"], "device_mic")
+            self.assertEqual(entry["voice_path"], "device_mic")
+            self.assertEqual(entry["reply_language"], "Chinese")
+            self.assertEqual(entry["emotion"], "calm")
+            self.assertEqual(entry["app_session_id"], "app:main")
+        self.assertEqual(user_entry["message_id"], "msg_user")
+        self.assertEqual(user_entry["client_message_id"], "client_user")
+        self.assertEqual(assistant_entry["message_id"], "msg_assistant")
+
 
 class BootstrapPlanningInjectionTests(unittest.TestCase):
     def test_create_agent_passes_planning_backend_to_agent_loop(self) -> None:

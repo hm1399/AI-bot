@@ -54,6 +54,7 @@ class AppRuntimeService:
         self.start_time = start_time
         self.auth_token = cfg.get("app", {}).get("auth_token", "").strip()
         self.default_session_id = cfg.get("app", {}).get("default_session_id", "app:main")
+        self._active_app_session_id = self.default_session_id
         self.event_buffer_size = self._coerce_positive_int(
             cfg.get("app", {}).get("event_buffer_size"),
             default=500,
@@ -88,6 +89,11 @@ class AppRuntimeService:
             self.resources,
             event_observer=self,
         )
+        self.device_channel.set_active_app_session_resolver(self.get_active_app_session_id)
+        if self.desktop_voice_service is not None:
+            self.desktop_voice_service.set_active_app_session_resolver(
+                self.get_active_app_session_id,
+            )
 
     def register_routes(self, app: web.Application) -> None:
         """注册 Flutter App 的 HTTP / WebSocket 接口。"""
@@ -97,7 +103,9 @@ class AppRuntimeService:
         app.router.add_post("/api/app/v1/settings/llm/test", self.handle_test_llm_settings)
         app.router.add_get("/api/app/v1/sessions", self.handle_list_sessions)
         app.router.add_post("/api/app/v1/sessions", self.handle_create_session)
+        app.router.add_post("/api/app/v1/sessions/active", self.handle_set_active_session)
         app.router.add_get("/api/app/v1/sessions/{session_id}", self.handle_get_session)
+        app.router.add_patch("/api/app/v1/sessions/{session_id}", self.handle_patch_session)
         app.router.add_get("/api/app/v1/sessions/{session_id}/messages", self.handle_get_messages)
         app.router.add_post("/api/app/v1/sessions/{session_id}/messages", self.handle_post_message)
         app.router.add_get("/api/app/v1/tasks", self.handle_list_tasks)
@@ -150,12 +158,18 @@ class AppRuntimeService:
 
         now = self._now_iso()
         app_session_id = self._app_session_id_from_message(msg)
+        session_payload: dict[str, Any] | None = None
         async with self._lock:
             msg.metadata.setdefault("task_id", self._new_id("task"))
             task_id = msg.metadata["task_id"]
             msg.metadata.setdefault("message_id", self._new_id("msg"))
             if app_session_id:
+                self._active_app_session_id = self._ensure_app_session(app_session_id).key
                 msg.metadata.setdefault("assistant_message_id", self._new_id("msg"))
+                session_payload = self._maybe_auto_title_session_unlocked(
+                    app_session_id,
+                    msg.content,
+                )
 
             task = self._tasks.get(task_id)
             if task is None:
@@ -197,6 +211,13 @@ class AppRuntimeService:
             payload=queue_payload,
             scope="global",
         )
+        if session_payload is not None:
+            await self._broadcast_event(
+                "session.updated",
+                payload={"session": session_payload},
+                scope="global",
+                session_id=session_payload["session_id"],
+            )
         if user_message is not None:
             await self._broadcast_event(
                 "session.message.created",
@@ -233,6 +254,7 @@ class AppRuntimeService:
                         "kind": kind,
                         "content": msg.content,
                         "tool_hint": bool(msg.metadata.get("_tool_hint")),
+                        "metadata": self._session_message_metadata(msg.metadata, task_id),
                     },
                     scope="session",
                     session_id=session_id,
@@ -259,7 +281,7 @@ class AppRuntimeService:
                         content=msg.content,
                         status="completed",
                         created_at=self._now_iso(),
-                        metadata={"task_id": task_id},
+                        metadata=self._session_message_metadata(msg.metadata, task_id),
                     )
                 },
                 scope="session",
@@ -489,7 +511,7 @@ class AppRuntimeService:
             "capabilities": self._capabilities(),
             "planning": self._planning_bootstrap(),
             "runtime": await self.get_runtime_state(),
-            "sessions": self._list_app_sessions(limit=20),
+            "sessions": self._list_app_sessions(limit=100),
             "event_stream": {
                 "type": "websocket",
                 "path": "/ws/app/v1/events",
@@ -578,9 +600,25 @@ class AppRuntimeService:
         if payload is None:
             return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
 
-        title = str(payload.get("title") or "").strip() or "新对话"
         session_id = f"app:{uuid.uuid4().hex[:8]}"
-        session = self._ensure_app_session(session_id, title=title)
+        title = str(payload.get("title") or "").strip()
+        session = self._ensure_app_session(session_id)
+        if title:
+            session.metadata["title"] = title
+            session.metadata["title_source"] = "user"
+        else:
+            session.metadata["title"] = self._placeholder_title_for(session_id)
+            session.metadata["title_source"] = "default"
+        session.updated_at = datetime.now()
+        self.sessions.save(session)
+        session_updates = self._set_active_app_session(session.key)
+        for item in session_updates:
+            await self._broadcast_event(
+                "session.updated",
+                payload={"session": item},
+                scope="global",
+                session_id=item["session_id"],
+            )
         return self._ok(self._serialize_session(session), status=201)
 
     async def handle_get_session(self, request: web.Request) -> web.Response:
@@ -596,6 +634,128 @@ class AppRuntimeService:
         if session is None:
             return self._error("SESSION_NOT_FOUND", "session does not exist", status=404)
         return self._ok(self._serialize_session(session))
+
+    async def handle_patch_session(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        session_id = request.match_info["session_id"]
+        valid, error = self._validate_app_session_id(session_id)
+        if not valid:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        session = self.sessions.get(session_id)
+        if session is None:
+            return self._error("SESSION_NOT_FOUND", "session does not exist", status=404)
+
+        changed = False
+        session_updates: dict[str, dict[str, Any]] = {}
+        fallback_session_id: str | None = None
+        if "title" in payload:
+            title = str(payload.get("title") or "").strip()
+            if not title:
+                return self._error("INVALID_ARGUMENT", "title must not be empty", status=400)
+            if session.metadata.get("title") != title:
+                session.metadata["title"] = title
+                session.metadata["title_source"] = "user"
+                changed = True
+        if "pinned" in payload:
+            pinned = payload.get("pinned")
+            if not isinstance(pinned, bool):
+                return self._error("INVALID_ARGUMENT", "pinned must be a boolean", status=400)
+            if bool(session.metadata.get("pinned")) != pinned:
+                session.metadata["pinned"] = pinned
+                changed = True
+        if "archived" in payload:
+            archived = payload.get("archived")
+            if not isinstance(archived, bool):
+                return self._error("INVALID_ARGUMENT", "archived must be a boolean", status=400)
+            if bool(session.metadata.get("archived")) != archived:
+                if archived:
+                    fallback_session_id = self._pick_fallback_active_session(excluding=session_id)
+                    if fallback_session_id is None:
+                        return self._error(
+                            "INVALID_STATE",
+                            "keep at least one active conversation before archiving this one",
+                            status=409,
+                        )
+                session.metadata["archived"] = archived
+                changed = True
+                if archived and self.get_active_app_session_id() == session_id:
+                    for item in self._set_active_app_session(
+                        fallback_session_id,
+                    ):
+                        session_updates[item["session_id"]] = item
+        if payload.get("active") is not None:
+            active = payload.get("active")
+            if not isinstance(active, bool):
+                return self._error("INVALID_ARGUMENT", "active must be a boolean", status=400)
+            if active:
+                if bool(session.metadata.get("archived")):
+                    return self._error(
+                        "INVALID_STATE",
+                        "archived conversations cannot become active",
+                        status=409,
+                    )
+                for item in self._set_active_app_session(session_id):
+                    session_updates[item["session_id"]] = item
+        if not changed and not session_updates:
+            return self._ok(self._serialize_session(session))
+
+        if changed:
+            session.updated_at = datetime.now()
+            self.sessions.save(session)
+        session_updates[session_id] = self._serialize_session(session)
+        for item in session_updates.values():
+            await self._broadcast_event(
+                "session.updated",
+                payload={"session": item},
+                scope="global",
+                session_id=item["session_id"],
+            )
+        return self._ok(session_updates[session_id])
+
+    async def handle_set_active_session(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        session_id = str(payload.get("session_id") or "").strip()
+        valid, error = self._validate_app_session_id(session_id)
+        if not valid:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+
+        session = self.sessions.get(session_id)
+        if session is None:
+            return self._error("SESSION_NOT_FOUND", "session does not exist", status=404)
+        if bool(session.metadata.get("archived")):
+            return self._error(
+                "INVALID_STATE",
+                "archived conversations cannot become active",
+                status=409,
+            )
+
+        session_updates = self._set_active_app_session(session_id)
+        for item in session_updates:
+            await self._broadcast_event(
+                "session.updated",
+                payload={"session": item},
+                scope="global",
+                session_id=item["session_id"],
+            )
+        return self._ok(
+            {
+                "session_id": self._active_app_session_id,
+                "session": self._serialize_session(session),
+            }
+        )
 
     async def handle_get_messages(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -643,13 +803,14 @@ class AppRuntimeService:
             return self._error("INVALID_ARGUMENT", "content is required", status=400)
 
         session = self._ensure_app_session(session_id)
+        self._active_app_session_id = session.key
         chat_id = session_id.split(":", 1)[1]
         msg = InboundMessage(
             channel="app",
             sender_id="flutter",
             chat_id=chat_id,
             content=content,
-            metadata={},
+            metadata={"app_session_id": session.key, "source_channel": "app"},
         )
         client_message_id = str(payload.get("client_message_id") or "").strip()
         if client_message_id:
@@ -665,10 +826,7 @@ class AppRuntimeService:
                 content=content,
                 status="pending",
                 created_at=self._now_iso(),
-                metadata={
-                    "client_message_id": client_message_id or None,
-                    "task_id": msg.metadata["task_id"],
-                },
+                metadata=self._session_message_metadata(msg.metadata, msg.metadata["task_id"]),
             ),
             "task_id": msg.metadata["task_id"],
             "queued": True,
@@ -1276,6 +1434,9 @@ class AppRuntimeService:
         return {
             "current_task": current_task,
             "task_queue": task_queue,
+            "chat": {
+                "active_session_id": self.get_active_app_session_id(),
+            },
             "device": self.device_channel.get_snapshot(),
             "desktop_voice": self._desktop_voice_runtime(),
             "voice": self._voice_runtime_state(),
@@ -1492,12 +1653,13 @@ class AppRuntimeService:
         return {
             "session_id": session.key,
             "channel": "app",
-            "title": session.metadata.get("title") or self._default_title_for(session.key),
+            "title": session.metadata.get("title") or self._placeholder_title_for(session.key),
             "summary": (last_message or {}).get("content", "")[:80],
             "last_message_at": (last_message or {}).get("created_at") or session.updated_at.isoformat(),
             "message_count": len(visible_messages),
             "pinned": bool(session.metadata.get("pinned", session.key == self.default_session_id)),
             "archived": bool(session.metadata.get("archived", False)),
+            "active": session.key == self.get_active_app_session_id(),
         }
 
     def _serialize_messages(self, session: Session) -> list[dict[str, Any]]:
@@ -1620,9 +1782,17 @@ class AppRuntimeService:
         if session.metadata.get("channel") != "app":
             session.metadata["channel"] = "app"
             changed = True
-        desired_title = title or session.metadata.get("title") or self._default_title_for(session_id)
+        desired_title = title or session.metadata.get("title") or self._placeholder_title_for(session_id)
         if session.metadata.get("title") != desired_title:
             session.metadata["title"] = desired_title
+            changed = True
+        desired_title_source = self._coerce_title_source(
+            session.metadata.get("title_source"),
+            session_id=session_id,
+            title=session.metadata.get("title"),
+        )
+        if session.metadata.get("title_source") != desired_title_source:
+            session.metadata["title_source"] = desired_title_source
             changed = True
         if "pinned" not in session.metadata:
             session.metadata["pinned"] = session_id == self.default_session_id
@@ -1631,6 +1801,7 @@ class AppRuntimeService:
             session.metadata["archived"] = False
             changed = True
         if changed:
+            session.updated_at = datetime.now()
             self.sessions.save(session)
         return session
 
@@ -1754,9 +1925,14 @@ class AppRuntimeService:
         for key in (
             "task_id",
             "client_message_id",
+            "source",
             "interaction_surface",
             "capture_source",
+            "voice_path",
             "source_channel",
+            "reply_language",
+            "emotion",
+            "app_session_id",
         ):
             if entry.get(key) is not None:
                 metadata[key] = entry[key]
@@ -2098,6 +2274,30 @@ class AppRuntimeService:
         candidate = str(metadata.get("app_session_id") or "").strip()
         return candidate or None
 
+    def get_active_app_session_id(self) -> str:
+        candidate = str(self._active_app_session_id or "").strip()
+        if candidate.startswith("app:"):
+            return candidate
+        return self.default_session_id
+
+    def _set_active_app_session(self, session_id: str) -> list[dict[str, Any]]:
+        previous = self.get_active_app_session_id()
+        next_session = self._ensure_app_session(session_id).key
+        self._active_app_session_id = next_session
+        affected_ids: list[str] = []
+        for candidate in (previous, next_session):
+            if candidate and candidate not in affected_ids:
+                affected_ids.append(candidate)
+        return [self._serialize_session(self._ensure_app_session(item)) for item in affected_ids]
+
+    def _pick_fallback_active_session(self, *, excluding: str | None = None) -> str | None:
+        sessions = self._list_app_sessions(limit=200, archived=False, pinned_first=True)
+        for item in sessions:
+            session_id = item.get("session_id")
+            if isinstance(session_id, str) and session_id and session_id != excluding:
+                return session_id
+        return None
+
     def _app_session_id_from_message(self, msg: InboundMessage) -> str | None:
         metadata_session = self._app_session_id_from_metadata(msg.metadata)
         if metadata_session:
@@ -2113,9 +2313,14 @@ class AppRuntimeService:
         payload = {
             "task_id": task_id,
             "client_message_id": metadata.get("client_message_id"),
+            "source": metadata.get("source"),
             "interaction_surface": metadata.get("interaction_surface"),
             "capture_source": metadata.get("capture_source"),
+            "voice_path": metadata.get("voice_path"),
             "source_channel": metadata.get("source_channel"),
+            "reply_language": metadata.get("reply_language"),
+            "emotion": metadata.get("emotion"),
+            "app_session_id": metadata.get("app_session_id"),
             "tool_results": metadata.get("tool_results"),
         }
         return {key: value for key, value in payload.items() if value is not None}
@@ -2168,10 +2373,76 @@ class AppRuntimeService:
         return ""
 
     @staticmethod
-    def _default_title_for(session_id: str) -> str:
+    def _placeholder_title_for(session_id: str) -> str:
         if session_id == "app:main":
             return "主对话"
-        return session_id.split(":", 1)[1]
+        return "新对话"
+
+    @classmethod
+    def _is_defaultish_title(cls, session_id: str, title: Any) -> bool:
+        if not isinstance(title, str):
+            return True
+        cleaned = title.strip()
+        if not cleaned:
+            return True
+        session_suffix = session_id.split(":", 1)[1].strip() if ":" in session_id else session_id.strip()
+        return cleaned in {
+            session_suffix,
+            cls._placeholder_title_for(session_id),
+            "New conversation",
+            "Conversation",
+            "Untitled session",
+        }
+
+    @classmethod
+    def _coerce_title_source(
+        cls,
+        raw: Any,
+        *,
+        session_id: str,
+        title: Any,
+    ) -> str:
+        cleaned = str(raw or "").strip().lower()
+        if cleaned in {"user", "auto", "default"}:
+            return cleaned
+        return "default" if cls._is_defaultish_title(session_id, title) else "user"
+
+    def _maybe_auto_title_session_unlocked(
+        self,
+        session_id: str,
+        content: str,
+    ) -> dict[str, Any] | None:
+        if not session_id.startswith("app:") or session_id == self.default_session_id:
+            return None
+        session = self._ensure_app_session(session_id)
+        if session.metadata.get("title_source") != "default":
+            return None
+        if any(
+            entry.get("role") == "user" and self._content_to_text(entry.get("content"))
+            for entry in session.messages
+        ):
+            return None
+        next_title = self._auto_title_for_content(content)
+        if not next_title:
+            return None
+        session.metadata["title"] = next_title
+        session.metadata["title_source"] = "auto"
+        session.updated_at = datetime.now()
+        self.sessions.save(session)
+        return self._serialize_session(session)
+
+    @staticmethod
+    def _auto_title_for_content(content: str) -> str | None:
+        normalized = " ".join(content.strip().split())
+        if not normalized:
+            return None
+        cleaned = normalized.strip(" ，。,.!?！？；;：:\"'“”()（）[]【】")
+        if not cleaned:
+            return None
+        limit = 24
+        if len(cleaned) <= limit:
+            return cleaned
+        return f"{cleaned[:limit].rstrip()}…"
 
     @staticmethod
     def _summarize(content: str) -> str:

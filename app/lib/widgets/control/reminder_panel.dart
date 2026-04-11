@@ -106,6 +106,10 @@ class ReminderPanel extends StatelessWidget {
                         color: chrome.textSecondary,
                       ),
                     ),
+                    if (item.sourceLabel.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 6),
+                      _SourceMetaChip(label: item.sourceLabel),
+                    ],
                     if (item.message.isNotEmpty) ...<Widget>[
                       const SizedBox(height: 6),
                       Text(
@@ -138,6 +142,31 @@ class ReminderPanel extends StatelessWidget {
               );
             }),
         ],
+      ),
+    );
+  }
+}
+
+class _SourceMetaChip extends StatelessWidget {
+  const _SourceMetaChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome = context.linear;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: chrome.panel,
+        borderRadius: LinearRadius.pill,
+        border: Border.all(color: chrome.borderSubtle),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(
+          context,
+        ).textTheme.labelSmall?.copyWith(color: chrome.textTertiary),
       ),
     );
   }

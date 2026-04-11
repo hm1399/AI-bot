@@ -23,7 +23,7 @@ import json
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import aiohttp
 from aiohttp import web
@@ -189,6 +189,7 @@ class DeviceChannel:
         self._weather_fetched_at: str | None = None
         self._event_observer: Any | None = None
         self._desktop_voice_bridge: Any | None = None
+        self._active_app_session_resolver: Callable[[], str | None] | None = None
 
     def set_weather_config(self, config: dict[str, Any]) -> None:
         """设置天气 API 配置（从 config.yaml 加载）。"""
@@ -204,6 +205,25 @@ class DeviceChannel:
     def set_desktop_voice_bridge(self, bridge: Any) -> None:
         """注册桌面麦克风桥接器。"""
         self._desktop_voice_bridge = bridge
+
+    def set_active_app_session_resolver(
+        self,
+        resolver: Callable[[], str | None],
+    ) -> None:
+        """注册当前活跃 app session 解析器。"""
+        self._active_app_session_resolver = resolver
+
+    def _current_app_session_id(self) -> str | None:
+        if self._active_app_session_resolver is None:
+            return None
+        try:
+            candidate = self._active_app_session_resolver()
+        except Exception:
+            logger.exception("Failed to resolve active app session")
+            return None
+        if isinstance(candidate, str) and candidate.startswith("app:"):
+            return candidate
+        return None
 
     async def _notify_event_observer(self, method_name: str, **kwargs: Any) -> None:
         """安全通知设备事件观察器。"""
@@ -552,12 +572,17 @@ class DeviceChannel:
         await self._cancel_task(self._asr_task)
         await self._cancel_task(self._tts_task)
         if should_stop_agent:
+            app_session_id = self._current_app_session_id()
             await self.bus.publish_inbound(InboundMessage(
                 channel=DEVICE_CHANNEL,
                 sender_id="esp32",
                 chat_id=DEVICE_CHAT_ID,
                 content="/stop",
-                metadata={"source": "device_interrupt"},
+                metadata={
+                    "source": "device_interrupt",
+                    "app_session_id": app_session_id,
+                },
+                session_key_override=app_session_id,
             ))
         if self.state != DeviceState.IDLE:
             await self._set_state(DeviceState.IDLE)
@@ -734,11 +759,18 @@ class DeviceChannel:
                 return
             logger.info("收到文字输入: '{}'", text[:50])
             self._last_chat_time = time.time()
+            app_session_id = self._current_app_session_id()
             await self.bus.publish_inbound(InboundMessage(
                 channel=DEVICE_CHANNEL,
                 sender_id="esp32",
                 chat_id=DEVICE_CHAT_ID,
                 content=text,
+                metadata={
+                    "source": "text",
+                    "source_channel": DEVICE_CHANNEL,
+                    "app_session_id": app_session_id,
+                },
+                session_key_override=app_session_id,
             ))
 
         elif msg_type == DeviceMessageType.AUDIO_END:
@@ -851,6 +883,7 @@ class DeviceChannel:
             return
 
         self._last_chat_time = time.time()
+        app_session_id = self._current_app_session_id()
 
         meta = {
             "source": "voice",
@@ -860,6 +893,8 @@ class DeviceChannel:
             "capture_source": "device_mic",
             "asr_ms": asr_ms,
         }
+        if isinstance(app_session_id, str) and app_session_id.startswith("app:"):
+            meta["app_session_id"] = app_session_id
         if self.asr.last_emotion:
             meta["emotion"] = self.asr.last_emotion
 
@@ -869,6 +904,7 @@ class DeviceChannel:
             chat_id=DEVICE_CHAT_ID,
             content=text,
             metadata=meta,
+            session_key_override=app_session_id if isinstance(app_session_id, str) and app_session_id.startswith("app:") else None,
         ))
 
     # ── 触摸事件处理 (Phase 5.4) ─────────────────────────────
@@ -944,12 +980,18 @@ class DeviceChannel:
             return
 
         # 发送预设提示给 AgentLoop
+        app_session_id = self._current_app_session_id()
         await self.bus.publish_inbound(InboundMessage(
             channel=DEVICE_CHANNEL,
             sender_id="esp32",
             chat_id=DEVICE_CHAT_ID,
             content="讲一个有趣的笑话或者冷知识",
-            metadata={"source": "shake"},
+            metadata={
+                "source": "shake",
+                "source_channel": DEVICE_CHANNEL,
+                "app_session_id": app_session_id,
+            },
+            session_key_override=app_session_id,
         ))
 
     # ── 设备状态上报 (Phase 5.4) ──────────────────────────────

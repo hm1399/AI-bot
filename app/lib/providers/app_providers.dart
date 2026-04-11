@@ -70,6 +70,12 @@ final wsReconnectServiceProvider = Provider<WsReconnectService>(
 final chatServiceProvider = Provider<ChatService>(
   (Ref ref) => ChatService(ref.read(apiClientProvider)),
 );
+
+enum ChatSessionListMode { active, archived }
+
+final chatSessionListModeProvider = StateProvider<ChatSessionListMode>(
+  (Ref ref) => ChatSessionListMode.active,
+);
 final voiceCaptureServiceProvider = Provider<VoiceCaptureService>(
   (Ref ref) => VoiceCaptureService(),
 );
@@ -219,6 +225,9 @@ class AppController extends StateNotifier<AppState> {
         sessions: bootstrap.sessions,
         globalMessage: silent ? null : 'Connected to AI-bot backend.',
       );
+      if (sessionId.isNotEmpty) {
+        await _syncActiveSession(sessionId);
+      }
       await loadMessages();
       await refreshPlanningWorkbench();
     } catch (error) {
@@ -246,6 +255,16 @@ class AppController extends StateNotifier<AppState> {
     if (wanted.isNotEmpty &&
         sessions.any((SessionModel item) => item.sessionId == wanted)) {
       return wanted;
+    }
+    final activeSessions = sessions.where((SessionModel item) => item.active);
+    if (activeSessions.isNotEmpty) {
+      return activeSessions.first.sessionId;
+    }
+    final unarchivedSessions = sessions.where(
+      (SessionModel item) => !item.archived,
+    );
+    if (unarchivedSessions.isNotEmpty) {
+      return unarchivedSessions.first.sessionId;
     }
     return sessions.isNotEmpty ? sessions.first.sessionId : '';
   }
@@ -388,6 +407,9 @@ class AppController extends StateNotifier<AppState> {
         sessions: bootstrap.sessions,
         globalMessage: 'Workspace refreshed.',
       );
+      if (sessionId.isNotEmpty) {
+        await _syncActiveSession(sessionId);
+      }
       await loadMessages();
       await loadSettings();
       await loadTasks();
@@ -401,12 +423,21 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> selectSession(String sessionId) async {
+    final selectedSession = state.sessions.where(
+      (SessionModel item) => item.sessionId == sessionId,
+    );
+    final session = selectedSession.isEmpty ? null : selectedSession.first;
     final next = state.connection.copyWith(currentSessionId: sessionId);
     await ref.read(connectServiceProvider).saveConnection(next);
     state = state.copyWith(
       connection: next,
-      globalMessage: 'Switched to ${_sessionTitleFor(sessionId)}.',
+      globalMessage: session?.archived == true
+          ? 'Viewing archived conversation.'
+          : 'Switched to ${_sessionTitleFor(sessionId)}.',
     );
+    if (session?.archived != true) {
+      await _syncActiveSession(sessionId);
+    }
     await loadMessages();
   }
 
@@ -438,6 +469,9 @@ class AppController extends StateNotifier<AppState> {
             : 'Conversation list refreshed.',
       );
       if (currentSessionId.isNotEmpty) {
+        await _syncActiveSession(currentSessionId);
+      }
+      if (currentSessionId.isNotEmpty) {
         await loadMessages();
       }
     } on ApiError catch (error) {
@@ -446,20 +480,19 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> createSession({String? title}) async {
-    final sessionTitle = title?.trim().isNotEmpty == true
-        ? title!.trim()
-        : 'New conversation';
+    final sessionTitle = title?.trim() ?? '';
     if (state.isDemoMode) {
       final now = DateTime.now().toIso8601String();
       final session = SessionModel(
         sessionId: 'app:demo-${DateTime.now().millisecondsSinceEpoch}',
         channel: 'app',
-        title: sessionTitle,
+        title: sessionTitle.isEmpty ? 'New conversation' : sessionTitle,
         summary: 'Fresh local demo session.',
         lastMessageAt: now,
         messageCount: 0,
         pinned: false,
         archived: false,
+        active: true,
       );
       final nextConnection = state.connection.copyWith(
         currentSessionId: session.sessionId,
@@ -495,8 +528,141 @@ class AppController extends StateNotifier<AppState> {
         },
         globalMessage: 'Conversation created.',
       );
+      await _syncActiveSession(session.sessionId);
     } on ApiError catch (error) {
       state = state.copyWith(globalMessage: error.message);
+    }
+  }
+
+  Future<void> _syncActiveSession(String sessionId) async {
+    if (state.isDemoMode || sessionId.isEmpty) {
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      await ref.read(chatServiceProvider).setActiveSession(sessionId);
+    } on ApiError catch (_) {
+      // Keep local navigation responsive even if backend active-session sync lags.
+    }
+  }
+
+  Future<void> renameSession(String sessionId, String title) async {
+    final nextTitle = title.trim();
+    if (nextTitle.isEmpty) {
+      return;
+    }
+    final session = state.sessions.firstWhere(
+      (SessionModel item) => item.sessionId == sessionId,
+    );
+    final optimistic = session.copyWith(title: nextTitle);
+    state = state.copyWith(
+      sessions: _replaceSession(state.sessions, optimistic),
+      globalMessage: 'Conversation renamed.',
+    );
+    if (state.isDemoMode) {
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final updated = await ref
+          .read(chatServiceProvider)
+          .patchSession(sessionId, title: nextTitle);
+      state = state.copyWith(
+        sessions: _replaceSession(state.sessions, updated),
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        sessions: _replaceSession(state.sessions, session),
+        globalMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> setSessionPinned(String sessionId, bool pinned) async {
+    final session = state.sessions.firstWhere(
+      (SessionModel item) => item.sessionId == sessionId,
+    );
+    final optimistic = session.copyWith(pinned: pinned);
+    state = state.copyWith(
+      sessions: _replaceSession(state.sessions, optimistic),
+      globalMessage: pinned ? 'Conversation pinned.' : 'Conversation unpinned.',
+    );
+    if (state.isDemoMode) {
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final updated = await ref
+          .read(chatServiceProvider)
+          .patchSession(sessionId, pinned: pinned);
+      state = state.copyWith(
+        sessions: _replaceSession(state.sessions, updated),
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        sessions: _replaceSession(state.sessions, session),
+        globalMessage: error.message,
+      );
+    }
+  }
+
+  Future<void> setSessionArchived(String sessionId, bool archived) async {
+    final session = state.sessions.firstWhere(
+      (SessionModel item) => item.sessionId == sessionId,
+    );
+    final originalConnection = state.connection;
+    final optimistic = session.copyWith(archived: archived);
+    var nextSessions = _replaceSession(state.sessions, optimistic);
+    var nextConnection = state.connection;
+    final currentFilter = ref.read(chatSessionListModeProvider);
+    var switchedToFallback = false;
+    if (archived &&
+        sessionId == state.currentSessionId &&
+        currentFilter == ChatSessionListMode.active) {
+      SessionModel? fallback;
+      for (final item in nextSessions) {
+        if (!item.archived) {
+          fallback = item;
+          break;
+        }
+      }
+      nextConnection = nextConnection.copyWith(
+        currentSessionId: fallback?.sessionId ?? state.currentSessionId,
+      );
+      await ref.read(connectServiceProvider).saveConnection(nextConnection);
+      if (fallback != null) {
+        switchedToFallback = true;
+        unawaited(_syncActiveSession(fallback.sessionId));
+      }
+    }
+    state = state.copyWith(
+      connection: nextConnection,
+      sessions: nextSessions,
+      globalMessage: archived
+          ? 'Conversation archived.'
+          : 'Conversation restored.',
+    );
+    if (switchedToFallback) {
+      unawaited(loadMessages());
+    }
+    if (state.isDemoMode) {
+      return;
+    }
+    _apiClient.setConnection(state.connection);
+    try {
+      final updated = await ref
+          .read(chatServiceProvider)
+          .patchSession(sessionId, archived: archived);
+      state = state.copyWith(
+        sessions: _replaceSession(state.sessions, updated),
+      );
+    } on ApiError catch (error) {
+      await ref.read(connectServiceProvider).saveConnection(originalConnection);
+      state = state.copyWith(
+        connection: originalConnection,
+        sessions: _replaceSession(state.sessions, session),
+        globalMessage: error.message,
+      );
     }
   }
 
@@ -532,12 +698,21 @@ class AppController extends StateNotifier<AppState> {
       return;
     }
     if (state.currentSessionId.isEmpty) {
-      await createSession(title: 'New conversation');
+      await createSession();
       if (state.currentSessionId.isEmpty) {
         return;
       }
     }
     if (state.currentSessionId.isEmpty) {
+      return;
+    }
+    final activeSession = state.sessions.where(
+      (SessionModel item) => item.sessionId == state.currentSessionId,
+    );
+    if (activeSession.isNotEmpty && activeSession.first.archived) {
+      state = state.copyWith(
+        globalMessage: 'Restore this conversation before sending new messages.',
+      );
       return;
     }
     if (state.isDemoMode) {
@@ -805,6 +980,16 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> triggerVoiceInput() async {
+    final selectedSession = state.sessions.where(
+      (SessionModel item) => item.sessionId == state.currentSessionId,
+    );
+    if (selectedSession.isNotEmpty && selectedSession.first.archived) {
+      state = state.copyWith(
+        globalMessage:
+            'Restore this conversation before continuing it with voice.',
+      );
+      return;
+    }
     final deviceOnline = state.runtimeState.device.connected;
     final bridgeReady = state.runtimeState.voice.desktopBridgeReady;
     final backendReported = state.runtimeState.voice.reportedByBackend;
@@ -1593,6 +1778,24 @@ class AppController extends StateNotifier<AppState> {
     return sorted;
   }
 
+  List<SessionModel> _replaceSession(
+    List<SessionModel> sessions,
+    SessionModel session,
+  ) {
+    final replaced = sessions.map((SessionModel item) {
+      if (item.sessionId != session.sessionId) {
+        return item;
+      }
+      return session;
+    }).toList();
+    final exists = sessions.any(
+      (SessionModel item) => item.sessionId == session.sessionId,
+    );
+    return _sortSessions(
+      exists ? replaced : <SessionModel>[session, ...sessions],
+    );
+  }
+
   List<SessionModel> _touchSession(
     List<SessionModel> sessions,
     String sessionId, {
@@ -1792,6 +1995,15 @@ class AppController extends StateNotifier<AppState> {
       case 'planning.changed':
         unawaited(refreshPlanningWorkbench());
         break;
+      case 'session.updated':
+        final rawSession = event.payload['session'];
+        if (rawSession is Map<String, dynamic>) {
+          final nextSession = SessionModel.fromJson(rawSession);
+          state = state.copyWith(
+            sessions: _replaceSession(state.sessions, nextSession),
+          );
+        }
+        break;
       case 'session.message.created':
       case 'session.message.completed':
         final raw = event.payload['message'];
@@ -1831,6 +2043,9 @@ class AppController extends StateNotifier<AppState> {
           text: event.payload['content']?.toString() ?? '',
           status: 'streaming',
           createdAt: DateTime.now().toIso8601String(),
+          metadata: event.payload['metadata'] is Map<String, dynamic>
+              ? event.payload['metadata'] as Map<String, dynamic>
+              : const <String, dynamic>{},
         );
         state = state.copyWith(
           messagesBySession: <String, List<MessageModel>>{
