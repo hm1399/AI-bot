@@ -1340,3 +1340,28 @@
 - 同步更新 `功能讨论区/TODO/waitlist.md`，记录旧 `VoiceHandoffCard` 与 `ChatSessionPanel` 的后续清理事项
 - 对本轮 Chat 相关 Flutter 文件执行 `dart format`
 - 对本轮 Chat 相关 Flutter 文件执行局部静态检查，结果为 `No errors`
+
+---
+
+## 2026-04-11 - 机器人首次配对与前端配网方案调研
+
+### 配对主线调研
+
+- 调研当前 `app / server / firmware` 三端链路，确认机器人网络接入配置仍停留在 `firmware/arduino/demo/demo.ino` 顶部烧录常量：`WIFI_SSID / WIFI_PASS / WS_HOST / WS_PORT / WS_PATH`
+- 确认当前 Flutter `Connect` 页面只负责 `App -> server` 的 operator console 连接，不应直接复用为机器人 WiFi 配网模型
+- 确认服务端 `DeviceChannel` 已支持设备 token 鉴权（`Authorization` / `X-Device-Token` / query token），因此后续前端配对必须把设备接入 token 一并纳入配置下发
+
+### 方案决策
+
+- 结合 `app/DESIGN.md`、现有 Arduino demo 固件形态和“首次连接机器人时用户用线连接电脑并长按触摸盘配对”的约束，收口推荐方案为：
+  - 桌面 Flutter `Connect` 页新增 `Robot Pairing` 面板
+  - 通过 USB CDC 串口完成首配 / 重配
+  - 固件使用 Arduino `Preferences`（NVS）持久化 WiFi、WebSocket 与设备 token 配置
+  - 后端只补最小 `pairing bundle` 接口，不把机器人配网状态混入现有 app 连接 contract
+- 明确本轮不采用 BLE / SoftAP 统一配网，也不继续依赖烧录时手改常量
+
+### 文档归档
+
+- 新增并登记 `功能讨论区/TODO/2026-04-11-机器人首次配对与前端配网实施计划.md`
+- 更新 `功能讨论区/TODO/todo.md`，将该计划加入总 TODO 索引
+- 更新 `功能讨论区/TODO/waitlist.md`，记录 `Connect` 连接配置与 `Settings` 中 `server_url/server_port` 已形成双数据源的后续收口事项
