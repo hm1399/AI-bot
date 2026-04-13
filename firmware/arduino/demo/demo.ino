@@ -217,9 +217,10 @@ bool canArmPairingFromTouch() {
   if (pairingPhase == PAIRING_APPLYING || pairingPhase == PAIRING_RESTARTING) {
     return false;
   }
-  return !currentConfig.provisioned ||
-         pairingPhase == PAIRING_DISABLED ||
-         pairingPhase == PAIRING_IDLE;
+  if (voiceTouchActive) {
+    return false;
+  }
+  return !currentConfig.provisioned || pairingPhase == PAIRING_IDLE;
 }
 
 // ──────────────────────────────────────────────

@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "action_id": "cc_a191702c18a0",
+      "kind": "open_app",
+      "status": "completed",
+      "risk_level": "low",
+      "requires_confirmation": false,
+      "requested_via": "agent",
+      "source_session_id": "desktop_voice:desktop",
+      "arguments": {
+        "app": "WeChat"
+      },
+      "reason": "打开微信应用",
+      "result": {
+        "opened": "WeChat"
+      },
+      "error": null,
+      "metadata": {
+        "created_via": "agent",
+        "source_channel": "desktop_voice",
+        "source_message_id": "msg_42b8880409c4",
+        "task_id": "task_672886bd8f82"
+      },
+      "created_at": "2026-04-13T18:59:41+08:00",
+      "updated_at": "2026-04-13T18:59:41+08:00",
+      "confirmed_at": null,
+      "cancelled_at": null
+    }
+  ]
+}
