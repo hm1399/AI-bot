@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 import hmac
+import ipaddress
 import json
 import uuid
 from datetime import date, datetime
@@ -151,6 +152,7 @@ class AppRuntimeService:
         app.router.add_post("/api/app/v1/computer/actions/{action_id}/cancel", self.handle_cancel_computer_action)
         app.router.add_get("/api/app/v1/computer/actions/recent", self.handle_list_recent_computer_actions)
         app.router.add_get("/api/app/v1/device", self.handle_device)
+        app.router.add_post("/api/app/v1/device/pairing/bundle", self.handle_device_pairing_bundle)
         app.router.add_post("/api/app/v1/device/speak", self.handle_device_speak)
         app.router.add_post("/api/app/v1/device/commands", self.handle_device_command)
         app.router.add_get("/api/app/v1/capabilities", self.handle_capabilities)
@@ -1416,6 +1418,23 @@ class AppRuntimeService:
             return self._error("UNAUTHORIZED", "unauthorized", status=401)
         return self._ok(self.device_channel.get_snapshot())
 
+    async def handle_device_pairing_bundle(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        host, error = self._normalize_device_pairing_host(payload)
+        if error:
+            return self._error("INVALID_ARGUMENT", error, status=400)
+
+        return self._ok({
+            "transport": "serial",
+            "bundle": self._build_device_pairing_bundle(host),
+        })
+
     async def handle_device_speak(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
             return self._error("UNAUTHORIZED", "unauthorized", status=401)
@@ -2465,6 +2484,75 @@ class AppRuntimeService:
             "event_replay": True,
             "app_auth_enabled": bool(self.auth_token),
         }
+
+    def _build_device_pairing_bundle(self, host: str) -> dict[str, Any]:
+        device_token = str(self.cfg.get("device", {}).get("auth_token", "") or "").strip()
+        return {
+            "server": {
+                "host": host,
+                "port": self._device_pairing_server_port(),
+                "path": "/ws/device",
+                "secure": self._device_pairing_server_secure(),
+            },
+            "auth": {
+                "device_token": device_token,
+                "required": bool(device_token),
+            },
+        }
+
+    def _device_pairing_server_port(self) -> int:
+        raw = self.cfg.get("server", {}).get("port", 8765)
+        try:
+            port = int(raw)
+        except (TypeError, ValueError):
+            return 8765
+        return port if 1 <= port <= 65535 else 8765
+
+    def _device_pairing_server_secure(self) -> bool:
+        secure = self.cfg.get("server", {}).get("secure", False)
+        if isinstance(secure, bool):
+            return secure
+        if isinstance(secure, str):
+            parsed = self._parse_bool(secure, default=None)
+            if parsed is not None:
+                return parsed
+        return False
+
+    @classmethod
+    def _normalize_device_pairing_host(cls, payload: dict[str, Any]) -> tuple[str, str | None]:
+        raw_host = payload.get("host")
+        if raw_host is None and isinstance(payload.get("server"), dict):
+            raw_host = payload["server"].get("host")
+        if not isinstance(raw_host, str):
+            return "", "host is required"
+
+        host = raw_host.strip()
+        if not host:
+            return "", "host is required"
+        if any(char.isspace() for char in host):
+            return "", "host must be a bare hostname or IP address"
+        if any(token in host for token in ("://", "/", "?", "#")):
+            return "", "host must be a bare hostname or IP address"
+
+        if host.startswith("[") and host.endswith("]"):
+            host = host[1:-1].strip()
+        if not host or "[" in host or "]" in host:
+            return "", "host must be a bare hostname or IP address"
+
+        lowered = host.lower()
+        if lowered == "localhost" or lowered.endswith(".localhost"):
+            return "", "host must be reachable from the device"
+
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if ":" in host:
+                return "", "host must be a bare hostname or IP address"
+            return host, None
+
+        if address.is_loopback or address.is_unspecified:
+            return "", "host must be reachable from the device"
+        return host, None
 
     @staticmethod
     def _app_session_id_from_metadata(metadata: dict[str, Any] | None) -> str | None:

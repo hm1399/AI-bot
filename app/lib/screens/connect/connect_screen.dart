@@ -7,6 +7,7 @@ import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
 import '../../widgets/common/status_pill.dart';
+import '../../widgets/connect/device_pairing_panel.dart';
 
 class ConnectScreen extends ConsumerStatefulWidget {
   const ConnectScreen({super.key});
@@ -85,7 +86,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           builder: (BuildContext context, BoxConstraints constraints) {
             final wide = constraints.maxWidth >= 1120;
             final intro = _IntroPanel(state: state);
-            final form = _ConnectForm(
+            final connectionSetup = _ConnectForm(
               state: state,
               hostController: _hostController,
               portController: _portController,
@@ -95,6 +96,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                 setState(() => _secureConnection = value);
               },
               onUseCurrentOrigin: _useCurrentPageOrigin,
+            );
+            final form = Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                connectionSetup,
+                const SizedBox(height: LinearSpacing.xl),
+                const DevicePairingPanel(),
+              ],
             );
 
             return SingleChildScrollView(

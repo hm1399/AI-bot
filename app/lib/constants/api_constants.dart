@@ -13,6 +13,8 @@ class ApiConstants {
   static const String devicePath = '$basePath/device';
   static const String deviceSpeakPath = '$basePath/device/speak';
   static const String deviceCommandsPath = '$basePath/device/commands';
+  static const String devicePairingBundlePath =
+      '$basePath/device/pairing/bundle';
   static const String settingsPath = '$basePath/settings';
   static const String settingsTestPath = '$basePath/settings/llm/test';
   static const String tasksPath = '$basePath/tasks';

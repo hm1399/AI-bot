@@ -1028,6 +1028,114 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
             ["Overnight shift", "Today reminder", "Today task"],
         )
 
+    async def test_device_pairing_bundle_requires_auth(self) -> None:
+        response = await self.service.handle_device_pairing_bundle(FakeRequest(
+            json_body={"host": "192.168.1.23"},
+        ))
+
+        self.assertEqual(response.status, 401)
+        payload = json.loads(response.text)
+        self.assertEqual(payload["error"]["code"], "UNAUTHORIZED")
+
+    async def test_device_pairing_bundle_returns_serial_bundle(self) -> None:
+        service = AppRuntimeService(
+            {
+                "app": {
+                    "auth_token": "app-local-123",
+                    "default_session_id": "app:main",
+                },
+                "server": {
+                    "port": 8765,
+                },
+                "device": {
+                    "auth_token": "device-local-123",
+                },
+                "computer_control": {
+                    "enabled": True,
+                    "allowed_apps": ["Safari"],
+                },
+            },
+            bus=self.bus,
+            sessions=self.sessions,
+            device_channel=self.device,
+            computer_control_service=self.computer_control,
+            version="0.6.0",
+            start_time=0,
+        )
+
+        response = await service.handle_device_pairing_bundle(FakeRequest(
+            headers=self.headers,
+            json_body={"host": "192.168.1.23"},
+        ))
+
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)["data"]
+        self.assertEqual(payload["transport"], "serial")
+        self.assertEqual(
+            payload["bundle"],
+            {
+                "server": {
+                    "host": "192.168.1.23",
+                    "port": 8765,
+                    "path": "/ws/device",
+                    "secure": False,
+                },
+                "auth": {
+                    "device_token": "device-local-123",
+                    "required": True,
+                },
+            },
+        )
+
+    async def test_device_pairing_bundle_rejects_unsuitable_hosts(self) -> None:
+        for host in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "example.com:8765"):
+            response = await self.service.handle_device_pairing_bundle(FakeRequest(
+                headers=self.headers,
+                json_body={"host": host},
+            ))
+
+            self.assertEqual(response.status, 400, host)
+            payload = json.loads(response.text)
+            self.assertEqual(payload["error"]["code"], "INVALID_ARGUMENT")
+
+    async def test_device_pairing_bundle_marks_device_auth_optional_when_token_missing(self) -> None:
+        service = AppRuntimeService(
+            {
+                "app": {
+                    "auth_token": "app-local-123",
+                    "default_session_id": "app:main",
+                },
+                "server": {
+                    "port": 8765,
+                },
+                "computer_control": {
+                    "enabled": True,
+                    "allowed_apps": ["Safari"],
+                },
+            },
+            bus=self.bus,
+            sessions=self.sessions,
+            device_channel=self.device,
+            computer_control_service=self.computer_control,
+            version="0.6.0",
+            start_time=0,
+        )
+
+        response = await service.handle_device_pairing_bundle(FakeRequest(
+            headers=self.headers,
+            json_body={"host": "192.168.1.23"},
+        ))
+
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)["data"]
+        self.assertEqual(
+            payload["bundle"]["auth"],
+            {
+                "device_token": "",
+                "required": False,
+            },
+        )
+
     async def test_device_commands_route_handles_offline_and_success(self) -> None:
         offline = await self.service.handle_device_command(FakeRequest(
             headers=self.headers,

@@ -218,6 +218,14 @@
 - 发现来源：本轮 `AI 电脑端能力调研`。
 - 当前状态：`server/services/app_runtime.py` 已广播 `desktop_voice.state.changed / transcript / response / error` 事件，但 `app/lib/providers/app_providers.dart` 当前没有对应 case；前端主要只通过 `refreshRuntime()` 的聚合状态感知桌面语音桥是否 ready。
 - 影响：桌面麦克风链路虽然已经存在，但 App 内目前缺少实时 transcript / response / error 的细粒度可视反馈，语音联调和用户理解成本偏高。
+
+### Checkpoint 2026-04-11-08 Robot Pairing 仍是纯手填 LAN host，缺少本机网卡候选提示
+
+- 发现来源：本轮“机器人首次配对与前端配网”实施收口。
+- 当前状态：`app/lib/widgets/connect/device_pairing_panel.dart` 已实现 loopback 防呆和后端 host 校验闭环，但仍要求用户手动填写 `LAN Host`，没有展示当前电脑可选的本机网卡 IPv4 列表。
+- 影响：对熟悉网络的用户已经够用，但首次部署时仍可能出现“后端能连 localhost，机器人却连不上”的理解成本；特别是在多网卡机器上，手填体验不够强引导。
+- 建议动作：后续单独立项为 `Robot Pairing` 面板补“本机候选地址”提示或一键带入能力，明确这只是本机网卡候选，不是 LAN scan / device discovery。
+- 本轮处理：未处理。
 - 建议动作：后续单独立项，为 Chat 或 Control Center 增加 Voice Activity 视图，直接消费 `desktop_voice.*` 事件，而不是只看 runtime 摘要。
 - 本轮处理：未处理。
 

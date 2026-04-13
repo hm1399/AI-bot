@@ -1365,3 +1365,44 @@
 - 新增并登记 `功能讨论区/TODO/2026-04-11-机器人首次配对与前端配网实施计划.md`
 - 更新 `功能讨论区/TODO/todo.md`，将该计划加入总 TODO 索引
 - 更新 `功能讨论区/TODO/waitlist.md`，记录 `Connect` 连接配置与 `Settings` 中 `server_url/server_port` 已形成双数据源的后续收口事项
+
+---
+
+## 2026-04-11 - 机器人首次配对与前端配网实施
+
+### 后端配对 bundle
+
+- `server/services/app_runtime.py` 新增 `POST /api/app/v1/device/pairing/bundle`
+- 新接口只在 app 已认证时返回设备首配所需的最小 bundle，包含 `transport=serial`、`server.host/port/path/secure` 与 `auth.device_token`
+- host 规范化逻辑新增 loopback 与非法 host 拦截，避免把 `localhost`、`127.0.0.1`、`0.0.0.0`、`::1` 或 `example.com:8765` 直接下发给机器人
+- `server/tests/test_app_runtime.py` 补齐配对 bundle 契约测试与非法 host 用例
+
+### 固件运行时配网
+
+- `firmware/arduino/demo/demo.ino` 移除运行时对烧录期 `WIFI_* / WS_*` 常量的依赖，改为启动时从 NVS 读取 WiFi、WebSocket 与设备 token
+- 新增 `device_config_store.*`，用 Arduino `Preferences` 持久化配置，并支持 `load / save / clear`
+- 新增 `serial_pairing.*`，实现 newline-delimited JSON 串口协议，支持 `pairing.status`、`pairing.apply`、`pairing.clear` 与 `pairing.result`
+- 无配置设备默认进入“插线并长按配对”提示态；已配置设备长按触摸盘 5 秒可进入重配
+- WiFi 失败时不再进入重启刷屏，而是留在可恢复的配对提示态
+
+### 前端配对面板
+
+- `app/` 的 `Connect` 页新增 `Robot Pairing` 面板，并保持现有 Linear 风格暗色工具化布局
+- 新增独立 pairing model、storage service 与 desktop-only serial transport，桌面端使用 `flutter_libserialport`，web / unsupported 平台优雅降级
+- 配对流程改为：先连接 backend，再开 USB、长按触摸盘、请求 backend pairing bundle、通过串口下发 WiFi 与设备接入配置，并等待设备重新上线 `/ws/device`
+- 前端仅持久化非敏感 defaults，不长期保存 WiFi 密码或设备 token
+
+### 文档回填
+
+- 更新 `DEMO/启动指南.md`，补充“首次插线 + 长按触摸盘 + 前端配对”流程
+- 更新 `app/README.md`，说明 `Robot Pairing` 仅桌面可用，且不属于 fake LAN scan
+- 回填 `功能讨论区/TODO/2026-04-11-机器人首次配对与前端配网实施计划.md` 的已完成步骤
+
+### 自动化验证
+
+- 前端执行 `flutter pub get` 成功，已拉取 `flutter_libserialport` 等新增依赖
+- 前端执行 `flutter analyze`，结果为 `No issues found!`
+- 前端执行 `flutter test`，结果为 `12` 个测试全部通过
+- 后端当前虚拟环境未安装 `pytest`，因此未能直接执行计划中的 `python -m pytest`
+- 后端改用等价命令 `server/.venv/bin/python -m unittest -q tests.test_app_runtime`，结果为 `32` 个测试通过
+- 当前机器未安装 `arduino-cli`，因此本轮未完成固件本地编译验证
