@@ -26,6 +26,7 @@ class DummyDeviceChannel:
         self.connected = False
         self.asr = object()
         self.tts = object()
+        self.physical_interaction_handler = None
         self._snapshot = {
             "connected": False,
             "state": "IDLE",
@@ -71,6 +72,9 @@ class DummyDeviceChannel:
 
     def set_active_app_session_resolver(self, resolver) -> None:
         self.active_app_session_resolver = resolver
+
+    def set_physical_interaction_handler(self, handler) -> None:
+        self.physical_interaction_handler = handler
 
     async def send_outbound(self, out_msg: OutboundMessage) -> None:
         self.last_outbound = out_msg
@@ -239,6 +243,12 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(payload["data"]["runtime"]["planning"]["available"])
         self.assertTrue(payload["data"]["runtime"]["computer_control"]["available"])
+        self.assertTrue(payload["data"]["capabilities"]["experience"])
+        self.assertIn("experience", payload["data"]["runtime"])
+        self.assertEqual(
+            payload["data"]["runtime"]["experience"]["active_scene_mode"],
+            "focus",
+        )
 
     async def test_post_message_enqueues_app_task(self) -> None:
         response = await self.service.handle_post_message(FakeRequest(
@@ -260,6 +270,124 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(runtime["current_task"])
         self.assertEqual(len(runtime["task_queue"]), 1)
         self.assertEqual(runtime["task_queue"][0]["task_id"], task_id)
+
+    async def test_post_message_scene_command_updates_session_without_queueing_task(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+
+        response = await self.service.handle_post_message(
+            FakeRequest(
+                headers=self.headers,
+                match_info={"session_id": "app:main"},
+                json_body={
+                    "content": "切换到会议模式",
+                    "client_message_id": "flutter_local_scene_cmd",
+                },
+            )
+        )
+
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)["data"]
+        self.assertFalse(payload["queued"])
+        self.assertEqual(payload["accepted_message"]["status"], "completed")
+        self.assertEqual(payload["assistant_message"]["role"], "assistant")
+        self.assertIn("会议模式", payload["assistant_message"]["content"])
+        self.assertEqual(self.bus.inbound_size, 0)
+
+        session = self.sessions.get("app:main")
+        assert session is not None
+        self.assertEqual(session.metadata["scene_mode"], "meeting")
+        self.assertEqual(session.messages[-2]["role"], "user")
+        self.assertEqual(session.messages[-1]["role"], "assistant")
+
+        runtime = await self.service.get_runtime_state()
+        self.assertEqual(runtime["experience"]["active_scene_mode"], "meeting")
+
+        event_types = [event["event_type"] for event in ws.sent]
+        self.assertIn("session.updated", event_types)
+        self.assertIn("session.message.created", event_types)
+        self.assertIn("session.message.completed", event_types)
+        self.assertIn("runtime.experience.updated", event_types)
+
+    async def test_post_message_companion_mode_command_updates_persona_without_queueing_task(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+
+        response = await self.service.handle_post_message(
+            FakeRequest(
+                headers=self.headers,
+                match_info={"session_id": "app:main"},
+                json_body={
+                    "content": "切换到陪伴模式",
+                    "client_message_id": "flutter_local_companion_mode_cmd",
+                },
+            )
+        )
+
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)["data"]
+        self.assertFalse(payload["queued"])
+        self.assertIn("温暖陪伴", payload["assistant_message"]["content"])
+        self.assertEqual(self.bus.inbound_size, 0)
+
+        session = self.sessions.get("app:main")
+        assert session is not None
+        self.assertEqual(
+            session.metadata["persona_profile"]["preset"],
+            "companion_warm",
+        )
+
+        runtime = await self.service.get_runtime_state()
+        self.assertEqual(
+            runtime["experience"]["active_persona"]["preset"],
+            "companion_warm",
+        )
+
+        event_types = [event["event_type"] for event in ws.sent]
+        self.assertIn("session.updated", event_types)
+        self.assertIn("session.message.created", event_types)
+        self.assertIn("session.message.completed", event_types)
+        self.assertIn("runtime.experience.updated", event_types)
+
+    async def test_desktop_voice_transcript_persona_command_returns_direct_confirmation(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+
+        result = await self.service.on_desktop_voice_transcript(
+            transcript="切换人格为温暖陪伴",
+            metadata={
+                "source": "voice",
+                "source_channel": "desktop_voice",
+                "voice_path": "desktop_mic",
+                "interaction_surface": "device_press",
+                "capture_source": "desktop_mic",
+                "app_session_id": "app:main",
+            },
+            snapshot={"status": "responding"},
+        )
+
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result["handled"])
+        self.assertIn("温暖陪伴", result["response_text"])
+        self.assertEqual(result["outbound_metadata"]["persona_profile_id"], "companion_warm")
+        self.assertEqual(self.bus.inbound_size, 0)
+
+        session = self.sessions.get("app:main")
+        assert session is not None
+        self.assertEqual(session.metadata["persona_profile"]["preset"], "companion_warm")
+
+        runtime = await self.service.get_runtime_state()
+        self.assertEqual(
+            runtime["experience"]["active_persona"]["preset"],
+            "companion_warm",
+        )
+
+        event_types = [event["event_type"] for event in ws.sent]
+        self.assertIn("desktop_voice.transcript", event_types)
+        self.assertIn("session.updated", event_types)
+        self.assertIn("session.message.created", event_types)
+        self.assertIn("session.message.completed", event_types)
+        self.assertIn("runtime.experience.updated", event_types)
 
     async def test_patch_session_rejects_archiving_last_active_conversation(self) -> None:
         self.service._ensure_app_session("app:main", title="主对话")
@@ -336,6 +464,73 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("computer_control", runtime)
         self.assertTrue(runtime["computer_control"]["available"])
         self.assertIn("open_app", runtime["computer_control"]["supported_actions"])
+        self.assertIn("experience", runtime)
+        self.assertEqual(runtime["experience"]["active_scene_mode"], "focus")
+        self.assertIn("physical_interaction", runtime["experience"])
+
+    async def test_patch_session_updates_persisted_experience_overrides(self) -> None:
+        patched = await self.service.handle_patch_session(
+            FakeRequest(
+                headers=self.headers,
+                match_info={"session_id": "app:main"},
+                json_body={
+                    "scene_mode": "meeting",
+                    "persona_profile": {"preset": "meeting_brief"},
+                    "persona_fields": {"voice_style": "quiet"},
+                },
+            )
+        )
+
+        self.assertEqual(patched.status, 200)
+        payload = json.loads(patched.text)["data"]
+        self.assertEqual(payload["scene_mode"], "meeting")
+        self.assertEqual(payload["persona_profile"]["preset"], "meeting_brief")
+        self.assertEqual(payload["persona_fields"]["voice_style"], "quiet")
+
+        runtime = await self.service.get_runtime_state()
+        self.assertEqual(runtime["experience"]["active_scene_mode"], "meeting")
+        self.assertEqual(
+            runtime["experience"]["active_persona"]["voice_style"],
+            "quiet",
+        )
+        self.assertEqual(runtime["experience"]["override_source"], "session_override")
+
+    async def test_patch_experience_supports_runtime_override_scope(self) -> None:
+        updated = await self.service.handle_patch_experience(
+            FakeRequest(
+                headers=self.headers,
+                json_body={
+                    "scope": "runtime",
+                    "scene_mode": "offwork",
+                    "persona_fields": {"voice_style": "bright"},
+                },
+            )
+        )
+
+        self.assertEqual(updated.status, 200)
+        payload = json.loads(updated.text)["data"]
+        self.assertEqual(payload["experience"]["active_scene_mode"], "offwork")
+        self.assertEqual(
+            payload["experience"]["active_persona"]["voice_style"],
+            "bright",
+        )
+        self.assertEqual(payload["experience"]["override_source"], "runtime_override")
+
+    async def test_patch_experience_rejects_session_scope_payload(self) -> None:
+        rejected = await self.service.handle_patch_experience(
+            FakeRequest(
+                headers=self.headers,
+                json_body={
+                    "scope": "session",
+                    "session_id": "app:main",
+                    "scene_mode": "meeting",
+                },
+            )
+        )
+
+        self.assertEqual(rejected.status, 400)
+        payload = json.loads(rejected.text)
+        self.assertEqual(payload["error"]["code"], "INVALID_ARGUMENT")
 
     async def test_computer_state_and_action_routes_emit_runtime_events(self) -> None:
         ws = FakeWebSocket()
@@ -671,6 +866,7 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(response.text)
         self.assertIn("llm_api_key_configured", payload["data"])
         self.assertNotIn("llm_api_key", payload["data"])
+        self.assertIn("default_scene_mode", payload["data"])
 
         updated = await self.service.handle_put_settings(FakeRequest(
             headers=self.headers,
@@ -678,6 +874,9 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
                 "device_volume": 75,
                 "led_mode": "breathing",
                 "wake_word": "Hey Assistant",
+                "default_scene_mode": "meeting",
+                "persona_voice_style": "quiet",
+                "physical_interaction_enabled": False,
                 "llm_api_key": "secret-key",
             },
         ))
@@ -685,6 +884,9 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         updated_payload = json.loads(updated.text)
         self.assertEqual(updated_payload["data"]["settings"]["device_volume"], 75)
         self.assertTrue(updated_payload["data"]["settings"]["llm_api_key_configured"])
+        self.assertEqual(updated_payload["data"]["settings"]["default_scene_mode"], "meeting")
+        self.assertEqual(updated_payload["data"]["settings"]["persona_voice_style"], "quiet")
+        self.assertFalse(updated_payload["data"]["settings"]["physical_interaction_enabled"])
         self.assertEqual(
             updated_payload["data"]["apply_results"]["device_volume"]["status"],
             "saved_only",
@@ -700,6 +902,14 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             updated_payload["data"]["apply_results"]["wake_word"]["mode"],
             "config_only",
+        )
+        self.assertEqual(
+            updated_payload["data"]["apply_results"]["default_scene_mode"]["status"],
+            "applied",
+        )
+        self.assertEqual(
+            updated_payload["data"]["apply_results"]["physical_interaction_enabled"]["status"],
+            "applied",
         )
 
         with patch.object(

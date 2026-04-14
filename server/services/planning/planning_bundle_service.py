@@ -10,7 +10,7 @@ from services.app_api.resource_service import AppResourceService
 class PlanningBundleService:
     """Normalizes cross-resource planning metadata around a shared bundle_id."""
 
-    _PLANNING_FIELDS = (
+    _RESOURCE_FIELDS = (
         "bundle_id",
         "created_via",
         "source_channel",
@@ -22,6 +22,14 @@ class PlanningBundleService:
         "linked_task_id",
         "linked_event_id",
         "linked_reminder_id",
+    )
+    _SOURCE_FIELDS = _RESOURCE_FIELDS + (
+        "scene_mode",
+        "persona_profile_id",
+        "persona_voice_style",
+        "interaction_kind",
+        "interaction_mode",
+        "approval_source",
     )
 
     def __init__(
@@ -51,7 +59,7 @@ class PlanningBundleService:
         )
         result["bundle_id"] = candidate_bundle_id
 
-        for field in self._PLANNING_FIELDS[1:]:
+        for field in self._RESOURCE_FIELDS[1:]:
             if field in result:
                 continue
             value = merged_defaults.get(field)
@@ -59,9 +67,14 @@ class PlanningBundleService:
                 result[field] = value
         return result
 
-    def extract_metadata(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def extract_metadata(
+        self,
+        payload: dict[str, Any],
+        *,
+        fields: tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
         metadata: dict[str, Any] = {}
-        for field in self._PLANNING_FIELDS:
+        for field in fields or self._SOURCE_FIELDS:
             value = payload.get(field)
             if value is None:
                 continue
@@ -83,6 +96,12 @@ class PlanningBundleService:
         interaction_surface: str | None = None,
         capture_source: str | None = None,
         voice_path: str | None = None,
+        scene_mode: str | None = None,
+        persona_profile_id: str | None = None,
+        persona_voice_style: str | None = None,
+        interaction_kind: str | None = None,
+        interaction_mode: str | None = None,
+        approval_source: str | None = None,
         linked_task_id: str | None = None,
         linked_event_id: str | None = None,
         linked_reminder_id: str | None = None,
@@ -97,6 +116,12 @@ class PlanningBundleService:
             "interaction_surface": interaction_surface,
             "capture_source": capture_source,
             "voice_path": voice_path,
+            "scene_mode": scene_mode,
+            "persona_profile_id": persona_profile_id,
+            "persona_voice_style": persona_voice_style,
+            "interaction_kind": interaction_kind,
+            "interaction_mode": interaction_mode,
+            "approval_source": approval_source,
             "linked_task_id": linked_task_id,
             "linked_event_id": linked_event_id,
             "linked_reminder_id": linked_reminder_id,
@@ -104,7 +129,7 @@ class PlanningBundleService:
         for key, value in explicit.items():
             if value is not None:
                 merged[key] = value
-        return self.extract_metadata(merged)
+        return self.extract_metadata(merged, fields=self._SOURCE_FIELDS)
 
     def attach_metadata(
         self,

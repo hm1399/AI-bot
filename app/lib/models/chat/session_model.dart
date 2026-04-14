@@ -1,3 +1,4 @@
+import '../experience/experience_model.dart';
 import 'message_model.dart';
 
 class SessionModel {
@@ -11,6 +12,7 @@ class SessionModel {
     required this.pinned,
     required this.archived,
     required this.active,
+    this.experienceOverride = const SessionExperienceOverrideModel(),
   });
 
   final String sessionId;
@@ -22,6 +24,7 @@ class SessionModel {
   final bool pinned;
   final bool archived;
   final bool active;
+  final SessionExperienceOverrideModel experienceOverride;
 
   SessionModel copyWith({
     String? title,
@@ -31,6 +34,7 @@ class SessionModel {
     bool? pinned,
     bool? archived,
     bool? active,
+    SessionExperienceOverrideModel? experienceOverride,
   }) {
     return SessionModel(
       sessionId: sessionId,
@@ -42,10 +46,12 @@ class SessionModel {
       pinned: pinned ?? this.pinned,
       archived: archived ?? this.archived,
       active: active ?? this.active,
+      experienceOverride: experienceOverride ?? this.experienceOverride,
     );
   }
 
   factory SessionModel.fromJson(Map<String, dynamic> json) {
+    final experienceOverride = SessionExperienceOverrideModel.fromJson(json);
     return SessionModel(
       sessionId: json['session_id']?.toString() ?? '',
       channel: json['channel']?.toString() ?? 'app',
@@ -58,6 +64,9 @@ class SessionModel {
       pinned: json['pinned'] == true,
       archived: json['archived'] == true,
       active: json['active'] == true,
+      experienceOverride: experienceOverride.hasOverrides
+          ? experienceOverride
+          : const SessionExperienceOverrideModel(),
     );
   }
 }

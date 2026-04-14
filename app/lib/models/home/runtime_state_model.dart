@@ -1,3 +1,5 @@
+import '../experience/experience_model.dart';
+
 class RuntimeTaskModel {
   const RuntimeTaskModel({
     required this.taskId,
@@ -605,6 +607,31 @@ class RuntimeStateModel {
     required this.taskQueue,
     required this.device,
     required this.voice,
+    this.experience = const ExperienceRuntimeModel(
+      reportedByBackend: false,
+      activeSceneMode: 'focus',
+      activePersona: PersonaProfileModel(
+        toneStyle: 'clear',
+        replyLength: 'medium',
+        proactivity: 'balanced',
+        voiceStyle: 'calm',
+      ),
+      overrideSource: 'default',
+      physicalInteraction: PhysicalInteractionStateModel(
+        enabled: false,
+        shakeEnabled: false,
+        tapConfirmationEnabled: false,
+        holdToTalkAvailable: true,
+        ready: false,
+        status: 'disabled',
+      ),
+      lastInteractionResult: InteractionResultModel(
+        interactionKind: '',
+        mode: '',
+        title: '',
+        shortResult: '',
+      ),
+    ),
     required this.todoSummary,
     required this.calendarSummary,
     this.reminders = const ReminderRuntimeStateModel(),
@@ -615,6 +642,7 @@ class RuntimeStateModel {
   final List<RuntimeTaskModel> taskQueue;
   final DeviceStatusModel device;
   final VoiceStatusModel voice;
+  final ExperienceRuntimeModel experience;
   final TodoSummaryModel todoSummary;
   final CalendarSummaryModel calendarSummary;
   final ReminderRuntimeStateModel reminders;
@@ -626,6 +654,21 @@ class RuntimeStateModel {
       taskQueue: taskQueue,
       device: device,
       voice: voice,
+      experience: experience,
+      todoSummary: todoSummary,
+      calendarSummary: calendarSummary,
+      reminders: reminders,
+      planning: planning,
+    );
+  }
+
+  RuntimeStateModel copyWithExperience(ExperienceRuntimeModel experience) {
+    return RuntimeStateModel(
+      currentTask: currentTask,
+      taskQueue: taskQueue,
+      device: device,
+      voice: voice,
+      experience: experience,
       todoSummary: todoSummary,
       calendarSummary: calendarSummary,
       reminders: reminders,
@@ -656,6 +699,9 @@ class RuntimeStateModel {
             : <String, dynamic>{},
       ),
       voice: VoiceStatusModel.fromParentJson(json),
+      experience: ExperienceRuntimeModel.fromJson(
+        _extractExperienceRuntimePayload(json),
+      ),
       todoSummary: TodoSummaryModel.fromJson(
         json['todo_summary'] is Map<String, dynamic>
             ? json['todo_summary'] as Map<String, dynamic>
@@ -677,6 +723,7 @@ class RuntimeStateModel {
       taskQueue: const <RuntimeTaskModel>[],
       device: DeviceStatusModel.empty(),
       voice: VoiceStatusModel.empty(),
+      experience: ExperienceRuntimeModel.empty(),
       todoSummary: TodoSummaryModel.empty(),
       calendarSummary: CalendarSummaryModel.empty(),
       reminders: const ReminderRuntimeStateModel(),
@@ -696,6 +743,37 @@ Map<String, dynamic> _extractNestedRuntimePayload(
     }
   }
   return <String, dynamic>{};
+}
+
+Map<String, dynamic> _extractExperienceRuntimePayload(
+  Map<String, dynamic> json,
+) {
+  final nested = _extractNestedRuntimePayload(json, const <String>[
+    'experience',
+    'experience_runtime',
+  ]);
+  if (nested.isNotEmpty) {
+    return nested;
+  }
+
+  final fallback = <String, dynamic>{};
+  for (final key in const <String>[
+    'active_scene_mode',
+    'active_persona',
+    'active_persona_profile_id',
+    'persona_profile_id',
+    'override_source',
+    'physical_interaction',
+    'last_interaction_result',
+    'shake_enabled',
+    'tap_confirmation_enabled',
+    'physical_interaction_enabled',
+  ]) {
+    if (json.containsKey(key)) {
+      fallback[key] = json[key];
+    }
+  }
+  return fallback;
 }
 
 int _clampPercentInt(int value) {

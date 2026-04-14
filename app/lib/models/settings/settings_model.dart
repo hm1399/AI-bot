@@ -1,3 +1,5 @@
+import '../experience/experience_model.dart';
+
 class AppSettingsModel {
   static const Object _unset = Object();
 
@@ -22,6 +24,14 @@ class AppSettingsModel {
     required this.ledColor,
     required this.wakeWord,
     required this.autoListen,
+    this.defaultSceneMode = 'focus',
+    this.personaToneStyle = 'clear',
+    this.personaReplyLength = 'medium',
+    this.personaProactivity = 'balanced',
+    this.personaVoiceStyle = 'calm',
+    this.physicalInteractionEnabled = true,
+    this.shakeEnabled = true,
+    this.tapConfirmationEnabled = true,
     this.applyResults = const <String, SettingApplyResultModel>{},
   });
 
@@ -45,12 +55,34 @@ class AppSettingsModel {
   final String ledColor;
   final String wakeWord;
   final bool autoListen;
+  final String defaultSceneMode;
+  final String personaToneStyle;
+  final String personaReplyLength;
+  final String personaProactivity;
+  final String personaVoiceStyle;
+  final bool physicalInteractionEnabled;
+  final bool shakeEnabled;
+  final bool tapConfirmationEnabled;
   final Map<String, SettingApplyResultModel> applyResults;
 
   bool get hasApplyResults => applyResults.isNotEmpty;
 
+  ExperienceSettingsModel get experience => ExperienceSettingsModel(
+    defaultSceneMode: defaultSceneMode,
+    persona: PersonaProfileModel(
+      toneStyle: personaToneStyle,
+      replyLength: personaReplyLength,
+      proactivity: personaProactivity,
+      voiceStyle: personaVoiceStyle,
+    ),
+    physicalInteractionEnabled: physicalInteractionEnabled,
+    shakeEnabled: shakeEnabled,
+    tapConfirmationEnabled: tapConfirmationEnabled,
+  );
+
   SettingApplyResultModel? applyResultFor(String field) {
-    return applyResults[field] ?? SettingApplyResultModel.defaultForField(field);
+    return applyResults[field] ??
+        SettingApplyResultModel.defaultForField(field);
   }
 
   String? get applySummary {
@@ -58,13 +90,20 @@ class AppSettingsModel {
       return null;
     }
     final values = applyResults.values.toList();
-    final failedCount = values.where((SettingApplyResultModel item) => item.isFailure).length;
-    final pendingCount = values.where((SettingApplyResultModel item) => item.isPending).length;
+    final failedCount = values
+        .where((SettingApplyResultModel item) => item.isFailure)
+        .length;
+    final pendingCount = values
+        .where((SettingApplyResultModel item) => item.isPending)
+        .length;
     final configOnlyCount = values
         .where((SettingApplyResultModel item) => item.isConfigOnly)
         .length;
     final appliedCount = values
-        .where((SettingApplyResultModel item) => item.isSuccessful && item.isLiveApply)
+        .where(
+          (SettingApplyResultModel item) =>
+              item.isSuccessful && item.isLiveApply,
+        )
         .length;
     final segments = <String>[];
     if (appliedCount > 0) {
@@ -97,6 +136,14 @@ class AppSettingsModel {
     String? ledColor,
     String? wakeWord,
     bool? autoListen,
+    String? defaultSceneMode,
+    String? personaToneStyle,
+    String? personaReplyLength,
+    String? personaProactivity,
+    String? personaVoiceStyle,
+    bool? physicalInteractionEnabled,
+    bool? shakeEnabled,
+    bool? tapConfirmationEnabled,
     Object? applyResults = _unset,
   }) {
     return AppSettingsModel(
@@ -122,6 +169,16 @@ class AppSettingsModel {
       ledColor: ledColor ?? this.ledColor,
       wakeWord: wakeWord ?? this.wakeWord,
       autoListen: autoListen ?? this.autoListen,
+      defaultSceneMode: defaultSceneMode ?? this.defaultSceneMode,
+      personaToneStyle: personaToneStyle ?? this.personaToneStyle,
+      personaReplyLength: personaReplyLength ?? this.personaReplyLength,
+      personaProactivity: personaProactivity ?? this.personaProactivity,
+      personaVoiceStyle: personaVoiceStyle ?? this.personaVoiceStyle,
+      physicalInteractionEnabled:
+          physicalInteractionEnabled ?? this.physicalInteractionEnabled,
+      shakeEnabled: shakeEnabled ?? this.shakeEnabled,
+      tapConfirmationEnabled:
+          tapConfirmationEnabled ?? this.tapConfirmationEnabled,
       applyResults: identical(applyResults, _unset)
           ? this.applyResults
           : applyResults as Map<String, SettingApplyResultModel>,
@@ -144,6 +201,14 @@ class AppSettingsModel {
       ledColor: ledColor,
       wakeWord: wakeWord,
       autoListen: autoListen,
+      defaultSceneMode: defaultSceneMode,
+      personaToneStyle: personaToneStyle,
+      personaReplyLength: personaReplyLength,
+      personaProactivity: personaProactivity,
+      personaVoiceStyle: personaVoiceStyle,
+      physicalInteractionEnabled: physicalInteractionEnabled,
+      shakeEnabled: shakeEnabled,
+      tapConfirmationEnabled: tapConfirmationEnabled,
     );
   }
 
@@ -178,6 +243,17 @@ class AppSettingsModel {
       ledColor: payload['led_color']?.toString() ?? '#2563eb',
       wakeWord: payload['wake_word']?.toString() ?? 'Hey Assistant',
       autoListen: payload['auto_listen'] == true,
+      defaultSceneMode: payload['default_scene_mode']?.toString() ?? 'focus',
+      personaToneStyle: payload['persona_tone_style']?.toString() ?? 'clear',
+      personaReplyLength:
+          payload['persona_reply_length']?.toString() ?? 'medium',
+      personaProactivity:
+          payload['persona_proactivity']?.toString() ?? 'balanced',
+      personaVoiceStyle: payload['persona_voice_style']?.toString() ?? 'calm',
+      physicalInteractionEnabled:
+          payload['physical_interaction_enabled'] != false,
+      shakeEnabled: payload['shake_enabled'] != false,
+      tapConfirmationEnabled: payload['tap_confirmation_enabled'] != false,
       applyResults: _extractApplyResults(json),
     );
   }
@@ -291,6 +367,14 @@ class AppSettingsUpdate {
     required this.ledColor,
     required this.wakeWord,
     required this.autoListen,
+    required this.defaultSceneMode,
+    required this.personaToneStyle,
+    required this.personaReplyLength,
+    required this.personaProactivity,
+    required this.personaVoiceStyle,
+    required this.physicalInteractionEnabled,
+    required this.shakeEnabled,
+    required this.tapConfirmationEnabled,
   });
 
   final String llmProvider;
@@ -307,6 +391,14 @@ class AppSettingsUpdate {
   final String ledColor;
   final String wakeWord;
   final bool autoListen;
+  final String defaultSceneMode;
+  final String personaToneStyle;
+  final String personaReplyLength;
+  final String personaProactivity;
+  final String personaVoiceStyle;
+  final bool physicalInteractionEnabled;
+  final bool shakeEnabled;
+  final bool tapConfirmationEnabled;
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
@@ -325,6 +417,14 @@ class AppSettingsUpdate {
       'led_color': ledColor,
       'wake_word': wakeWord,
       'auto_listen': autoListen,
+      'default_scene_mode': defaultSceneMode,
+      'persona_tone_style': personaToneStyle,
+      'persona_reply_length': personaReplyLength,
+      'persona_proactivity': personaProactivity,
+      'persona_voice_style': personaVoiceStyle,
+      'physical_interaction_enabled': physicalInteractionEnabled,
+      'shake_enabled': shakeEnabled,
+      'tap_confirmation_enabled': tapConfirmationEnabled,
     };
   }
 }
@@ -400,7 +500,17 @@ String? _defaultApplyMode(String field) {
     'led_enabled' ||
     'led_brightness' ||
     'led_color' => 'save_and_apply',
-    'led_mode' || 'wake_word' || 'auto_listen' => 'config_only',
+    'led_mode' ||
+    'wake_word' ||
+    'auto_listen' ||
+    'default_scene_mode' ||
+    'persona_tone_style' ||
+    'persona_reply_length' ||
+    'persona_proactivity' ||
+    'persona_voice_style' ||
+    'physical_interaction_enabled' ||
+    'shake_enabled' ||
+    'tap_confirmation_enabled' => 'config_only',
     _ => null,
   };
 }

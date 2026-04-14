@@ -73,9 +73,44 @@ class PlanningTool(Tool):
     )
     _SUPPORTED_PRIORITIES = {"high", "medium", "low"}
     _SUPPORTED_REPEATS = {"daily", "once", "weekdays", "weekends"}
+    _REQUEST_METADATA_KEYS = (
+        "source",
+        "interaction_surface",
+        "capture_source",
+        "voice_path",
+        "reply_language",
+        "emotion",
+        "app_session_id",
+        "scene_mode",
+        "persona_profile_id",
+        "persona_voice_style",
+        "interaction_kind",
+        "interaction_mode",
+        "approval_source",
+    )
 
     def __init__(self, backend: PlanningBackend):
         self._backend = backend
+        self._source_channel_var: ContextVar[str] = ContextVar(
+            "planning_source_channel",
+            default="",
+        )
+        self._source_chat_id_var: ContextVar[str] = ContextVar(
+            "planning_source_chat_id",
+            default="",
+        )
+        self._source_message_id_var: ContextVar[str | None] = ContextVar(
+            "planning_source_message_id",
+            default=None,
+        )
+        self._task_id_var: ContextVar[str | None] = ContextVar(
+            "planning_task_id",
+            default=None,
+        )
+        self._runtime_metadata_var: ContextVar[dict[str, Any]] = ContextVar(
+            "planning_runtime_metadata",
+            default={},
+        )
         self._turn_results_var: ContextVar[list[dict[str, Any]]] = ContextVar(
             "planning_turn_results",
             default=[],
@@ -95,6 +130,22 @@ class PlanningTool(Tool):
         results = deepcopy(self._turn_results_var.get())
         self._turn_results_var.set([])
         return results
+
+    def set_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        task_id: str | None = None,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Set per-turn request context so created resources stay attributable."""
+        self._source_channel_var.set(channel)
+        self._source_chat_id_var.set(chat_id)
+        self._source_message_id_var.set(message_id)
+        self._task_id_var.set(task_id)
+        self._runtime_metadata_var.set(deepcopy(metadata or {}))
 
     @property
     def name(self) -> str:
@@ -168,6 +219,42 @@ class PlanningTool(Tool):
                 "linked_task_id": {"type": "string", "description": "Optional linked task id."},
                 "linked_event_id": {"type": "string", "description": "Optional linked event id."},
                 "linked_reminder_id": {"type": "string", "description": "Optional linked reminder id."},
+                "interaction_surface": {
+                    "type": "string",
+                    "description": "Optional physical interaction surface provenance.",
+                },
+                "capture_source": {
+                    "type": "string",
+                    "description": "Optional physical capture source provenance.",
+                },
+                "voice_path": {
+                    "type": "string",
+                    "description": "Optional voice path provenance.",
+                },
+                "scene_mode": {
+                    "type": "string",
+                    "description": "Optional runtime scene mode for audit/provenance.",
+                },
+                "persona_profile_id": {
+                    "type": "string",
+                    "description": "Optional runtime persona profile id for audit/provenance.",
+                },
+                "persona_voice_style": {
+                    "type": "string",
+                    "description": "Optional runtime persona voice style for audit/provenance.",
+                },
+                "interaction_kind": {
+                    "type": "string",
+                    "description": "Optional runtime interaction kind for audit/provenance.",
+                },
+                "interaction_mode": {
+                    "type": "string",
+                    "description": "Optional runtime interaction mode for audit/provenance.",
+                },
+                "approval_source": {
+                    "type": "string",
+                    "description": "Optional approval provenance for audit records.",
+                },
             },
             "required": ["action"],
         }
@@ -212,6 +299,15 @@ class PlanningTool(Tool):
         source_channel: str | None = None,
         source_message_id: str | None = None,
         source_session_id: str | None = None,
+        interaction_surface: str | None = None,
+        capture_source: str | None = None,
+        voice_path: str | None = None,
+        scene_mode: str | None = None,
+        persona_profile_id: str | None = None,
+        persona_voice_style: str | None = None,
+        interaction_kind: str | None = None,
+        interaction_mode: str | None = None,
+        approval_source: str | None = None,
         linked_event_id: str | None = None,
         linked_reminder_id: str | None = None,
         **_: Any,
@@ -219,13 +315,25 @@ class PlanningTool(Tool):
         clean_title = self._require_text(title, "title")
         clean_priority = self._normalize_priority(priority)
         normalized_due_at = self._normalize_datetime(due_at, "due_at") if due_at else None
-        metadata = self._build_creation_metadata(
-            resource_type="task",
-            bundle_id=bundle_id,
+        request_metadata = self._build_request_metadata(
             created_via=created_via,
             source_channel=source_channel,
             source_message_id=source_message_id,
             source_session_id=source_session_id,
+            interaction_surface=interaction_surface,
+            capture_source=capture_source,
+            voice_path=voice_path,
+            scene_mode=scene_mode,
+            persona_profile_id=persona_profile_id,
+            persona_voice_style=persona_voice_style,
+            interaction_kind=interaction_kind,
+            interaction_mode=interaction_mode,
+            approval_source=approval_source,
+        )
+        metadata = self._build_creation_metadata(
+            resource_type="task",
+            bundle_id=bundle_id,
+            request_metadata=request_metadata,
             linked_event_id=linked_event_id,
             linked_reminder_id=linked_reminder_id,
         )
@@ -250,6 +358,7 @@ class PlanningTool(Tool):
             normalized_times={"due_at": task.get("due_at") or normalized_due_at},
             result={"task": task},
             message=f"Created task '{task.get('title') or clean_title}'.",
+            request_metadata=request_metadata,
         )
 
     async def _create_event(
@@ -265,6 +374,15 @@ class PlanningTool(Tool):
         source_channel: str | None = None,
         source_message_id: str | None = None,
         source_session_id: str | None = None,
+        interaction_surface: str | None = None,
+        capture_source: str | None = None,
+        voice_path: str | None = None,
+        scene_mode: str | None = None,
+        persona_profile_id: str | None = None,
+        persona_voice_style: str | None = None,
+        interaction_kind: str | None = None,
+        interaction_mode: str | None = None,
+        approval_source: str | None = None,
         linked_task_id: str | None = None,
         linked_reminder_id: str | None = None,
         **_: Any,
@@ -278,13 +396,25 @@ class PlanningTool(Tool):
             raise ValueError("end_at must be after start_at")
 
         conflicts = await self._detect_event_conflicts(start_dt, end_dt)
-        metadata = self._build_creation_metadata(
-            resource_type="event",
-            bundle_id=bundle_id,
+        request_metadata = self._build_request_metadata(
             created_via=created_via,
             source_channel=source_channel,
             source_message_id=source_message_id,
             source_session_id=source_session_id,
+            interaction_surface=interaction_surface,
+            capture_source=capture_source,
+            voice_path=voice_path,
+            scene_mode=scene_mode,
+            persona_profile_id=persona_profile_id,
+            persona_voice_style=persona_voice_style,
+            interaction_kind=interaction_kind,
+            interaction_mode=interaction_mode,
+            approval_source=approval_source,
+        )
+        metadata = self._build_creation_metadata(
+            resource_type="event",
+            bundle_id=bundle_id,
+            request_metadata=request_metadata,
             linked_task_id=linked_task_id,
             linked_reminder_id=linked_reminder_id,
         )
@@ -315,6 +445,7 @@ class PlanningTool(Tool):
             confirmation_needed=bool(conflicts),
             result={"event": event},
             message=f"Created event '{event.get('title') or clean_title}'.",
+            request_metadata=request_metadata,
         )
 
     async def _create_reminder(
@@ -329,6 +460,15 @@ class PlanningTool(Tool):
         source_channel: str | None = None,
         source_message_id: str | None = None,
         source_session_id: str | None = None,
+        interaction_surface: str | None = None,
+        capture_source: str | None = None,
+        voice_path: str | None = None,
+        scene_mode: str | None = None,
+        persona_profile_id: str | None = None,
+        persona_voice_style: str | None = None,
+        interaction_kind: str | None = None,
+        interaction_mode: str | None = None,
+        approval_source: str | None = None,
         linked_task_id: str | None = None,
         linked_event_id: str | None = None,
         **_: Any,
@@ -336,13 +476,25 @@ class PlanningTool(Tool):
         clean_title = self._require_text(title, "title")
         normalized_time = self._normalize_reminder_time(time)
         normalized_repeat = self._normalize_repeat(repeat)
-        metadata = self._build_creation_metadata(
-            resource_type="reminder",
-            bundle_id=bundle_id,
+        request_metadata = self._build_request_metadata(
             created_via=created_via,
             source_channel=source_channel,
             source_message_id=source_message_id,
             source_session_id=source_session_id,
+            interaction_surface=interaction_surface,
+            capture_source=capture_source,
+            voice_path=voice_path,
+            scene_mode=scene_mode,
+            persona_profile_id=persona_profile_id,
+            persona_voice_style=persona_voice_style,
+            interaction_kind=interaction_kind,
+            interaction_mode=interaction_mode,
+            approval_source=approval_source,
+        )
+        metadata = self._build_creation_metadata(
+            resource_type="reminder",
+            bundle_id=bundle_id,
+            request_metadata=request_metadata,
             linked_task_id=linked_task_id,
             linked_event_id=linked_event_id,
         )
@@ -371,6 +523,7 @@ class PlanningTool(Tool):
             },
             result={"reminder": reminder},
             message=f"Created reminder '{reminder.get('title') or clean_title}'.",
+            request_metadata=request_metadata,
         )
 
     async def _complete_task(
@@ -382,6 +535,7 @@ class PlanningTool(Tool):
     ) -> dict[str, Any]:
         clean_task_id = self._require_text(task_id, "task_id")
         task = await self._backend.update_task(clean_task_id, {"completed": True})
+        request_metadata = self._build_request_metadata()
         return self._result_payload(
             bundle_id=bundle_id,
             action="complete_task",
@@ -389,6 +543,7 @@ class PlanningTool(Tool):
             normalized_times={"due_at": task.get("due_at")},
             result={"task": task},
             message=f"Completed task '{task.get('title') or clean_task_id}'.",
+            request_metadata=request_metadata,
         )
 
     async def _snooze_reminder(
@@ -408,6 +563,7 @@ class PlanningTool(Tool):
             snoozed_until=normalized_until,
             delay_minutes=minutes or 10,
         )
+        request_metadata = self._build_request_metadata()
         return self._result_payload(
             bundle_id=bundle_id,
             action="snooze_reminder",
@@ -418,6 +574,7 @@ class PlanningTool(Tool):
             },
             result={"reminder": updated},
             message=f"Snoozed reminder '{updated.get('title') or clean_reminder_id}'.",
+            request_metadata=request_metadata,
         )
 
     async def _list_today(
@@ -445,6 +602,7 @@ class PlanningTool(Tool):
             if self._reminder_matches_day(reminder, target_day)
         ]
 
+        request_metadata = self._build_request_metadata()
         return self._result_payload(
             bundle_id=bundle_id,
             action="list_today",
@@ -461,6 +619,7 @@ class PlanningTool(Tool):
                 "reminders": reminders,
             },
             message=f"Listed planning items for {target_day.isoformat()}.",
+            request_metadata=request_metadata,
         )
 
     async def _detect_event_conflicts(
@@ -526,10 +685,7 @@ class PlanningTool(Tool):
         *,
         resource_type: str,
         bundle_id: str,
-        created_via: str | None = None,
-        source_channel: str | None = None,
-        source_message_id: str | None = None,
-        source_session_id: str | None = None,
+        request_metadata: dict[str, Any],
         linked_task_id: str | None = None,
         linked_event_id: str | None = None,
         linked_reminder_id: str | None = None,
@@ -537,12 +693,15 @@ class PlanningTool(Tool):
         recent_resource_ids = self._latest_created_resource_ids()
         metadata: dict[str, Any] = {
             "bundle_id": bundle_id,
-            "created_via": self._clean_optional_text(created_via) or "agent",
-            "source_channel": self._clean_optional_text(source_channel) or "agent",
+            "created_via": request_metadata.get("created_via") or "agent",
+            "source_channel": request_metadata.get("source_channel") or "agent",
+            "interaction_surface": request_metadata.get("interaction_surface"),
+            "capture_source": request_metadata.get("capture_source"),
+            "voice_path": request_metadata.get("voice_path"),
         }
         optional_source_fields = {
-            "source_message_id": self._clean_optional_text(source_message_id),
-            "source_session_id": self._clean_optional_text(source_session_id),
+            "source_message_id": request_metadata.get("source_message_id"),
+            "source_session_id": request_metadata.get("source_session_id"),
         }
         metadata.update({key: value for key, value in optional_source_fields.items() if value is not None})
 
@@ -553,6 +712,65 @@ class PlanningTool(Tool):
         if resource_type != "reminder":
             metadata["linked_reminder_id"] = self._clean_optional_text(linked_reminder_id) or recent_resource_ids.get("reminder_id")
         return {key: value for key, value in metadata.items() if value is not None}
+
+    def _build_request_metadata(
+        self,
+        *,
+        created_via: str | None = None,
+        source_channel: str | None = None,
+        source_message_id: str | None = None,
+        source_session_id: str | None = None,
+        interaction_surface: str | None = None,
+        capture_source: str | None = None,
+        voice_path: str | None = None,
+        scene_mode: str | None = None,
+        persona_profile_id: str | None = None,
+        persona_voice_style: str | None = None,
+        interaction_kind: str | None = None,
+        interaction_mode: str | None = None,
+        approval_source: str | None = None,
+    ) -> dict[str, Any]:
+        channel = self._clean_optional_text(source_channel) or self._source_channel_var.get() or None
+        chat_id = self._source_chat_id_var.get()
+        request_metadata: dict[str, Any] = {
+            "created_via": self._clean_optional_text(created_via) or "agent",
+            "source_channel": channel or "agent",
+        }
+
+        resolved_message_id = self._clean_optional_text(source_message_id) or self._source_message_id_var.get()
+        if resolved_message_id:
+            request_metadata["source_message_id"] = resolved_message_id
+
+        resolved_session_id = self._clean_optional_text(source_session_id)
+        if resolved_session_id is None and channel and chat_id:
+            resolved_session_id = f"{channel}:{chat_id}"
+        if resolved_session_id:
+            request_metadata["source_session_id"] = resolved_session_id
+
+        resolved_task_id = self._task_id_var.get()
+        if resolved_task_id:
+            request_metadata["task_id"] = resolved_task_id
+
+        runtime_metadata = deepcopy(self._runtime_metadata_var.get())
+        explicit_runtime_metadata = {
+            "interaction_surface": interaction_surface,
+            "capture_source": capture_source,
+            "voice_path": voice_path,
+            "scene_mode": scene_mode,
+            "persona_profile_id": persona_profile_id,
+            "persona_voice_style": persona_voice_style,
+            "interaction_kind": interaction_kind,
+            "interaction_mode": interaction_mode,
+            "approval_source": approval_source,
+        }
+        for key in self._REQUEST_METADATA_KEYS:
+            raw_value = explicit_runtime_metadata.get(key)
+            if raw_value is None:
+                raw_value = runtime_metadata.get(key)
+            cleaned = self._clean_optional_text(raw_value)
+            if cleaned is not None:
+                request_metadata[key] = cleaned
+        return request_metadata
 
     def _latest_created_resource_ids(self) -> dict[str, str]:
         resource_ids: dict[str, str] = {}
@@ -594,6 +812,7 @@ class PlanningTool(Tool):
         message: str,
         conflicts: list[dict[str, Any]] | None = None,
         confirmation_needed: bool = False,
+        request_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "ok": True,
@@ -605,6 +824,7 @@ class PlanningTool(Tool):
             "confirmation_needed": confirmation_needed,
             "result": result,
             "message": message,
+            "request_metadata": deepcopy(request_metadata or {}),
         }
 
     @staticmethod

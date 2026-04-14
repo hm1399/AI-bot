@@ -172,13 +172,25 @@ class AgentLoop:
         chat_id: str,
         message_id: str | None = None,
         task_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron", "computer_control"):
+        runtime_metadata = ContextBuilder.extract_runtime_metadata(metadata)
+        for name in ("message", "spawn", "cron", "planning", "computer_control"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
-                    if name in {"message", "computer_control"}:
+                    if name in {"planning", "computer_control"}:
+                        tool.set_context(
+                            channel,
+                            chat_id,
+                            message_id,
+                            task_id,
+                            metadata=runtime_metadata,
+                        )
+                    elif name == "message":
                         tool.set_context(channel, chat_id, message_id, task_id)
+                    elif name == "spawn":
+                        tool.set_context(channel, chat_id)
                     else:
                         tool.set_context(channel, chat_id)
 
@@ -209,6 +221,8 @@ class AgentLoop:
         tool_results: dict[str, list[dict[str, Any]]] | None = None,
     ) -> dict[str, Any]:
         merged = dict(metadata or {})
+        for key, value in ContextBuilder.extract_runtime_metadata(metadata).items():
+            merged.setdefault(key, value)
         if not tool_results:
             return merged
 
@@ -481,6 +495,7 @@ class AgentLoop:
                 chat_id,
                 msg.metadata.get("message_id"),
                 msg.metadata.get("task_id"),
+                msg.metadata,
             )
             self._start_turn_tools()
             history = session.get_history(max_messages=self.memory_window)
@@ -568,6 +583,7 @@ class AgentLoop:
             msg.chat_id,
             msg.metadata.get("message_id"),
             msg.metadata.get("task_id"),
+            msg.metadata,
         )
         self._start_turn_tools()
 
@@ -626,20 +642,11 @@ class AgentLoop:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
         msg_metadata = msg_metadata or {}
+        runtime_metadata = ContextBuilder.extract_runtime_metadata(msg_metadata)
         user_message_id = msg_metadata.get("message_id")
         assistant_message_id = msg_metadata.get("assistant_message_id")
         task_id = msg_metadata.get("task_id")
         client_message_id = msg_metadata.get("client_message_id")
-        metadata_passthrough_keys = (
-            "source",
-            "source_channel",
-            "interaction_surface",
-            "capture_source",
-            "voice_path",
-            "reply_language",
-            "emotion",
-            "app_session_id",
-        )
         user_id_assigned = False
         assistant_id_assigned = False
         assistant_tool_results_assigned = False
@@ -678,9 +685,8 @@ class AgentLoop:
                     entry.setdefault("client_message_id", client_message_id)
                 if task_id:
                     entry.setdefault("task_id", task_id)
-                for key in metadata_passthrough_keys:
-                    if msg_metadata.get(key) is not None:
-                        entry.setdefault(key, msg_metadata.get(key))
+                for key, value in runtime_metadata.items():
+                    entry.setdefault(key, value)
                 user_id_assigned = True
             elif (
                 role == "assistant"
@@ -692,9 +698,8 @@ class AgentLoop:
                     entry.setdefault("message_id", assistant_message_id)
                 if task_id:
                     entry.setdefault("task_id", task_id)
-                for key in metadata_passthrough_keys:
-                    if msg_metadata.get(key) is not None:
-                        entry.setdefault(key, msg_metadata.get(key))
+                for key, value in runtime_metadata.items():
+                    entry.setdefault(key, value)
                 assistant_id_assigned = True
                 if assistant_tool_results and not assistant_tool_results_assigned:
                     entry["tool_results"] = deepcopy(assistant_tool_results)

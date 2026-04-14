@@ -188,6 +188,7 @@ class DeviceChannel:
         self._weather_source: str = "computer_fetch"
         self._weather_fetched_at: str | None = None
         self._event_observer: Any | None = None
+        self._physical_interaction_handler: Callable[[str, dict[str, Any]], Any] | None = None
         self._desktop_voice_bridge: Any | None = None
         self._active_app_session_resolver: Callable[[], str | None] | None = None
 
@@ -201,6 +202,13 @@ class DeviceChannel:
     def set_event_observer(self, observer: Any) -> None:
         """注册设备事件观察器。"""
         self._event_observer = observer
+
+    def set_physical_interaction_handler(
+        self,
+        handler: Callable[[str, dict[str, Any]], Any] | None,
+    ) -> None:
+        """注册物理交互结构化处理器。"""
+        self._physical_interaction_handler = handler
 
     def set_desktop_voice_bridge(self, bridge: Any) -> None:
         """注册桌面麦克风桥接器。"""
@@ -236,6 +244,57 @@ class DeviceChannel:
             await callback(**kwargs)
         except Exception:
             logger.exception("Device event observer callback failed: {}", method_name)
+
+    async def _dispatch_physical_interaction(self, kind: str, data: dict[str, Any]) -> None:
+        payload = dict(data)
+        if self._physical_interaction_handler is not None:
+            try:
+                result = await self._physical_interaction_handler(kind, payload)
+            except Exception:
+                logger.exception("Physical interaction handler failed: {}", kind)
+                return
+            if isinstance(result, dict):
+                await self._apply_physical_interaction_feedback(result)
+            return
+        await self._notify_event_observer(
+            "on_device_interaction",
+            kind=kind,
+            data=payload,
+        )
+
+    async def _apply_physical_interaction_feedback(self, result: dict[str, Any]) -> None:
+        display_text = result.get("display_text")
+        voice_text = result.get("voice_text")
+        display_value = display_text.strip() if isinstance(display_text, str) else ""
+        voice_value = voice_text.strip() if isinstance(voice_text, str) else ""
+        if voice_value:
+            await self._send_voice_reply(
+                voice_value,
+                display_text=display_value or None,
+                update_display=True,
+            )
+        elif display_value:
+            await self._send_display_update(display_text)
+        animation_hint = result.get("animation_hint")
+        if (
+            isinstance(animation_hint, str)
+            and animation_hint.strip()
+            and self._is_effectively_connected()
+        ):
+            await self.send_json(make_server_message(
+                ServerMessageType.FACE_UPDATE,
+                {"state": animation_hint.strip()},
+            ))
+        led_hint = result.get("led_hint")
+        if (
+            isinstance(led_hint, str)
+            and led_hint.strip()
+            and self._is_effectively_connected()
+        ):
+            await self.send_json(make_server_message(
+                ServerMessageType.LED_CONTROL,
+                {"hint": led_hint.strip()},
+            ))
 
     def get_snapshot(self) -> dict[str, Any]:
         """返回当前设备快照。"""
@@ -913,58 +972,65 @@ class DeviceChannel:
         """处理触摸事件。
 
         动作:
-        - single: 单击 — 开始/结束录音（toggle）
-        - double: 双击 — 打断当前播放，回到 IDLE
-        - long:   长按 — 持续录音模式（按住说话，松开结束）
+        - tap_count: 连拍确认/拒绝/打断（由产品层解释）
+        - long:      长按 — 持续录音模式（按住说话，松开结束）
         """
         action = data.get("action", "unknown")
+        tap_count_raw = data.get("tap_count")
+        try:
+            tap_count = int(tap_count_raw) if tap_count_raw is not None else 0
+        except (TypeError, ValueError):
+            tap_count = 0
         logger.info("收到触摸事件: {}", action)
 
+        if tap_count > 0:
+            await self._dispatch_physical_interaction(
+                "tap",
+                {
+                    "tap_count": tap_count,
+                    "hold": bool(data.get("hold")),
+                    "action": action,
+                    "source": "tap",
+                },
+            )
+            return
+
         if action == "single":
-            if self.state == DeviceState.IDLE:
-                # 开始录音：通知设备进入 LISTENING
-                await self._set_state(DeviceState.LISTENING)
-                self._arm_recording_timeout(LISTENING_START_TIMEOUT)
-            elif self.state == DeviceState.LISTENING:
-                # 结束录音：触发 audio_end 处理
-                await self._on_audio_end()
-            elif self.state == DeviceState.SPEAKING:
-                # 播放中单击 → 打断，回到 IDLE
-                await self.interrupt_current_activity()
+            logger.info("忽略 legacy single touch；当前主线只保留 long_press/long_release 与 tap_count")
 
         elif action == "double":
-            # 双击：无论当前状态，打断并回到 IDLE
-            if self.state != DeviceState.IDLE:
-                await self.interrupt_current_activity()
+            logger.info("忽略 legacy double touch；当前主线只保留 long_press/long_release 与 tap_count")
 
         elif action == "long_press":
             # 长按开始：进入 LISTENING
             if self.state == DeviceState.IDLE:
                 bridge = self._desktop_voice_bridge
                 if bridge is None:
-                    await self._set_state(DeviceState.LISTENING)
-                    self._arm_recording_timeout(LISTENING_START_TIMEOUT)
-                elif getattr(bridge, "is_ready", lambda: False)():
-                    started = await bridge.start_device_push_to_talk()
-                    if started:
-                        await self._set_state(DeviceState.LISTENING)
-                    else:
-                        await self._send_display_update("桌面麦克风不可用")
-                        if self.state != DeviceState.IDLE:
-                            await self._set_state(DeviceState.IDLE)
-                else:
                     await self._send_display_update("桌面麦克风未连接")
+                    return
+
+                if not getattr(bridge, "is_ready", lambda: False)():
+                    await self._send_display_update("桌面麦克风未连接")
+                    return
+
+                started = await bridge.start_device_push_to_talk()
+                if started:
+                    await self._set_state(DeviceState.LISTENING)
+                else:
+                    await self._send_display_update("桌面麦克风不可用")
+                    if self.state != DeviceState.IDLE:
+                        await self._set_state(DeviceState.IDLE)
 
         elif action == "long_release":
             # 长按松开：结束录音
             if self.state == DeviceState.LISTENING:
                 bridge = self._desktop_voice_bridge
-                if bridge is None:
-                    await self._on_audio_end()
-                else:
-                    stopped = await bridge.stop_device_push_to_talk()
-                    if not stopped:
-                        await self._set_state(DeviceState.IDLE)
+                if bridge is None or not getattr(bridge, "is_ready", lambda: False)():
+                    await self._set_state(DeviceState.IDLE)
+                    return
+                stopped = await bridge.stop_device_push_to_talk()
+                if not stopped:
+                    await self._set_state(DeviceState.IDLE)
 
         else:
             logger.warning("未知触摸动作: {}", action)
@@ -972,27 +1038,15 @@ class DeviceChannel:
     # ── 摇一摇事件处理 (Phase 5.4) ───────────────────────────
 
     async def _on_shake_event(self, data: dict) -> None:
-        """处理摇一摇事件 — 触发 AI 讲一个笑话/随机互动。"""
+        """处理摇一摇事件，由产品层统一路由结构化结果。"""
         logger.info("收到摇一摇事件")
-
-        if self.state != DeviceState.IDLE:
-            logger.debug("设备非空闲状态，忽略摇一摇")
-            return
-
-        # 发送预设提示给 AgentLoop
-        app_session_id = self._current_app_session_id()
-        await self.bus.publish_inbound(InboundMessage(
-            channel=DEVICE_CHANNEL,
-            sender_id="esp32",
-            chat_id=DEVICE_CHAT_ID,
-            content="讲一个有趣的笑话或者冷知识",
-            metadata={
+        await self._dispatch_physical_interaction(
+            "shake",
+            {
+                **dict(data),
                 "source": "shake",
-                "source_channel": DEVICE_CHANNEL,
-                "app_session_id": app_session_id,
             },
-            session_key_override=app_session_id,
-        ))
+        )
 
     # ── 设备状态上报 (Phase 5.4) ──────────────────────────────
 
@@ -1403,7 +1457,13 @@ class DeviceChannel:
         else:
             await self.send_text_reply(out_msg.content)
 
-    async def _send_voice_reply(self, text: str) -> None:
+    async def _send_voice_reply(
+        self,
+        text: str,
+        *,
+        display_text: str | None = None,
+        update_display: bool = True,
+    ) -> None:
         """TTS 合成并流式发送语音回复给设备。
 
         流程:
@@ -1416,9 +1476,13 @@ class DeviceChannel:
         """
         if not self.tts:
             logger.warning("TTS 服务未初始化，仅发送文字回复")
-            await self.send_text_reply(text)
+            await self._send_display_update(display_text or text)
             return
-        playback_task = asyncio.create_task(self._stream_voice_reply(text))
+        playback_task = asyncio.create_task(self._stream_voice_reply(
+            text,
+            display_text=display_text,
+            update_display=update_display,
+        ))
         try:
             self._tts_task = playback_task
             await playback_task
@@ -1430,16 +1494,23 @@ class DeviceChannel:
         except Exception:
             logger.exception("TTS 合成/发送失败，降级为文字回复")
             # TTS 失败降级: 发送文字回复 (Phase 6.2)
-            await self.send_text_reply(text)
+            await self._send_display_update(display_text or text)
         finally:
             if self._tts_task is playback_task and playback_task.done():
                 self._tts_task = None
             if self.state != DeviceState.IDLE:
                 await self._set_state(DeviceState.IDLE)
 
-    async def _stream_voice_reply(self, text: str) -> None:
+    async def _stream_voice_reply(
+        self,
+        text: str,
+        *,
+        display_text: str | None = None,
+        update_display: bool = True,
+    ) -> None:
         """执行实际的 TTS 合成与音频流发送。"""
-        await self._send_display_update(text)
+        if update_display:
+            await self._send_display_update(display_text or text)
         await self._set_state(DeviceState.SPEAKING)
         logger.info(
             "开始向设备发送 TTS 音频: voice={}, text='{}'",

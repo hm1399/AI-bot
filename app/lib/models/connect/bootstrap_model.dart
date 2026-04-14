@@ -1,5 +1,6 @@
 import '../chat/session_model.dart';
 import '../control/computer_action_model.dart';
+import '../experience/experience_model.dart';
 import '../home/runtime_state_model.dart';
 
 class DesktopVoiceCapabilitiesModel {
@@ -177,10 +178,9 @@ class CapabilitiesModel {
       computerControl:
           json['computer_control'] == true ||
           _readStringList(json, const <String>['computer_actions']).isNotEmpty,
-      computerActions: _readStringList(
-        json,
-        const <String>['computer_actions'],
-      ),
+      computerActions: _readStringList(json, const <String>[
+        'computer_actions',
+      ]),
       planning:
           _readBool(json, const <String>['planning']) || planning.isNotEmpty,
       planningOverview:
@@ -284,6 +284,11 @@ class BootstrapModel {
     required this.runtime,
     required this.sessions,
     required this.eventStream,
+    this.experience = const ExperienceCatalogModel(
+      available: false,
+      scenes: <SceneModeModel>[],
+      personaPresets: <PersonaPresetModel>[],
+    ),
     this.planning = const <String, dynamic>{},
     this.computerControl = const ComputerControlStateModel(),
   });
@@ -293,6 +298,7 @@ class BootstrapModel {
   final RuntimeStateModel runtime;
   final List<SessionModel> sessions;
   final EventStreamModel eventStream;
+  final ExperienceCatalogModel experience;
   final Map<String, dynamic> planning;
   final ComputerControlStateModel computerControl;
 
@@ -302,6 +308,7 @@ class BootstrapModel {
     RuntimeStateModel? runtime,
     List<SessionModel>? sessions,
     EventStreamModel? eventStream,
+    ExperienceCatalogModel? experience,
     Map<String, dynamic>? planning,
     ComputerControlStateModel? computerControl,
   }) {
@@ -311,6 +318,7 @@ class BootstrapModel {
       runtime: runtime ?? this.runtime,
       sessions: sessions ?? this.sessions,
       eventStream: eventStream ?? this.eventStream,
+      experience: experience ?? this.experience,
       planning: planning ?? this.planning,
       computerControl: computerControl ?? this.computerControl,
     );
@@ -345,6 +353,9 @@ class BootstrapModel {
             ? json['event_stream'] as Map<String, dynamic>
             : <String, dynamic>{},
       ),
+      experience: ExperienceCatalogModel.fromJson(
+        _extractBootstrapExperience(json, runtimePayload),
+      ),
       planning: _extractBootstrapPlanning(json),
       computerControl: ComputerControlStateModel.fromJson(
         _extractComputerControlPayload(json, runtimePayload),
@@ -377,6 +388,46 @@ Map<String, dynamic> _extractBootstrapPlanning(Map<String, dynamic> json) {
   }
 
   return planning;
+}
+
+Map<String, dynamic> _extractBootstrapExperience(
+  Map<String, dynamic> bootstrapJson,
+  Map<String, dynamic> runtimeJson,
+) {
+  final experience = _asMap(bootstrapJson['experience']);
+  if (experience.isNotEmpty) {
+    return experience;
+  }
+
+  final runtimeExperience = _asMap(runtimeJson['experience']);
+  if (runtimeExperience.isNotEmpty) {
+    return runtimeExperience;
+  }
+
+  final fallback = <String, dynamic>{};
+  for (final key in const <String>[
+    'scene_modes',
+    'persona_presets',
+    'experience_runtime_path',
+    'experience_settings_path',
+    'experience_session_path',
+  ]) {
+    if (bootstrapJson.containsKey(key)) {
+      fallback[key] = bootstrapJson[key];
+    }
+  }
+  if (fallback.containsKey('experience_runtime_path')) {
+    fallback['runtime_path'] = fallback.remove('experience_runtime_path');
+  }
+  if (fallback.containsKey('experience_settings_path')) {
+    fallback['settings_path'] = fallback.remove('experience_settings_path');
+  }
+  if (fallback.containsKey('experience_session_path')) {
+    fallback['session_path_template'] = fallback.remove(
+      'experience_session_path',
+    );
+  }
+  return fallback;
 }
 
 Map<String, dynamic> _asMap(dynamic value) {

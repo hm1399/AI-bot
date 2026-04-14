@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../models/experience/experience_model.dart';
 import '../../models/chat/session_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
 import '../../widgets/chat/chat_session_dialog.dart';
+import '../../widgets/chat/experience_chip_bar.dart';
 import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/message_input.dart';
 
@@ -25,6 +27,7 @@ class ChatScreen extends ConsumerWidget {
         .where((SessionModel item) => item.sessionId == state.currentSessionId)
         .firstOrNull;
     final canSendMessage = activeSession != null && !activeSession.archived;
+    final experience = state.currentExperience;
 
     Future<void> copySessionId(String sessionId) async {
       await Clipboard.setData(ClipboardData(text: sessionId));
@@ -200,6 +203,16 @@ class ChatScreen extends ConsumerWidget {
                     onCreate: createSession,
                     onShowSessions: showSessionsDialog,
                     onConversationAction: handleConversationAction,
+                  ),
+                  const SizedBox(height: LinearSpacing.sm),
+                  ExperienceChipBar(
+                    experience: experience,
+                    catalog: state.experienceCatalog,
+                    enabled: activeSession != null && !activeSession.archived,
+                    onSceneSelected: (String sceneMode) => controller
+                        .updateCurrentSessionExperience(sceneMode: sceneMode),
+                    onPersonaSelected: (PersonaPresetModel preset) => controller
+                        .updateCurrentSessionExperience(personaPreset: preset),
                   ),
                   const SizedBox(height: LinearSpacing.sm),
                   Expanded(

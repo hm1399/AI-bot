@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.providers.litellm_provider import LiteLLMProvider
+from services.experience.models import normalize_persona_fields, normalize_scene_mode
 
 from .json_store import JsonObjectStore
 
@@ -19,6 +20,21 @@ class SettingsService:
     def get_public_settings(self) -> dict[str, Any]:
         settings = self._base_settings()
         settings.update(self.overlay_store.load())
+        normalized_persona = normalize_persona_fields(
+            {
+                "tone_style": settings.get("persona_tone_style"),
+                "reply_length": settings.get("persona_reply_length"),
+                "proactivity": settings.get("persona_proactivity"),
+                "voice_style": settings.get("persona_voice_style"),
+            }
+        )
+        settings["default_scene_mode"] = normalize_scene_mode(
+            settings.get("default_scene_mode"),
+        )
+        settings["persona_tone_style"] = normalized_persona["tone_style"]
+        settings["persona_reply_length"] = normalized_persona["reply_length"]
+        settings["persona_proactivity"] = normalized_persona["proactivity"]
+        settings["persona_voice_style"] = normalized_persona["voice_style"]
         settings["llm_api_key_configured"] = bool(self._get_secret_value())
         settings.pop("llm_api_key", None)
         return settings
@@ -143,6 +159,14 @@ class SettingsService:
             "led_color": app_settings.get("led_color", "#0000ff"),
             "wake_word": app_settings.get("wake_word", "Hey Assistant"),
             "auto_listen": app_settings.get("auto_listen", True),
+            "default_scene_mode": app_settings.get("default_scene_mode", "focus"),
+            "persona_tone_style": app_settings.get("persona_tone_style", "clear"),
+            "persona_reply_length": app_settings.get("persona_reply_length", "medium"),
+            "persona_proactivity": app_settings.get("persona_proactivity", "balanced"),
+            "persona_voice_style": app_settings.get("persona_voice_style", "calm"),
+            "physical_interaction_enabled": app_settings.get("physical_interaction_enabled", True),
+            "shake_enabled": app_settings.get("shake_enabled", True),
+            "tap_confirmation_enabled": app_settings.get("tap_confirmation_enabled", True),
             "llm_api_key_configured": bool(self._get_secret_value()),
         }
 
@@ -200,6 +224,14 @@ class SettingsService:
             "led_color",
             "wake_word",
             "auto_listen",
+            "default_scene_mode",
+            "persona_tone_style",
+            "persona_reply_length",
+            "persona_proactivity",
+            "persona_voice_style",
+            "physical_interaction_enabled",
+            "shake_enabled",
+            "tap_confirmation_enabled",
         }
 
         for key, value in overlay.items():
@@ -212,6 +244,15 @@ class SettingsService:
     @staticmethod
     def _normalize_field(key: str, value: Any) -> Any:
         optional_string_keys = {"llm_base_url"}
+        persona_field_mapping = {
+            "persona_tone_style": "tone_style",
+            "persona_reply_length": "reply_length",
+            "persona_proactivity": "proactivity",
+            "persona_voice_style": "voice_style",
+        }
+        enum_string_keys = {
+            "default_scene_mode": {"focus", "offwork", "meeting"},
+        }
         string_keys = {
             "server_url",
             "llm_provider",
@@ -225,11 +266,45 @@ class SettingsService:
             "led_mode",
             "led_color",
             "wake_word",
+            "persona_tone_style",
+            "persona_reply_length",
+            "persona_proactivity",
+            "persona_voice_style",
         }
-        bool_keys = {"led_enabled", "auto_listen"}
+        bool_keys = {
+            "led_enabled",
+            "auto_listen",
+            "physical_interaction_enabled",
+            "shake_enabled",
+            "tap_confirmation_enabled",
+        }
         int_keys = {"server_port", "device_volume", "led_brightness"}
         float_keys = {"tts_speed"}
 
+        if key == "default_scene_mode":
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("default_scene_mode must be a non-empty string")
+            return normalize_scene_mode(value)
+        if key in persona_field_mapping:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{key} must be a non-empty string")
+            normalized = normalize_persona_fields(
+                {persona_field_mapping[key]: value},
+                partial=True,
+                allow_none=True,
+            ) or {}
+            if persona_field_mapping[key] not in normalized:
+                raise ValueError(f"{key} must be a supported persona option")
+            return normalized[persona_field_mapping[key]]
+        if key in enum_string_keys:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{key} must be a non-empty string")
+            cleaned = value.strip().lower()
+            if cleaned not in enum_string_keys[key]:
+                raise ValueError(
+                    f"{key} must be one of: {', '.join(sorted(enum_string_keys[key]))}"
+                )
+            return cleaned
         if key in string_keys:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{key} must be a non-empty string")

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from copy import deepcopy
 import hmac
 import ipaddress
 import json
+import re
 import uuid
 from datetime import date, datetime
 from pathlib import Path
@@ -25,12 +27,74 @@ from services.app_api import (
     SettingsService,
 )
 from services.computer_control import ComputerControlError, ComputerControlService
+from services.experience import ExperienceService
 from services.planning import (
     PlanningBundleService,
     PlanningProjectionService,
     PlanningSummaryService,
 )
 from services.reminder_scheduler import ReminderScheduler
+
+
+_EXPERIENCE_COMMAND_VERB_RE = re.compile(
+    r"(切换|切到|切成|换成|换到|改成|改为|调成|设为|设置为|变成|进入|用)"
+)
+_SCENE_COMMAND_ALIASES: tuple[tuple[str, str, str], ...] = (
+    ("专注模式", "focus", "专注模式"),
+    ("focusmode", "focus", "专注模式"),
+    ("下班模式", "offwork", "下班模式"),
+    ("休息模式", "offwork", "下班模式"),
+    ("offworkmode", "offwork", "下班模式"),
+    ("会议模式", "meeting", "会议模式"),
+    ("开会模式", "meeting", "会议模式"),
+    ("meetingmode", "meeting", "会议模式"),
+)
+_SCENE_COMMAND_CONTEXT_ALIASES: tuple[tuple[str, str, str], ...] = (
+    ("专注", "focus", "专注模式"),
+    ("工作", "focus", "专注模式"),
+    ("办公", "focus", "专注模式"),
+    ("学习", "focus", "专注模式"),
+    ("focus", "focus", "专注模式"),
+    ("下班", "offwork", "下班模式"),
+    ("休息", "offwork", "下班模式"),
+    ("休闲", "offwork", "下班模式"),
+    ("放松", "offwork", "下班模式"),
+    ("生活", "offwork", "下班模式"),
+    ("offwork", "offwork", "下班模式"),
+    ("会议", "meeting", "会议模式"),
+    ("开会", "meeting", "会议模式"),
+    ("会中", "meeting", "会议模式"),
+    ("meeting", "meeting", "会议模式"),
+)
+_PERSONA_COMMAND_ALIASES: tuple[tuple[str, str, str], ...] = (
+    ("专注简洁人格", "focus_brief", "专注简洁"),
+    ("专注简洁", "focus_brief", "专注简洁"),
+    ("专注人格", "focus_brief", "专注简洁"),
+    ("工作助手", "focus_brief", "专注简洁"),
+    ("简洁助手", "focus_brief", "专注简洁"),
+    ("focusbrief", "focus_brief", "专注简洁"),
+    ("温暖陪伴人格", "companion_warm", "温暖陪伴"),
+    ("温暖陪伴模式", "companion_warm", "温暖陪伴"),
+    ("温暖陪伴", "companion_warm", "温暖陪伴"),
+    ("陪伴模式", "companion_warm", "温暖陪伴"),
+    ("暖心陪伴", "companion_warm", "温暖陪伴"),
+    ("陪伴人格", "companion_warm", "温暖陪伴"),
+    ("陪伴助手", "companion_warm", "温暖陪伴"),
+    ("温暖助手", "companion_warm", "温暖陪伴"),
+    ("companionwarm", "companion_warm", "温暖陪伴"),
+    ("会议简洁人格", "meeting_brief", "会议简洁"),
+    ("会议简洁", "meeting_brief", "会议简洁"),
+    ("会议人格", "meeting_brief", "会议简洁"),
+    ("会议助手", "meeting_brief", "会议简洁"),
+    ("开会助手", "meeting_brief", "会议简洁"),
+    ("meetingbrief", "meeting_brief", "会议简洁"),
+    ("默认人格", "balanced", "平衡人格"),
+    ("默认助手", "balanced", "平衡人格"),
+    ("标准助手", "balanced", "平衡人格"),
+    ("平衡人格", "balanced", "平衡人格"),
+    ("平衡", "balanced", "平衡人格"),
+    ("balanced", "balanced", "平衡人格"),
+)
 
 
 class AppRuntimeService:
@@ -84,6 +148,11 @@ class AppRuntimeService:
             self._default_calendar_summary(),
         )
         self.settings = SettingsService(self.cfg, self._runtime_dir)
+        self.experience_service = ExperienceService(
+            self.settings,
+            self.sessions,
+            self._runtime_dir,
+        )
         self.resources = AppResourceService(self._runtime_dir)
         self.computer_control_service = computer_control_service or ComputerControlService(
             self.cfg,
@@ -97,7 +166,18 @@ class AppRuntimeService:
             self.resources,
             event_observer=self,
         )
+        self.experience_service.configure_runtime(
+            active_session_id_resolver=self.get_active_app_session_id,
+            device_snapshot_provider=self.device_channel.get_snapshot,
+            desktop_voice_snapshot_provider=self._desktop_voice_runtime,
+            computer_state_provider=self._computer_control_runtime_state,
+            notifications_provider=self.resources.list_notifications,
+            confirm_computer_action=self.computer_control_service.confirm_action,
+            cancel_computer_action=self.computer_control_service.cancel_action,
+        )
         self.device_channel.set_active_app_session_resolver(self.get_active_app_session_id)
+        if hasattr(self.device_channel, "set_physical_interaction_handler"):
+            self.device_channel.set_physical_interaction_handler(self._handle_physical_interaction)
         if self.desktop_voice_service is not None:
             self.desktop_voice_service.set_active_app_session_resolver(
                 self.get_active_app_session_id,
@@ -109,6 +189,8 @@ class AppRuntimeService:
         app.router.add_get("/api/app/v1/settings", self.handle_get_settings)
         app.router.add_put("/api/app/v1/settings", self.handle_put_settings)
         app.router.add_post("/api/app/v1/settings/llm/test", self.handle_test_llm_settings)
+        app.router.add_get("/api/app/v1/experience", self.handle_get_experience)
+        app.router.add_patch("/api/app/v1/experience", self.handle_patch_experience)
         app.router.add_get("/api/app/v1/sessions", self.handle_list_sessions)
         app.router.add_post("/api/app/v1/sessions", self.handle_create_session)
         app.router.add_post("/api/app/v1/sessions/active", self.handle_set_active_session)
@@ -172,6 +254,13 @@ class AppRuntimeService:
 
         now = self._now_iso()
         app_session_id = self._app_session_id_from_message(msg)
+        msg.metadata = self.experience_service.inject_message_metadata(
+            msg.metadata,
+            session_id=app_session_id,
+            interaction_kind=str(msg.metadata.get("interaction_kind") or "").strip() or None,
+            interaction_mode=str(msg.metadata.get("interaction_mode") or "").strip() or None,
+            approval_source=str(msg.metadata.get("approval_source") or "").strip() or None,
+        )
         session_payload: dict[str, Any] | None = None
         async with self._lock:
             msg.metadata.setdefault("task_id", self._new_id("task"))
@@ -427,6 +516,67 @@ class AppRuntimeService:
             scope="global",
         )
 
+    async def on_device_interaction(
+        self,
+        *,
+        kind: str,
+        data: dict[str, Any],
+    ) -> None:
+        await self._handle_physical_interaction(kind, data)
+
+    async def _handle_physical_interaction(
+        self,
+        kind: str,
+        data: dict[str, Any],
+    ) -> dict[str, Any]:
+        runtime = await self.get_runtime_state()
+        session_id = self.get_active_app_session_id()
+        current_task = runtime.get("current_task") if isinstance(runtime, dict) else None
+        voice_runtime = runtime.get("voice") if isinstance(runtime, dict) else None
+        computer_control = runtime.get("computer_control") if isinstance(runtime, dict) else None
+        device_snapshot = runtime.get("device") if isinstance(runtime, dict) else None
+        result = await self.experience_service.handle_interaction(
+            kind,
+            data,
+            current_task=current_task if isinstance(current_task, dict) else None,
+            device_snapshot=device_snapshot if isinstance(device_snapshot, dict) else None,
+            voice_runtime=voice_runtime if isinstance(voice_runtime, dict) else None,
+            computer_control_state=computer_control if isinstance(computer_control, dict) else None,
+        )
+        if result.get("mode") == "interrupt":
+            await self.device_channel.interrupt_current_activity(notice="")
+            task_id = ""
+            if isinstance(current_task, dict):
+                task_id = str(current_task.get("task_id") or "").strip()
+            if task_id:
+                await self.bus.publish_inbound(InboundMessage(
+                    channel="system",
+                    sender_id="device",
+                    chat_id=session_id or self.get_active_app_session_id(),
+                    content="/stop",
+                ))
+        await self._broadcast_event(
+            "runtime.experience.updated",
+            payload={
+                "experience": await self._runtime_experience_state(
+                    session_id=session_id,
+                    device_snapshot=device_snapshot if isinstance(device_snapshot, dict) else None,
+                    voice_runtime=voice_runtime if isinstance(voice_runtime, dict) else None,
+                    computer_control_state=computer_control if isinstance(computer_control, dict) else None,
+                    current_task=current_task if isinstance(current_task, dict) else None,
+                )
+            },
+            scope="global",
+            session_id=session_id,
+        )
+        await self._broadcast_event(
+            "device.interaction.recorded",
+            payload={"result": result},
+            scope="global",
+            session_id=session_id,
+        )
+        return result
+
     async def on_desktop_voice_state_changed(self, *, snapshot: dict[str, Any]) -> None:
         await self._broadcast_event(
             "desktop_voice.state.changed",
@@ -440,7 +590,7 @@ class AppRuntimeService:
         transcript: str,
         metadata: dict[str, Any],
         snapshot: dict[str, Any],
-    ) -> None:
+    ) -> dict[str, Any] | None:
         await self._broadcast_event(
             "desktop_voice.transcript",
             payload={
@@ -451,6 +601,14 @@ class AppRuntimeService:
             scope="global",
             session_id=self._app_session_id_from_metadata(metadata),
             task_id=metadata.get("task_id"),
+        )
+        session_id = self._app_session_id_from_metadata(metadata)
+        if not session_id:
+            return None
+        return await self._maybe_handle_experience_command(
+            session_id=session_id,
+            content=transcript,
+            metadata=metadata,
         )
 
     async def on_desktop_voice_response(
@@ -537,6 +695,7 @@ class AppRuntimeService:
         return self._ok({
             "server_version": self.version,
             "capabilities": self._capabilities(),
+            "experience": self.experience_service.get_catalog(),
             "planning": self._planning_bootstrap(),
             "runtime": await self.get_runtime_state(),
             "sessions": self._list_app_sessions(limit=100),
@@ -600,6 +759,53 @@ class AppRuntimeService:
 
         assert error is not None
         return self._error(error["code"], error["message"], status=error.get("status", 400))
+
+    async def handle_get_experience(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        session_id = request.query.get("session_id", "").strip() or self.get_active_app_session_id()
+        return self._ok(self.experience_service.get_experience_payload(
+            session_id=session_id,
+            device_snapshot=self.device_channel.get_snapshot(),
+            voice_runtime=self._voice_runtime_state(),
+            computer_control_state=self._computer_control_runtime_state(),
+        ))
+
+    async def handle_patch_experience(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+        if not isinstance(payload, dict):
+            return self._error("INVALID_ARGUMENT", "experience payload must be an object", status=400)
+        scope = str(payload.get("scope") or request.query.get("scope") or "runtime").strip().lower()
+        scoped_session_id = str(
+            payload.get("session_id") or request.query.get("session_id") or ""
+        ).strip()
+        if scope not in {"", "runtime", "global"}:
+            return self._error("INVALID_ARGUMENT", "unsupported experience scope", status=400)
+        if scoped_session_id or scope == "session":
+            return self._error(
+                "INVALID_ARGUMENT",
+                "use /api/app/v1/sessions/{session_id} for session experience overrides",
+                status=400,
+            )
+        self.experience_service.apply_runtime_override(payload)
+        session_id = request.query.get("session_id", "").strip() or self.get_active_app_session_id()
+        experience = self.experience_service.get_experience_payload(
+            session_id=session_id,
+            device_snapshot=self.device_channel.get_snapshot(),
+            voice_runtime=self._voice_runtime_state(),
+            computer_control_state=self._computer_control_runtime_state(),
+        )
+        await self._broadcast_event(
+            "runtime.experience.updated",
+            payload={"experience": experience["experience"]},
+            scope="global",
+            session_id=session_id,
+        )
+        return self._ok(experience)
 
     async def handle_list_sessions(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -723,6 +929,12 @@ class AppRuntimeService:
                     )
                 for item in self._set_active_app_session(session_id):
                     session_updates[item["session_id"]] = item
+        if any(
+            key in payload
+            for key in ("scene_mode", "persona_profile", "persona_profile_id", "persona_fields")
+        ):
+            if self.experience_service.patch_session(session, payload):
+                changed = True
         if not changed and not session_updates:
             return self._ok(self._serialize_session(session))
 
@@ -825,16 +1037,33 @@ class AppRuntimeService:
         session = self._ensure_app_session(session_id)
         self._active_app_session_id = session.key
         chat_id = session_id.split(":", 1)[1]
+        metadata = self.experience_service.inject_message_metadata(
+            {"app_session_id": session.key, "source_channel": "app"},
+            session_id=session.key,
+        )
         msg = InboundMessage(
             channel="app",
             sender_id="flutter",
             chat_id=chat_id,
             content=content,
-            metadata={"app_session_id": session.key, "source_channel": "app"},
+            metadata=metadata,
         )
         client_message_id = str(payload.get("client_message_id") or "").strip()
         if client_message_id:
             msg.metadata["client_message_id"] = client_message_id
+
+        command_result = await self._maybe_handle_experience_command(
+            session_id=session.key,
+            content=content,
+            metadata=msg.metadata,
+        )
+        if command_result is not None:
+            return self._ok({
+                "accepted_message": command_result["accepted_message"],
+                "assistant_message": command_result["assistant_message"],
+                "task_id": command_result["task_id"],
+                "queued": False,
+            })
 
         await self.bus.publish_inbound(msg)
 
@@ -1217,6 +1446,15 @@ class AppRuntimeService:
             source_channel=str(payload.get("source_channel") or "").strip() or None,
             source_message_id=str(payload.get("source_message_id") or "").strip() or None,
             source_session_id=str(payload.get("source_session_id") or "").strip() or None,
+            interaction_surface=str(payload.get("interaction_surface") or "").strip() or None,
+            capture_source=str(payload.get("capture_source") or "").strip() or None,
+            voice_path=str(payload.get("voice_path") or "").strip() or None,
+            scene_mode=str(payload.get("scene_mode") or "").strip() or None,
+            persona_profile_id=str(payload.get("persona_profile_id") or "").strip() or None,
+            persona_voice_style=str(payload.get("persona_voice_style") or "").strip() or None,
+            interaction_kind=str(payload.get("interaction_kind") or "").strip() or None,
+            interaction_mode=str(payload.get("interaction_mode") or "").strip() or None,
+            approval_source=str(payload.get("approval_source") or "").strip() or None,
             linked_task_id=str(payload.get("linked_task_id") or "").strip() or None,
             linked_event_id=str(payload.get("linked_event_id") or "").strip() or None,
             linked_reminder_id=str(payload.get("linked_reminder_id") or "").strip() or None,
@@ -1540,16 +1778,27 @@ class AppRuntimeService:
                 and task_id != current_task_id
             ]
 
+        device_snapshot = self.device_channel.get_snapshot()
+        desktop_voice = self._desktop_voice_runtime()
+        voice_runtime = self._voice_runtime_state()
+        computer_control = self._computer_control_runtime_state()
         return {
             "current_task": current_task,
             "task_queue": task_queue,
             "chat": {
                 "active_session_id": self.get_active_app_session_id(),
             },
-            "computer_control": self._computer_control_runtime_state(),
-            "device": self.device_channel.get_snapshot(),
-            "desktop_voice": self._desktop_voice_runtime(),
-            "voice": self._voice_runtime_state(),
+            "computer_control": computer_control,
+            "device": device_snapshot,
+            "desktop_voice": desktop_voice,
+            "voice": voice_runtime,
+            "experience": await self._runtime_experience_state(
+                session_id=self.get_active_app_session_id(),
+                device_snapshot=device_snapshot,
+                voice_runtime=voice_runtime,
+                computer_control_state=computer_control,
+                current_task=current_task,
+            ),
             "reminders": {
                 "scheduler_running": self.reminder_scheduler.is_running(),
             },
@@ -1649,6 +1898,16 @@ class AppRuntimeService:
             "wake_word",
             "auto_listen",
         }
+        experience_applied_fields = {
+            "default_scene_mode",
+            "persona_tone_style",
+            "persona_reply_length",
+            "persona_proactivity",
+            "persona_voice_style",
+            "physical_interaction_enabled",
+            "shake_enabled",
+            "tap_confirmation_enabled",
+        }
 
         for field in payload:
             if field in save_and_apply_fields:
@@ -1661,6 +1920,11 @@ class AppRuntimeService:
                     "mode": "config_only",
                     "status": "saved_only",
                     "reason": "config_saved_but_not_runtime_applied",
+                }
+            elif field in experience_applied_fields:
+                results[field] = {
+                    "mode": "runtime_applied",
+                    "status": "applied",
                 }
         return results
 
@@ -1873,6 +2137,14 @@ class AppRuntimeService:
             "pinned": bool(session.metadata.get("pinned", session.key == self.default_session_id)),
             "archived": bool(session.metadata.get("archived", False)),
             "active": session.key == self.get_active_app_session_id(),
+            "scene_mode": session.metadata.get("scene_mode"),
+            "persona_profile": session.metadata.get("persona_profile"),
+            "persona_profile_id": (
+                session.metadata.get("persona_profile", {}).get("preset")
+                if isinstance(session.metadata.get("persona_profile"), dict)
+                else None
+            ),
+            "persona_fields": deepcopy(session.metadata.get("persona_fields") or {}),
         }
 
     def _serialize_messages(self, session: Session) -> list[dict[str, Any]]:
@@ -2434,6 +2706,23 @@ class AppRuntimeService:
     def _computer_control_runtime_state(self) -> dict[str, Any]:
         return self.computer_control_service.get_state()
 
+    async def _runtime_experience_state(
+        self,
+        *,
+        session_id: str | None,
+        device_snapshot: dict[str, Any] | None = None,
+        voice_runtime: dict[str, Any] | None = None,
+        computer_control_state: dict[str, Any] | None = None,
+        current_task: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.experience_service.get_public_snapshot(
+            session_id=session_id,
+            device_snapshot=device_snapshot or self.device_channel.get_snapshot(),
+            voice_runtime=voice_runtime or self._voice_runtime_state(),
+            computer_control_state=computer_control_state or self._computer_control_runtime_state(),
+            current_task=current_task,
+        )
+
     @staticmethod
     def _planning_bootstrap() -> dict[str, Any]:
         return {
@@ -2480,6 +2769,7 @@ class AppRuntimeService:
             "calendar_summary": True,
             "computer_control": self.computer_control_service.is_available(),
             "computer_actions": self.computer_control_service.supported_actions(),
+            "experience": True,
             "app_events": True,
             "event_replay": True,
             "app_auth_enabled": bool(self.auth_token),
@@ -2595,6 +2885,231 @@ class AppRuntimeService:
             return msg.session_key_override
         return None
 
+    async def _maybe_handle_experience_command(
+        self,
+        *,
+        session_id: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        command = self._parse_experience_command(content)
+        if command is None:
+            return None
+
+        session = self._ensure_app_session(session_id)
+        self._active_app_session_id = session.key
+        self._maybe_auto_title_session_unlocked(session.key, content)
+
+        before_snapshot = self.experience_service.get_public_snapshot(session_id=session.key)
+        self.experience_service.patch_session(session, command["patch"])
+        after_snapshot = self.experience_service.get_public_snapshot(session_id=session.key)
+        response_text = self._build_experience_command_response(
+            command=command,
+            before_snapshot=before_snapshot,
+        )
+
+        task_id = str((metadata or {}).get("task_id") or self._new_id("task"))
+        user_message_id = str((metadata or {}).get("message_id") or self._new_id("msg"))
+        assistant_message_id = str(
+            (metadata or {}).get("assistant_message_id") or self._new_id("msg")
+        )
+        message_metadata = self.experience_service.inject_message_metadata(
+            {
+                **dict(metadata or {}),
+                "app_session_id": session.key,
+                "task_id": task_id,
+                "message_id": user_message_id,
+                "assistant_message_id": assistant_message_id,
+            },
+            session_id=session.key,
+            interaction_kind="experience_command",
+            interaction_mode=command["command_type"],
+        )
+        user_message_metadata = self._session_message_metadata(message_metadata, task_id)
+        assistant_message_metadata = self._session_message_metadata(
+            {
+                **message_metadata,
+                "message_id": assistant_message_id,
+            },
+            task_id,
+        )
+
+        user_created_at = datetime.now().astimezone().isoformat(timespec="microseconds")
+        assistant_created_at = datetime.now().astimezone().isoformat(timespec="microseconds")
+        session.add_message(
+            "user",
+            content,
+            timestamp=user_created_at,
+            message_id=user_message_id,
+            **user_message_metadata,
+        )
+        session.add_message(
+            "assistant",
+            response_text,
+            timestamp=assistant_created_at,
+            message_id=assistant_message_id,
+            **assistant_message_metadata,
+        )
+        self.sessions.save(session)
+
+        session_payload = self._serialize_session(session)
+        accepted_message = self._build_message_payload(
+            message_id=user_message_id,
+            session_id=session.key,
+            role="user",
+            content=content,
+            status="completed",
+            created_at=user_created_at,
+            metadata=user_message_metadata,
+        )
+        assistant_message = self._build_message_payload(
+            message_id=assistant_message_id,
+            session_id=session.key,
+            role="assistant",
+            content=response_text,
+            status="completed",
+            created_at=assistant_created_at,
+            metadata=assistant_message_metadata,
+        )
+
+        await self._broadcast_event(
+            "session.updated",
+            payload={"session": session_payload},
+            scope="global",
+            session_id=session.key,
+        )
+        await self._broadcast_event(
+            "session.message.created",
+            payload={"message": accepted_message},
+            scope="session",
+            session_id=session.key,
+            task_id=task_id,
+        )
+        await self._broadcast_event(
+            "session.message.completed",
+            payload={"message": assistant_message},
+            scope="session",
+            session_id=session.key,
+            task_id=task_id,
+        )
+
+        experience_payload = self.experience_service.get_experience_payload(
+            session_id=session.key,
+            device_snapshot=self.device_channel.get_snapshot(),
+            voice_runtime=self._voice_runtime_state(),
+            computer_control_state=self._computer_control_runtime_state(),
+        )
+        await self._broadcast_event(
+            "runtime.experience.updated",
+            payload={"experience": experience_payload["experience"]},
+            scope="global",
+            session_id=session.key,
+        )
+
+        return {
+            "handled": True,
+            "task_id": task_id,
+            "accepted_message": accepted_message,
+            "assistant_message": assistant_message,
+            "response_text": response_text,
+            "outbound_metadata": {
+                **message_metadata,
+                "message_id": assistant_message_id,
+            },
+            "experience": after_snapshot,
+        }
+
+    def _parse_experience_command(self, content: str) -> dict[str, Any] | None:
+        normalized = self._normalize_experience_command_text(content)
+        if not normalized or _EXPERIENCE_COMMAND_VERB_RE.search(normalized) is None:
+            return None
+
+        scene = self._extract_scene_command(normalized)
+        persona = self._extract_persona_command(normalized)
+        if scene is None and persona is None:
+            return None
+
+        patch: dict[str, Any] = {}
+        if scene is not None:
+            patch["scene_mode"] = scene["id"]
+        if persona is not None:
+            patch["persona_profile"] = {"preset": persona["id"]}
+
+        command_type = "scene_persona_switch"
+        if scene is None:
+            command_type = "persona_switch"
+        elif persona is None:
+            command_type = "scene_switch"
+
+        return {
+            "patch": patch,
+            "scene": scene,
+            "persona": persona,
+            "command_type": command_type,
+        }
+
+    def _extract_scene_command(self, normalized: str) -> dict[str, str] | None:
+        collapsed = self._normalize_experience_alias(normalized)
+        for alias, scene_mode, label in _SCENE_COMMAND_ALIASES:
+            if alias in collapsed:
+                return {"id": scene_mode, "label": label}
+
+        if not any(token in collapsed for token in ("场景", "模式", "scene", "mode")):
+            return None
+        for alias, scene_mode, label in _SCENE_COMMAND_CONTEXT_ALIASES:
+            if alias in collapsed:
+                return {"id": scene_mode, "label": label}
+        return None
+
+    def _extract_persona_command(self, normalized: str) -> dict[str, str] | None:
+        collapsed = self._normalize_experience_alias(normalized)
+        for alias, persona_profile_id, label in _PERSONA_COMMAND_ALIASES:
+            if alias in collapsed:
+                return {"id": persona_profile_id, "label": label}
+        if not any(token in collapsed for token in ("人格", "角色", "风格", "语气", "persona")):
+            return None
+        return None
+
+    @staticmethod
+    def _build_experience_command_response(
+        *,
+        command: dict[str, Any],
+        before_snapshot: dict[str, Any],
+    ) -> str:
+        parts: list[str] = []
+        scene = command.get("scene")
+        if isinstance(scene, dict):
+            scene_id = str(scene.get("id") or "").strip()
+            scene_label = str(scene.get("label") or scene_id).strip()
+            if scene_id and scene_id == before_snapshot.get("active_scene_mode"):
+                parts.append(f"当前会话已经是{scene_label}。")
+            elif scene_label:
+                parts.append(f"已切换到{scene_label}。")
+
+        persona = command.get("persona")
+        if isinstance(persona, dict):
+            persona_id = str(persona.get("id") or "").strip()
+            persona_label = str(persona.get("label") or persona_id).strip()
+            active_persona = before_snapshot.get("active_persona") or {}
+            active_persona_id = str(active_persona.get("preset") or "").strip()
+            if persona_id and persona_id == active_persona_id:
+                parts.append(f"当前人格已经是{persona_label}。")
+            elif persona_label:
+                parts.append(f"已将人格切换为{persona_label}。")
+
+        return "".join(parts) or "已更新当前会话的人格和场景。"
+
+    @staticmethod
+    def _normalize_experience_command_text(content: str) -> str:
+        lowered = str(content or "").strip().lower()
+        for token in ("，", "。", ",", ".", "！", "!", "？", "?", "；", ";", "：", ":"):
+            lowered = lowered.replace(token, " ")
+        return " ".join(lowered.split())
+
+    @staticmethod
+    def _normalize_experience_alias(content: str) -> str:
+        return re.sub(r"\s+", "", str(content or "").strip().lower())
+
     @staticmethod
     def _session_message_metadata(metadata: dict[str, Any], task_id: str) -> dict[str, Any]:
         payload = {
@@ -2608,6 +3123,12 @@ class AppRuntimeService:
             "reply_language": metadata.get("reply_language"),
             "emotion": metadata.get("emotion"),
             "app_session_id": metadata.get("app_session_id"),
+            "scene_mode": metadata.get("scene_mode"),
+            "persona_profile_id": metadata.get("persona_profile_id"),
+            "persona_voice_style": metadata.get("persona_voice_style"),
+            "interaction_kind": metadata.get("interaction_kind"),
+            "interaction_mode": metadata.get("interaction_mode"),
+            "approval_source": metadata.get("approval_source"),
             "tool_results": metadata.get("tool_results"),
         }
         return {key: value for key, value in payload.items() if value is not None}

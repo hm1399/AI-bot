@@ -45,10 +45,40 @@ class MessageModel {
         'created_via',
         'createdVia',
       ]),
+      sceneMode: _firstNonEmptyString(scopes, const <String>[
+        'scene_mode',
+        'sceneMode',
+      ]),
+      personaProfileId: _firstNonEmptyString(scopes, const <String>[
+        'persona_profile_id',
+        'personaProfileId',
+        'persona_profile',
+        'personaProfile',
+      ]),
+      personaVoiceStyle: _firstNonEmptyString(scopes, const <String>[
+        'persona_voice_style',
+        'personaVoiceStyle',
+      ]),
+      interactionKind: _firstNonEmptyString(scopes, const <String>[
+        'interaction_kind',
+        'interactionKind',
+      ]),
+      interactionMode: _firstNonEmptyString(scopes, const <String>[
+        'interaction_mode',
+        'interactionMode',
+      ]),
+      approvalSource: _firstNonEmptyString(scopes, const <String>[
+        'approval_source',
+        'approvalSource',
+      ]),
     );
   }
 
   String get sourceLabel => sourceContext.label;
+
+  String? get sceneMode => sourceContext.sceneMode;
+
+  String? get personaProfileId => sourceContext.personaProfileId;
 
   MessageModel copyWith({
     String? id,
@@ -105,6 +135,9 @@ List<Map<String, dynamic>> _collectSourceMetadataScopes(
     'message_context',
     'messageContext',
     'interaction',
+    'experience',
+    'source_context',
+    'sourceContext',
   ]) {
     final nested = _coerceStringMap(root[key]);
     if (nested.isNotEmpty) {

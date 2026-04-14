@@ -110,6 +110,87 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(observed[-1]["result"]["status"], "failed")
         self.assertEqual(observed[-1]["result"]["error"], "command_timeout")
 
+    async def test_long_press_without_desktop_bridge_does_not_fall_back_to_device_mic(self) -> None:
+        shown: list[str] = []
+
+        async def capture_display(text: str, truncate: bool = True) -> None:
+            shown.append(text)
+
+        channel = DeviceChannel(MessageBus())
+        channel._send_display_update = capture_display
+
+        await channel._on_touch_event({"action": "long_press"})
+
+        self.assertEqual(channel.state, DeviceState.IDLE)
+        self.assertIn("桌面麦克风未连接", shown[-1])
+
+    async def test_single_tap_routes_to_structured_confirmation_handler(self) -> None:
+        routed: list[tuple[str, dict[str, object]]] = []
+
+        class Observer:
+            async def on_device_interaction(
+                self,
+                *,
+                kind: str,
+                data: dict[str, object],
+            ) -> None:
+                routed.append((kind, dict(data)))
+
+        channel = DeviceChannel(MessageBus())
+        channel.set_event_observer(Observer())
+
+        await channel._on_touch_event({"tap_count": 1})
+
+        self.assertEqual(channel.state, DeviceState.IDLE)
+        self.assertEqual(routed[0][0], "tap")
+        self.assertEqual(routed[0][1]["tap_count"], 1)
+
+    async def test_shake_event_uses_structured_handler_instead_of_prompt_inbound(self) -> None:
+        routed: list[tuple[str, dict[str, object]]] = []
+
+        class Observer:
+            async def on_device_interaction(
+                self,
+                *,
+                kind: str,
+                data: dict[str, object],
+            ) -> None:
+                routed.append((kind, dict(data)))
+
+        channel = DeviceChannel(MessageBus())
+        channel.set_event_observer(Observer())
+
+        await channel._on_shake_event({"source": "shake"})
+
+        self.assertEqual(routed[0][0], "shake")
+        self.assertEqual(routed[0][1]["source"], "shake")
+
+    async def test_physical_feedback_routes_voice_and_led_hints(self) -> None:
+        sent: list[dict] = []
+
+        async def capture(msg: dict) -> None:
+            sent.append(msg)
+
+        channel = DeviceChannel(MessageBus())
+        channel.connected = True
+        channel.send_json = capture
+        channel._send_voice_reply = AsyncMock()
+
+        await channel._apply_physical_interaction_feedback({
+            "display_text": "屏幕提示",
+            "voice_text": "语音提示",
+            "animation_hint": "celebrate",
+            "led_hint": "green",
+        })
+
+        channel._send_voice_reply.assert_awaited_once_with(
+            "语音提示",
+            display_text="屏幕提示",
+            update_display=True,
+        )
+        self.assertEqual(sent[0]["type"], "face_update")
+        self.assertEqual(sent[1]["type"], "led_control")
+
     async def test_fetch_weather_uses_fallback_when_api_key_missing(self) -> None:
         channel = DeviceChannel(MessageBus())
         channel.set_weather_config({

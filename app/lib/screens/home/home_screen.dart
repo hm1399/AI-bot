@@ -237,6 +237,7 @@ class _SummaryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final runtime = state.runtimeState;
+    final experience = state.currentExperience;
     final chrome = context.linear;
     return Container(
       padding: const EdgeInsets.all(LinearSpacing.md),
@@ -271,6 +272,12 @@ class _SummaryPanel extends StatelessWidget {
             title: 'Capabilities',
             value:
                 'Chat ${state.capabilities.chat ? 'on' : 'off'} · Device ${state.capabilities.deviceControl ? 'on' : 'off'} · Tasks ${state.capabilities.tasks ? 'on' : 'off'} · Settings ${state.capabilities.settings ? 'on' : 'off'}',
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          _SummaryRow(
+            title: 'Experience',
+            value:
+                '${experience.sceneLabel} · ${experience.personaLabel} · ${experience.physicalInteraction.readinessLabel}',
           ),
         ],
       ),

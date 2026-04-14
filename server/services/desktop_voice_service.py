@@ -806,12 +806,34 @@ class DesktopVoiceService:
             if self.asr.last_emotion:
                 metadata["emotion"] = self.asr.last_emotion
 
-            await self._notify_event_observer(
+            observer_result = await self._notify_event_observer(
                 "on_desktop_voice_transcript",
                 transcript=transcript,
                 metadata=dict(metadata),
                 snapshot=self.get_snapshot(),
             )
+            if isinstance(observer_result, dict) and observer_result.get("handled"):
+                response_text = str(observer_result.get("response_text") or "").strip()
+                outbound_metadata = observer_result.get("outbound_metadata")
+                if not isinstance(outbound_metadata, dict):
+                    outbound_metadata = dict(metadata)
+                if response_text:
+                    await self.send_outbound(
+                        OutboundMessage(
+                            channel=DESKTOP_VOICE_CHANNEL,
+                            chat_id=DESKTOP_VOICE_CHAT_ID,
+                            content=response_text,
+                            metadata=dict(outbound_metadata),
+                        )
+                    )
+                else:
+                    async with self._lock:
+                        await self._set_status_unlocked(
+                            STATUS_IDLE,
+                            interaction_surface=None,
+                            last_error=None,
+                        )
+                return
             await self.bus.publish_inbound(
                 InboundMessage(
                     channel=DESKTOP_VOICE_CHANNEL,
@@ -939,16 +961,17 @@ class DesktopVoiceService:
             }
         )
 
-    async def _notify_event_observer(self, method_name: str, **kwargs: Any) -> None:
+    async def _notify_event_observer(self, method_name: str, **kwargs: Any) -> Any:
         if not self._event_observer:
-            return
+            return None
         callback = getattr(self._event_observer, method_name, None)
         if callback is None:
-            return
+            return None
         try:
-            await callback(**kwargs)
+            return await callback(**kwargs)
         except Exception:
             logger.exception("Desktop voice event observer callback failed: {}", method_name)
+            return None
 
     @staticmethod
     def _read_int(payload: dict[str, Any], *keys: str, default: int) -> int:

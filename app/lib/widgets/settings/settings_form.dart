@@ -149,6 +149,204 @@ class _SettingsFormState extends State<SettingsForm> {
         ],
         const SizedBox(height: LinearSpacing.md),
         _Section(
+          title: 'Scene & Persona',
+          description:
+              'Default scene and persona fields shape runtime behavior when the backend supports experience routing. Voice still stays device-first through the desktop microphone path.',
+          child: Column(
+            children: <Widget>[
+              _ReadOnlyRow(
+                label: 'Current Persona Summary',
+                value: settings.experience.persona.summary,
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: const <ButtonSegment<String>>[
+                  ButtonSegment<String>(
+                    value: 'focus',
+                    icon: Icon(Icons.center_focus_strong_outlined),
+                    label: Text('Focus'),
+                  ),
+                  ButtonSegment<String>(
+                    value: 'offwork',
+                    icon: Icon(Icons.weekend_outlined),
+                    label: Text('Off Work'),
+                  ),
+                  ButtonSegment<String>(
+                    value: 'meeting',
+                    icon: Icon(Icons.groups_2_outlined),
+                    label: Text('Meeting'),
+                  ),
+                ],
+                selected: <String>{
+                  _sceneSelectionValue(settings.defaultSceneMode),
+                },
+                onSelectionChanged: widget.canEdit
+                    ? (Set<String> selection) {
+                        if (selection.isNotEmpty) {
+                          widget.onChanged(
+                            settings.copyWith(
+                              defaultSceneMode: selection.first,
+                            ),
+                          );
+                        }
+                      }
+                    : null,
+              ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(
+                result: settings.applyResultFor('default_scene_mode'),
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              DropdownButtonFormField<String>(
+                initialValue: _dropdownValueOrNull(
+                  settings.personaToneStyle,
+                  _personaToneOptions,
+                ),
+                decoration: const InputDecoration(labelText: 'Tone Style'),
+                items: _dropdownItems(
+                  settings.personaToneStyle,
+                  _personaToneOptions,
+                ),
+                onChanged: widget.canEdit
+                    ? (String? value) {
+                        if (value != null) {
+                          widget.onChanged(
+                            settings.copyWith(personaToneStyle: value),
+                          );
+                        }
+                      }
+                    : null,
+              ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(
+                result: settings.applyResultFor('persona_tone_style'),
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              DropdownButtonFormField<String>(
+                initialValue: _dropdownValueOrNull(
+                  settings.personaReplyLength,
+                  _personaReplyLengthOptions,
+                ),
+                decoration: const InputDecoration(labelText: 'Reply Length'),
+                items: _dropdownItems(
+                  settings.personaReplyLength,
+                  _personaReplyLengthOptions,
+                ),
+                onChanged: widget.canEdit
+                    ? (String? value) {
+                        if (value != null) {
+                          widget.onChanged(
+                            settings.copyWith(personaReplyLength: value),
+                          );
+                        }
+                      }
+                    : null,
+              ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(
+                result: settings.applyResultFor('persona_reply_length'),
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              DropdownButtonFormField<String>(
+                initialValue: _dropdownValueOrNull(
+                  settings.personaProactivity,
+                  _personaProactivityOptions,
+                ),
+                decoration: const InputDecoration(labelText: 'Proactivity'),
+                items: _dropdownItems(
+                  settings.personaProactivity,
+                  _personaProactivityOptions,
+                ),
+                onChanged: widget.canEdit
+                    ? (String? value) {
+                        if (value != null) {
+                          widget.onChanged(
+                            settings.copyWith(personaProactivity: value),
+                          );
+                        }
+                      }
+                    : null,
+              ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(
+                result: settings.applyResultFor('persona_proactivity'),
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              DropdownButtonFormField<String>(
+                initialValue: _dropdownValueOrNull(
+                  settings.personaVoiceStyle,
+                  _personaVoiceStyleOptions,
+                ),
+                decoration: const InputDecoration(labelText: 'Voice Style'),
+                items: _dropdownItems(
+                  settings.personaVoiceStyle,
+                  _personaVoiceStyleOptions,
+                ),
+                onChanged: widget.canEdit
+                    ? (String? value) {
+                        if (value != null) {
+                          widget.onChanged(
+                            settings.copyWith(personaVoiceStyle: value),
+                          );
+                        }
+                      }
+                    : null,
+              ),
+              const SizedBox(height: LinearSpacing.xs),
+              _FieldApplyHints(
+                result: settings.applyResultFor('persona_voice_style'),
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              SwitchListTile.adaptive(
+                value: settings.physicalInteractionEnabled,
+                onChanged: widget.canEdit
+                    ? (bool value) => widget.onChanged(
+                        settings.copyWith(physicalInteractionEnabled: value),
+                      )
+                    : null,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Physical Interaction Enabled'),
+                subtitle: const Text(
+                  'This only exposes runtime routing state. It does not invent desktop recording or message send capabilities.',
+                ),
+              ),
+              _FieldApplyHints(
+                result: settings.applyResultFor('physical_interaction_enabled'),
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              SwitchListTile.adaptive(
+                value: settings.shakeEnabled,
+                onChanged: widget.canEdit
+                    ? (bool value) => widget.onChanged(
+                        settings.copyWith(shakeEnabled: value),
+                      )
+                    : null,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Shake Enabled'),
+              ),
+              _FieldApplyHints(
+                result: settings.applyResultFor('shake_enabled'),
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              SwitchListTile.adaptive(
+                value: settings.tapConfirmationEnabled,
+                onChanged: widget.canEdit
+                    ? (bool value) => widget.onChanged(
+                        settings.copyWith(tapConfirmationEnabled: value),
+                      )
+                    : null,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Tap Confirmation Enabled'),
+              ),
+              _FieldApplyHints(
+                result: settings.applyResultFor('tap_confirmation_enabled'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: LinearSpacing.md),
+        _Section(
           title: 'LLM',
           description: 'Backend-managed provider and connection settings.',
           child: Column(
@@ -505,10 +703,7 @@ class _SettingsApplySummaryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            'Apply Results',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('Apply Results', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 6),
           Text(
             settings.applySummary ??
@@ -570,10 +765,7 @@ class _FieldApplyHints extends StatelessWidget {
                   ? StatusPillTone.neutral
                   : StatusPillTone.accent,
             ),
-            StatusPill(
-              label: result!.statusLabel,
-              tone: _applyTone(result!),
-            ),
+            StatusPill(label: result!.statusLabel, tone: _applyTone(result!)),
           ],
         ),
         const SizedBox(height: 4),
@@ -680,8 +872,66 @@ StatusPillTone _applyTone(SettingApplyResultModel result) {
   return StatusPillTone.neutral;
 }
 
+const List<String> _personaToneOptions = <String>[
+  'clear',
+  'warm',
+  'concise',
+  'formal',
+];
+const List<String> _personaReplyLengthOptions = <String>[
+  'short',
+  'medium',
+  'expanded',
+];
+const List<String> _personaProactivityOptions = <String>[
+  'low',
+  'balanced',
+  'high',
+];
+const List<String> _personaVoiceStyleOptions = <String>[
+  'calm',
+  'bright',
+  'quiet',
+];
+
+String _sceneSelectionValue(String value) {
+  return const <String>{'focus', 'offwork', 'meeting'}.contains(value)
+      ? value
+      : 'focus';
+}
+
+String? _dropdownValueOrNull(String value, List<String> options) {
+  return options.contains(value) ? value : null;
+}
+
+List<DropdownMenuItem<String>> _dropdownItems(
+  String current,
+  List<String> options,
+) {
+  final values = <String>[
+    if (current.trim().isNotEmpty && !options.contains(current)) current,
+    ...options,
+  ];
+  return values
+      .map(
+        (String value) => DropdownMenuItem<String>(
+          value: value,
+          child: Text(_titleCase(value)),
+        ),
+      )
+      .toList();
+}
+
 String _applyFieldLabel(String field) {
   return switch (field) {
+    'default_scene_mode' => 'Default Scene',
+    'persona_tone_style' => 'Tone Style',
+    'persona_reply_length' => 'Reply Length',
+    'persona_proactivity' => 'Proactivity',
+    'persona_voice_style' => 'Voice Style',
+    'physical_interaction_enabled' => 'Physical Interaction',
+    'shake_enabled' => 'Shake',
+    'tap_confirmation_enabled' => 'Tap Confirmation',
     'device_volume' => 'Device Volume',
     'led_enabled' => 'LED Enabled',
     'led_brightness' => 'LED Brightness',
@@ -691,4 +941,15 @@ String _applyFieldLabel(String field) {
     'auto_listen' => 'Auto Listen',
     _ => field.replaceAll('_', ' '),
   };
+}
+
+String _titleCase(String value) {
+  return value
+      .split(RegExp(r'[_\-\s]+'))
+      .where((String item) => item.isNotEmpty)
+      .map(
+        (String item) =>
+            '${item.substring(0, 1).toUpperCase()}${item.substring(1).toLowerCase()}',
+      )
+      .join(' ');
 }

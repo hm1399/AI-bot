@@ -1,0 +1,327 @@
+{
+  "runtime_override": {},
+  "last_interaction_result": {
+    "interaction_kind": "shake",
+    "mode": "fortune",
+    "title": "今日提示",
+    "short_result": "fortune_ready",
+    "display_text": "今日提示：稳住节奏，先把当前主线做实。",
+    "voice_text": "今日提示，稳住节奏，先把当前主线做实。",
+    "animation_hint": "idle",
+    "led_hint": "blue",
+    "history_entry": {
+      "scene_mode": "focus",
+      "session_id": "app:839b3bbc",
+      "mode": "fortune",
+      "created_at": "2026-04-14T12:19:28.396993+00:00",
+      "interaction_kind": "shake",
+      "title": "今日提示",
+      "summary": "今日提示：稳住节奏，先把当前主线做实。",
+      "status": "fortune_ready"
+    },
+    "metadata": {
+      "scene_mode": "focus",
+      "persona_profile_id": "companion_warm",
+      "persona_voice_style": "bright",
+      "override_source": "session_override",
+      "interaction_surface": "physical_device"
+    },
+    "created_at": "2026-04-14T12:19:28.396993+00:00"
+  },
+  "interaction_history": [
+    {
+      "interaction_kind": "tap",
+      "mode": "blocked",
+      "title": "拍一拍确认",
+      "short_result": "blocked",
+      "display_text": "当前没有可用的拍一拍确认上下文。",
+      "voice_text": "当前没有可用的拍一拍确认上下文。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "no_pending_confirmation",
+        "created_at": "2026-04-14T07:34:46.168383+00:00",
+        "interaction_kind": "tap",
+        "mode": "blocked",
+        "title": "拍一拍确认",
+        "summary": "当前没有可用的拍一拍确认上下文。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "focus_brief",
+        "persona_voice_style": "quiet",
+        "override_source": "scene_default",
+        "blocked_reason": "no_pending_confirmation"
+      },
+      "created_at": "2026-04-14T07:34:46.168383+00:00"
+    },
+    {
+      "interaction_kind": "tap",
+      "mode": "blocked",
+      "title": "拍一拍确认",
+      "short_result": "blocked",
+      "display_text": "当前没有可用的拍一拍确认上下文。",
+      "voice_text": "当前没有可用的拍一拍确认上下文。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "no_pending_confirmation",
+        "created_at": "2026-04-14T07:34:52.762430+00:00",
+        "interaction_kind": "tap",
+        "mode": "blocked",
+        "title": "拍一拍确认",
+        "summary": "当前没有可用的拍一拍确认上下文。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "focus_brief",
+        "persona_voice_style": "quiet",
+        "override_source": "scene_default",
+        "blocked_reason": "no_pending_confirmation"
+      },
+      "created_at": "2026-04-14T07:34:52.762430+00:00"
+    },
+    {
+      "interaction_kind": "tap",
+      "mode": "blocked",
+      "title": "拍一拍",
+      "short_result": "blocked",
+      "display_text": "当前只支持 1 / 2 / 3 连拍。",
+      "voice_text": "当前只支持 1 / 2 / 3 连拍。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "invalid_tap_count",
+        "created_at": "2026-04-14T07:35:15.710100+00:00",
+        "interaction_kind": "tap",
+        "mode": "blocked",
+        "title": "拍一拍",
+        "summary": "当前只支持 1 / 2 / 3 连拍。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "focus_brief",
+        "persona_voice_style": "quiet",
+        "override_source": "scene_default",
+        "blocked_reason": "invalid_tap_count"
+      },
+      "created_at": "2026-04-14T07:35:15.710100+00:00"
+    },
+    {
+      "interaction_kind": "tap",
+      "mode": "blocked",
+      "title": "拍一拍",
+      "short_result": "blocked",
+      "display_text": "当前只支持 1 / 2 / 3 连拍。",
+      "voice_text": "当前只支持 1 / 2 / 3 连拍。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "invalid_tap_count",
+        "created_at": "2026-04-14T07:35:24.635387+00:00",
+        "interaction_kind": "tap",
+        "mode": "blocked",
+        "title": "拍一拍",
+        "summary": "当前只支持 1 / 2 / 3 连拍。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "focus_brief",
+        "persona_voice_style": "quiet",
+        "override_source": "scene_default",
+        "blocked_reason": "invalid_tap_count"
+      },
+      "created_at": "2026-04-14T07:35:24.635387+00:00"
+    },
+    {
+      "interaction_kind": "tap",
+      "mode": "blocked",
+      "title": "拍一拍确认",
+      "short_result": "blocked",
+      "display_text": "当前没有可用的拍一拍确认上下文。",
+      "voice_text": "当前没有可用的拍一拍确认上下文。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "no_pending_confirmation",
+        "created_at": "2026-04-14T07:35:42.223698+00:00",
+        "interaction_kind": "tap",
+        "mode": "blocked",
+        "title": "拍一拍确认",
+        "summary": "当前没有可用的拍一拍确认上下文。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "focus_brief",
+        "persona_voice_style": "quiet",
+        "override_source": "scene_default",
+        "blocked_reason": "no_pending_confirmation"
+      },
+      "created_at": "2026-04-14T07:35:42.223698+00:00"
+    },
+    {
+      "interaction_kind": "tap",
+      "mode": "blocked",
+      "title": "拍一拍确认",
+      "short_result": "blocked",
+      "display_text": "当前没有可用的拍一拍确认上下文。",
+      "voice_text": "当前没有可用的拍一拍确认上下文。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "no_pending_confirmation",
+        "created_at": "2026-04-14T07:36:23.077353+00:00",
+        "interaction_kind": "tap",
+        "mode": "blocked",
+        "title": "拍一拍确认",
+        "summary": "当前没有可用的拍一拍确认上下文。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "focus_brief",
+        "persona_voice_style": "quiet",
+        "override_source": "scene_default",
+        "blocked_reason": "no_pending_confirmation"
+      },
+      "created_at": "2026-04-14T07:36:23.077353+00:00"
+    },
+    {
+      "interaction_kind": "tap",
+      "mode": "blocked",
+      "title": "拍一拍确认",
+      "short_result": "blocked",
+      "display_text": "当前没有可用的拍一拍确认上下文。",
+      "voice_text": "当前没有可用的拍一拍确认上下文。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "no_pending_confirmation",
+        "created_at": "2026-04-14T07:36:52.554568+00:00",
+        "interaction_kind": "tap",
+        "mode": "blocked",
+        "title": "拍一拍确认",
+        "summary": "当前没有可用的拍一拍确认上下文。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "focus_brief",
+        "persona_voice_style": "quiet",
+        "override_source": "scene_default",
+        "blocked_reason": "no_pending_confirmation"
+      },
+      "created_at": "2026-04-14T07:36:52.554568+00:00"
+    },
+    {
+      "interaction_kind": "tap",
+      "mode": "blocked",
+      "title": "拍一拍确认",
+      "short_result": "blocked",
+      "display_text": "当前没有可用的拍一拍确认上下文。",
+      "voice_text": "当前没有可用的拍一拍确认上下文。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "no_pending_confirmation",
+        "created_at": "2026-04-14T07:37:52.269760+00:00",
+        "interaction_kind": "tap",
+        "mode": "blocked",
+        "title": "拍一拍确认",
+        "summary": "当前没有可用的拍一拍确认上下文。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "focus_brief",
+        "persona_voice_style": "quiet",
+        "override_source": "scene_default",
+        "blocked_reason": "no_pending_confirmation"
+      },
+      "created_at": "2026-04-14T07:37:52.269760+00:00"
+    },
+    {
+      "interaction_kind": "tap",
+      "mode": "interrupt",
+      "title": "打断",
+      "short_result": "blocked",
+      "display_text": "当前没有可打断的流程。",
+      "voice_text": "当前没有可打断的流程。",
+      "animation_hint": "idle",
+      "history_entry": {
+        "blocked_reason": "no_active_operation",
+        "created_at": "2026-04-14T07:38:30.296375+00:00",
+        "interaction_kind": "tap",
+        "mode": "interrupt",
+        "title": "打断",
+        "summary": "当前没有可打断的流程。",
+        "status": "blocked"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "companion_warm",
+        "persona_voice_style": "bright",
+        "override_source": "session_override",
+        "blocked_reason": "no_active_operation"
+      },
+      "created_at": "2026-04-14T07:38:30.296375+00:00"
+    },
+    {
+      "interaction_kind": "shake",
+      "mode": "fortune",
+      "title": "今日提示",
+      "short_result": "fortune_ready",
+      "display_text": "今日提示：稳住节奏，先把当前主线做实。",
+      "voice_text": "今日提示，稳住节奏，先把当前主线做实。",
+      "animation_hint": "idle",
+      "led_hint": "blue",
+      "history_entry": {
+        "scene_mode": "focus",
+        "session_id": "app:839b3bbc",
+        "mode": "fortune",
+        "created_at": "2026-04-14T07:43:38.313698+00:00",
+        "interaction_kind": "shake",
+        "title": "今日提示",
+        "summary": "今日提示：稳住节奏，先把当前主线做实。",
+        "status": "fortune_ready"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "companion_warm",
+        "persona_voice_style": "bright",
+        "override_source": "session_override",
+        "interaction_surface": "physical_device"
+      },
+      "created_at": "2026-04-14T07:43:38.313698+00:00"
+    },
+    {
+      "interaction_kind": "shake",
+      "mode": "fortune",
+      "title": "今日提示",
+      "short_result": "fortune_ready",
+      "display_text": "今日提示：稳住节奏，先把当前主线做实。",
+      "voice_text": "今日提示，稳住节奏，先把当前主线做实。",
+      "animation_hint": "idle",
+      "led_hint": "blue",
+      "history_entry": {
+        "scene_mode": "focus",
+        "session_id": "app:839b3bbc",
+        "mode": "fortune",
+        "created_at": "2026-04-14T12:19:28.396993+00:00",
+        "interaction_kind": "shake",
+        "title": "今日提示",
+        "summary": "今日提示：稳住节奏，先把当前主线做实。",
+        "status": "fortune_ready"
+      },
+      "metadata": {
+        "scene_mode": "focus",
+        "persona_profile_id": "companion_warm",
+        "persona_voice_style": "bright",
+        "override_source": "session_override",
+        "interaction_surface": "physical_device"
+      },
+      "created_at": "2026-04-14T12:19:28.396993+00:00"
+    }
+  ],
+  "interaction_throttle": {
+    "tap": 1776152310.294646,
+    "shake": 1776169168.395328
+  }
+}

@@ -11,6 +11,7 @@ import '../../theme/linear_tokens.dart';
 import '../../widgets/common/status_pill.dart';
 import '../../widgets/control/computer_action_panel.dart';
 import '../../widgets/control/notification_panel.dart';
+import '../../widgets/control/physical_interaction_panel.dart';
 import '../../widgets/control/reminder_panel.dart';
 import '../../widgets/planning/planning_editor_dialog.dart';
 import 'control_center_permissions.dart';
@@ -38,9 +39,9 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
       await ref.read(appControllerProvider.notifier).loadReminders();
       await ref.read(appControllerProvider.notifier).loadSettings();
       await ref.read(appControllerProvider.notifier).refreshPlanningWorkbench();
-      await ref.read(appControllerProvider.notifier).loadComputerControl(
-        silent: true,
-      );
+      await ref
+          .read(appControllerProvider.notifier)
+          .loadComputerControl(silent: true);
     });
   }
 
@@ -57,7 +58,8 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     final settings = state.settings;
     final runtime = state.runtimeState;
     final chrome = context.linear;
-    final computerControl = state.bootstrap?.computerControl ??
+    final computerControl =
+        state.bootstrap?.computerControl ??
         ComputerControlStateModel(
           available: state.capabilities.computerControl,
           supportedActions: state.capabilities.computerActions,
@@ -72,6 +74,7 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
       commandPending: runtime.device.lastCommand.isPending,
     );
     final planning = _ControlCenterPlanningSnapshot.fromSources(state: state);
+    final experience = state.currentExperience;
 
     final controls = runtime.device.controls;
     final runtimeSyncToken =
@@ -225,6 +228,15 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
               ],
             );
           },
+        ),
+        const SizedBox(height: LinearSpacing.md),
+        PhysicalInteractionPanel(
+          sceneLabel: experience.sceneLabel,
+          personaLabel: experience.personaLabel,
+          interaction: experience.physicalInteraction,
+          lastResult: experience.lastInteractionResult,
+          deviceConnected: runtime.device.connected,
+          desktopBridgeReady: runtime.voice.desktopBridgeReady,
         ),
         const SizedBox(height: LinearSpacing.md),
         if (showComputerActions) ...<Widget>[

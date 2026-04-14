@@ -5,6 +5,12 @@ class SourceContextModel {
     required this.interactionSurface,
     required this.captureSource,
     required this.createdVia,
+    required this.sceneMode,
+    required this.personaProfileId,
+    required this.personaVoiceStyle,
+    required this.interactionKind,
+    required this.interactionMode,
+    required this.approvalSource,
   });
 
   final String label;
@@ -12,19 +18,44 @@ class SourceContextModel {
   final String? interactionSurface;
   final String? captureSource;
   final String? createdVia;
+  final String? sceneMode;
+  final String? personaProfileId;
+  final String? personaVoiceStyle;
+  final String? interactionKind;
+  final String? interactionMode;
+  final String? approvalSource;
 
   bool get hasLabel => label.isNotEmpty;
+
+  bool get hasExperienceMetadata =>
+      sceneMode != null ||
+      personaProfileId != null ||
+      personaVoiceStyle != null ||
+      interactionKind != null ||
+      interactionMode != null;
 
   factory SourceContextModel.fromMetadata({
     String? sourceChannel,
     String? interactionSurface,
     String? captureSource,
     String? createdVia,
+    String? sceneMode,
+    String? personaProfileId,
+    String? personaVoiceStyle,
+    String? interactionKind,
+    String? interactionMode,
+    String? approvalSource,
   }) {
     final normalizedChannel = _normalize(sourceChannel);
     final normalizedSurface = _normalize(interactionSurface);
     final normalizedCapture = _normalize(captureSource);
     final normalizedCreatedVia = _normalize(createdVia);
+    final normalizedSceneMode = _normalize(sceneMode);
+    final normalizedPersonaProfileId = _normalize(personaProfileId);
+    final normalizedPersonaVoiceStyle = _normalize(personaVoiceStyle);
+    final normalizedInteractionKind = _normalize(interactionKind);
+    final normalizedInteractionMode = _normalize(interactionMode);
+    final normalizedApprovalSource = _normalize(approvalSource);
 
     return SourceContextModel(
       label: _deriveLabel(
@@ -37,6 +68,12 @@ class SourceContextModel {
       interactionSurface: normalizedSurface,
       captureSource: normalizedCapture,
       createdVia: normalizedCreatedVia,
+      sceneMode: normalizedSceneMode,
+      personaProfileId: normalizedPersonaProfileId,
+      personaVoiceStyle: normalizedPersonaVoiceStyle,
+      interactionKind: normalizedInteractionKind,
+      interactionMode: normalizedInteractionMode,
+      approvalSource: normalizedApprovalSource,
     );
   }
 

@@ -4,6 +4,7 @@ import '../models/chat/message_model.dart';
 import '../models/chat/session_model.dart';
 import '../models/connect/bootstrap_model.dart';
 import '../models/connect/connection_config_model.dart';
+import '../models/experience/experience_model.dart';
 import '../models/events/event_model.dart';
 import '../models/home/runtime_state_model.dart';
 import '../models/notifications/notification_model.dart';
@@ -30,6 +31,7 @@ class AppState {
     required this.runtimeState,
     required this.sessions,
     required this.messagesBySession,
+    required this.sessionExperienceOverrides,
     required this.messagesLoading,
     required this.settingsStatus,
     required this.settings,
@@ -69,6 +71,7 @@ class AppState {
   final RuntimeStateModel runtimeState;
   final List<SessionModel> sessions;
   final Map<String, List<MessageModel>> messagesBySession;
+  final Map<String, SessionExperienceOverrideModel> sessionExperienceOverrides;
   final bool messagesLoading;
   final FeatureStatus settingsStatus;
   final AppSettingsModel? settings;
@@ -101,6 +104,43 @@ class AppState {
 
   List<MessageModel> get currentMessages =>
       messagesBySession[currentSessionId] ?? const <MessageModel>[];
+
+  ExperienceCatalogModel get experienceCatalog {
+    final fallback = ExperienceCatalogModel.defaults();
+    final catalog = bootstrap?.experience;
+    if (catalog == null) {
+      return fallback;
+    }
+    return ExperienceCatalogModel(
+      available: catalog.available,
+      scenes: catalog.scenes.isEmpty ? fallback.scenes : catalog.scenes,
+      personaPresets: catalog.personaPresets.isEmpty
+          ? fallback.personaPresets
+          : catalog.personaPresets,
+      runtimePath: catalog.runtimePath,
+      settingsPath: catalog.settingsPath,
+      sessionPathTemplate: catalog.sessionPathTemplate,
+    );
+  }
+
+  ExperienceSettingsModel get experienceDefaults =>
+      settings?.experience ?? ExperienceSettingsModel.defaults();
+
+  SessionExperienceOverrideModel? experienceOverrideFor(String sessionId) {
+    return sessionExperienceOverrides[sessionId];
+  }
+
+  ExperienceSurfaceModel resolveExperienceFor(String sessionId) {
+    return ExperienceSurfaceModel.resolve(
+      catalog: experienceCatalog,
+      defaults: experienceDefaults,
+      runtime: runtimeState.experience,
+      sessionOverride: experienceOverrideFor(sessionId),
+    );
+  }
+
+  ExperienceSurfaceModel get currentExperience =>
+      resolveExperienceFor(currentSessionId);
 
   bool get planningTimelineReady =>
       planningTimelineStatus == FeatureStatus.ready ||
@@ -143,6 +183,7 @@ class AppState {
     RuntimeStateModel? runtimeState,
     List<SessionModel>? sessions,
     Map<String, List<MessageModel>>? messagesBySession,
+    Map<String, SessionExperienceOverrideModel>? sessionExperienceOverrides,
     bool? messagesLoading,
     FeatureStatus? settingsStatus,
     Object? settings = _unset,
@@ -184,6 +225,8 @@ class AppState {
       runtimeState: runtimeState ?? this.runtimeState,
       sessions: sessions ?? this.sessions,
       messagesBySession: messagesBySession ?? this.messagesBySession,
+      sessionExperienceOverrides:
+          sessionExperienceOverrides ?? this.sessionExperienceOverrides,
       messagesLoading: messagesLoading ?? this.messagesLoading,
       settingsStatus: settingsStatus ?? this.settingsStatus,
       settings: identical(settings, _unset)
@@ -251,6 +294,8 @@ class AppState {
       runtimeState: RuntimeStateModel.empty(),
       sessions: const <SessionModel>[],
       messagesBySession: const <String, List<MessageModel>>{},
+      sessionExperienceOverrides:
+          const <String, SessionExperienceOverrideModel>{},
       messagesLoading: false,
       settingsStatus: FeatureStatus.idle,
       settings: null,

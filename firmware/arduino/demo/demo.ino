@@ -21,6 +21,8 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <ESP_I2S.h>
+#include <Wire.h>
+#include <math.h>
 
 #include "device_config_store.h"
 #include "face_display.h"
@@ -29,6 +31,14 @@
 // ===== 触摸引脚 =====
 #define TOUCH_PIN 7
 #define TOUCH_THRESHOLD 40000
+
+// ===== MPU6050 六轴传感器 =====
+#define I2C_SDA 5
+#define I2C_SCL 6
+#define MPU6050_ADDR 0x68
+#define MPU6050_REG_PWR_MGMT_1 0x6B
+#define MPU6050_REG_ACCEL_XOUT_H 0x3B
+#define MPU6050_REG_WHO_AM_I 0x75
 
 // ===== MAX98357A 喇叭引脚 =====
 #define SPEAKER_BCLK 17
@@ -42,8 +52,13 @@ constexpr unsigned long NTP_UPDATE_INTERVAL = 30000;
 constexpr unsigned long DEVICE_STATUS_INTERVAL = 15000;
 constexpr unsigned long TOUCH_SAMPLE_INTERVAL = 20;
 constexpr unsigned long REPAIR_TOUCH_HOLD_MS = 5000;
+constexpr unsigned long MOTION_SAMPLE_INTERVAL = 50;
+constexpr unsigned long SHAKE_WINDOW_MS = 400;
+constexpr unsigned long SHAKE_COOLDOWN_MS = 1200;
 constexpr unsigned long WIFI_RETRY_DELAY_MS = 500;
 constexpr const char* FIRMWARE_VERSION = "demo-2026-04-11";
+constexpr float SHAKE_DELTA_THRESHOLD_G = 0.75f;
+constexpr int SHAKE_MIN_PEAKS = 2;
 
 enum SpeakerSdMode {
   SPEAKER_SD_SHUTDOWN = 0,
@@ -73,6 +88,7 @@ bool introSent = false;
 bool touchPressed = false;
 bool voiceTouchActive = false;
 bool repairHoldHandled = false;
+bool motionReady = false;
 bool speakerReady = false;
 bool playbackActive = false;
 SpeakerSdMode currentSpeakerMode = SPEAKER_SD_SHUTDOWN;
@@ -82,8 +98,16 @@ String lastStatusWeather = "";
 String lastPairingReason = "boot";
 unsigned long touchPressedAt = 0;
 unsigned long lastTouchCheck = 0;
+unsigned long lastMotionCheck = 0;
+unsigned long lastShakeEventAt = 0;
+unsigned long lastShakeMotionAt = 0;
 unsigned long lastNtpUpdate = 0;
 unsigned long lastDeviceStatusPush = 0;
+float previousMotionTotalG = 1.0f;
+int shakeMotionPeaks = 0;
+
+void sendTouchEvent(const char* action, int tapCount = 0, bool hold = false);
+void sendShakeEvent();
 
 int currentVolume = 70;
 bool currentMuted = false;
@@ -171,14 +195,7 @@ void enterPairingPrompt(const char* reason, const char* faceMessage = nullptr) {
 
 void stopRuntimeForPairing(const char* faceMessage) {
   if (voiceTouchActive && wsConnected) {
-    JsonDocument doc;
-    doc["type"] = "touch_event";
-    JsonObject data = doc["data"].to<JsonObject>();
-    data["action"] = "long_release";
-    String json;
-    serializeJson(doc, json);
-    webSocket.sendTXT(json);
-    Serial.println("Sent touch_event: long_release");
+    sendTouchEvent("long_release", 0, false);
   }
 
   voiceTouchActive = false;
@@ -221,6 +238,101 @@ bool canArmPairingFromTouch() {
     return false;
   }
   return !currentConfig.provisioned || pairingPhase == PAIRING_IDLE;
+}
+
+bool writeMpu6050Byte(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(MPU6050_ADDR);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+bool readMpu6050Bytes(uint8_t reg, uint8_t* buffer, size_t length) {
+  Wire.beginTransmission(MPU6050_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) {
+    return false;
+  }
+
+  const size_t received = Wire.requestFrom(MPU6050_ADDR, static_cast<uint8_t>(length));
+  if (received != length) {
+    return false;
+  }
+
+  for (size_t i = 0; i < length; ++i) {
+    buffer[i] = Wire.read();
+  }
+
+  return true;
+}
+
+bool readMotionTotalG(float* totalG) {
+  uint8_t raw[6];
+  if (!readMpu6050Bytes(MPU6050_REG_ACCEL_XOUT_H, raw, sizeof(raw))) {
+    return false;
+  }
+
+  const int16_t ax = static_cast<int16_t>((raw[0] << 8) | raw[1]);
+  const int16_t ay = static_cast<int16_t>((raw[2] << 8) | raw[3]);
+  const int16_t az = static_cast<int16_t>((raw[4] << 8) | raw[5]);
+  const float axG = static_cast<float>(ax) / 16384.0f;
+  const float ayG = static_cast<float>(ay) / 16384.0f;
+  const float azG = static_cast<float>(az) / 16384.0f;
+  *totalG = sqrtf(axG * axG + ayG * ayG + azG * azG);
+  return true;
+}
+
+bool initMotionSensor() {
+  Wire.begin(I2C_SDA, I2C_SCL);
+
+  uint8_t whoami = 0;
+  if (!readMpu6050Bytes(MPU6050_REG_WHO_AM_I, &whoami, 1)) {
+    Serial.println("MPU6050 not detected, gesture events disabled");
+    return false;
+  }
+
+  if (whoami != 0x68 && whoami != 0x98) {
+    Serial.printf("Unexpected MPU6050 WHO_AM_I: 0x%02X\n", whoami);
+    return false;
+  }
+
+  if (!writeMpu6050Byte(MPU6050_REG_PWR_MGMT_1, 0x00)) {
+    Serial.println("Failed to wake MPU6050, gesture events disabled");
+    return false;
+  }
+
+  delay(100);
+
+  float totalG = 1.0f;
+  if (readMotionTotalG(&totalG)) {
+    previousMotionTotalG = totalG;
+  }
+
+  Serial.printf("MPU6050 ready (WHO_AM_I=0x%02X)\n", whoami);
+  return true;
+}
+
+bool canSendGestureEvent() {
+  if (pairingPhase != PAIRING_DISABLED || !wsConnected || currentSleeping) {
+    return false;
+  }
+  if (voiceTouchActive || playbackActive) {
+    return false;
+  }
+
+  FaceState faceState = faceGetState();
+  return faceState != FACE_LISTENING &&
+         faceState != FACE_PROCESSING &&
+         faceState != FACE_SPEAKING;
+}
+
+void showGestureFeedback(const char* text) {
+  if (!canSendGestureEvent()) {
+    return;
+  }
+
+  faceSetState(FACE_ACTIVE);
+  faceSetText(text);
 }
 
 // ──────────────────────────────────────────────
@@ -336,18 +448,41 @@ void sendTextInput(const char* text) {
   Serial.printf("Sent text_input: %s\n", text);
 }
 
-void sendTouchEvent(const char* action) {
+void sendTouchEvent(const char* action, int tapCount, bool hold) {
   if (!wsConnected) return;
 
   JsonDocument doc;
   doc["type"] = "touch_event";
   JsonObject data = doc["data"].to<JsonObject>();
-  data["action"] = action;
+  if (action != nullptr && action[0] != '\0') {
+    data["action"] = action;
+  }
+  if (tapCount > 0) {
+    data["tap_count"] = tapCount;
+  }
+  data["hold"] = hold;
 
   String json;
   serializeJson(doc, json);
   webSocket.sendTXT(json);
-  Serial.printf("Sent touch_event: %s\n", action);
+  Serial.printf(
+      "Sent touch_event: action=%s tap_count=%d hold=%d\n",
+      action ? action : "-",
+      tapCount,
+      hold ? 1 : 0);
+}
+
+void sendShakeEvent() {
+  if (!wsConnected) return;
+
+  JsonDocument doc;
+  doc["type"] = "shake_event";
+  doc["data"].to<JsonObject>();
+
+  String json;
+  serializeJson(doc, json);
+  webSocket.sendTXT(json);
+  Serial.println("Sent shake_event");
 }
 
 void sendDeviceStatus() {
@@ -888,6 +1023,51 @@ void handlePairingCommand(const SerialPairingCommand& command) {
 // 触摸处理：保留 long_press / long_release，并支持长按重配
 // ──────────────────────────────────────────────
 
+void handleMotion() {
+  if (!motionReady) {
+    return;
+  }
+
+  float totalG = previousMotionTotalG;
+  if (!readMotionTotalG(&totalG)) {
+    return;
+  }
+
+  const unsigned long now = millis();
+  const float deltaG = fabsf(totalG - previousMotionTotalG);
+
+  if (!canSendGestureEvent()) {
+    shakeMotionPeaks = 0;
+    lastShakeMotionAt = 0;
+    previousMotionTotalG = totalG;
+    return;
+  }
+
+  if (deltaG >= SHAKE_DELTA_THRESHOLD_G) {
+    if (shakeMotionPeaks <= 0 || now - lastShakeMotionAt > SHAKE_WINDOW_MS) {
+      shakeMotionPeaks = 1;
+    } else {
+      shakeMotionPeaks++;
+    }
+    lastShakeMotionAt = now;
+  } else if (shakeMotionPeaks > 0 && now - lastShakeMotionAt > SHAKE_WINDOW_MS) {
+    shakeMotionPeaks = 0;
+    lastShakeMotionAt = 0;
+  }
+
+  if (shakeMotionPeaks >= SHAKE_MIN_PEAKS &&
+      now - lastShakeEventAt >= SHAKE_COOLDOWN_MS) {
+    lastShakeEventAt = now;
+    shakeMotionPeaks = 0;
+    lastShakeMotionAt = 0;
+    showGestureFeedback("检测到摇一摇");
+    sendShakeEvent();
+    Serial.printf("Shake detected: delta=%.2fG total=%.2fG\n", deltaG, totalG);
+  }
+
+  previousMotionTotalG = totalG;
+}
+
 void handleTouch() {
   const uint32_t touchVal = touchRead(TOUCH_PIN);
   const bool touched = touchVal > TOUCH_THRESHOLD;
@@ -903,7 +1083,7 @@ void handleTouch() {
       Serial.println("Touch long_press");
       faceSetState(FACE_LISTENING);
       faceSetText("请对电脑说话...");
-      sendTouchEvent("long_press");
+      sendTouchEvent("long_press", 0, true);
     }
   }
 
@@ -924,7 +1104,7 @@ void handleTouch() {
       Serial.println("Touch long_release");
       faceSetState(FACE_PROCESSING);
       faceSetText("录音结束，识别中...");
-      sendTouchEvent("long_release");
+      sendTouchEvent("long_release", 0, false);
     }
   }
 }
@@ -954,6 +1134,8 @@ void setup() {
     Serial.println("Speaker init failed, will continue without local playback");
     faceSetText("喇叭初始化失败");
   }
+
+  motionReady = initMotionSensor();
 
   if (deviceConfigStore.load(&currentConfig)) {
     pairingPhase = PAIRING_DISABLED;
@@ -1003,5 +1185,10 @@ void loop() {
   if (millis() - lastTouchCheck >= TOUCH_SAMPLE_INTERVAL) {
     lastTouchCheck = millis();
     handleTouch();
+  }
+
+  if (millis() - lastMotionCheck >= MOTION_SAMPLE_INTERVAL) {
+    lastMotionCheck = millis();
+    handleMotion();
   }
 }

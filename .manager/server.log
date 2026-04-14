@@ -2960,3 +2960,685 @@ WARNING:root:trust_remote_code: False
 19:00:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
 19:01:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
 19:01:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-32dBm, 充电=False
+19:01:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:01:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+19:02:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:02:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-31dBm, 充电=False
+19:02:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+19:02:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+19:03:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-32dBm, 充电=False
+19:03:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-32dBm, 充电=False
+19:03:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-32dBm, 充电=False
+19:03:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+19:04:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+19:04:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+19:04:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+19:04:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+19:05:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+19:05:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+19:05:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:05:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:06:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:06:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:06:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:06:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:07:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-39dBm, 充电=False
+19:07:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+19:07:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-36dBm, 充电=False
+19:07:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-39dBm, 充电=False
+19:08:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:08:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-39dBm, 充电=False
+19:08:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:08:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:09:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+19:09:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+19:09:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:09:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:10:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:10:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:10:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:10:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-39dBm, 充电=False
+19:11:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-39dBm, 充电=False
+19:11:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+19:11:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:11:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+19:12:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+19:12:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+19:12:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+19:12:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:13:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-48dBm, 充电=False
+19:13:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-41dBm, 充电=False
+19:13:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:13:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-36dBm, 充电=False
+19:14:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+19:14:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-58dBm, 充电=False
+19:14:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:14:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:15:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+19:15:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-36dBm, 充电=False
+19:15:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+19:15:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-36dBm, 充电=False
+19:16:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+19:16:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:16:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-36dBm, 充电=False
+19:16:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+19:17:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-39dBm, 充电=False
+19:17:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-39dBm, 充电=False
+19:17:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+19:17:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+19:18:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+19:18:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+19:18:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+19:18:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-44dBm, 充电=False
+19:19:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+19:19:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-41dBm, 充电=False
+19:19:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+19:19:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+19:20:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+19:20:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+19:20:39 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+19:20:54 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-44dBm, 充电=False
+19:21:45 | ERROR    | channels.device_channel:_handle_ws - WebSocket 错误: No PONG received after 15.0 seconds
+19:21:45 | INFO     | channels.device_channel:_handle_ws - 设备已断开 (在线 1426s)
+WARNING:aiohttp.websocket:172.20.10.3: Client protocols ['arduino'] don’t overlap server-known ones ()
+21:06:37 | INFO     | channels.device_channel:_handle_ws - 设备重连 (第3次, 172.20.10.3)
+21:06:37 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-51dBm, 充电=False
+21:06:37 | INFO     | channels.device_channel:_on_text - 收到文字输入: '设备已连接，请用中文简短地自我介绍一下（不超过50字）'
+21:06:37 | INFO     | nanobot.agent.loop:_process_message - Processing message from device:esp32: 设备已连接，请用中文简短地自我介绍一下（不超过50字）
+21:06:40 | INFO     | channels.device_channel:_weather_push_loop - 天气推送: 25°C
+21:06:41 | INFO     | nanobot.agent.loop:_process_message - Response to device:esp32: 你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。
+21:06:41 | INFO     | channels.device_channel:send_outbound - 发送回复给设备: '你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。'
+21:06:47 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-55dBm, 充电=False
+21:07:02 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-52dBm, 充电=False
+21:07:09 | INFO     | channels.device_channel:_on_device_command_result - 设备命令结果: command=set_volume ok=True error=
+21:07:09 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-53dBm, 充电=False
+21:07:17 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-52dBm, 充电=False
+21:07:32 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-53dBm, 充电=False
+21:07:47 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-49dBm, 充电=False
+21:08:02 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-51dBm, 充电=False
+21:08:17 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-54dBm, 充电=False
+21:08:32 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-46dBm, 充电=False
+21:08:47 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-45dBm, 充电=False
+21:08:54 | INFO     | __main__:_signal_handler - 收到关闭信号，正在优雅关闭...
+21:08:54 | INFO     | __main__:main - 正在关闭服务...
+21:08:54 | INFO     | channels.device_channel:_handle_ws - 设备已断开 (在线 137s)
+21:08:54 | INFO     | channels.device_channel:stop - DeviceChannel 已停止
+21:08:54 | INFO     | services.outbound_router:run - 统一 outbound 路由器已停止
+/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/resource_tracker.py:216: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+
+[2026-04-13 21:08:59] ===== server start =====
+21:09:01 | INFO     | __main__:main - AI-Bot 服务端 v0.6.0
+21:09:01 | INFO     | __main__:main - WhatsApp channel 未启用；当前主流程不依赖 WhatsApp
+21:09:01 | INFO     | nanobot.agent.loop:run - Agent loop started
+21:09:01 | INFO     | services.outbound_router:run - 统一 outbound 路由器已启动
+21:09:01 | INFO     | services.reminder_scheduler:start - ReminderScheduler started
+21:09:01 | INFO     | bootstrap:log_startup_summary - 服务已启动: http://0.0.0.0:8765
+21:09:01 | INFO     | bootstrap:log_startup_summary -   模型: z-ai/glm-4.7 (openrouter)
+21:09:01 | INFO     | bootstrap:log_startup_summary -   ASR: FunAudioLLM/SenseVoiceSmall | TTS: en-US-AriaNeural
+21:09:01 | INFO     | bootstrap:log_startup_summary -   Device Auth: disabled
+21:09:01 | INFO     | bootstrap:log_startup_summary -   App Auth: disabled
+21:09:01 | INFO     | bootstrap:log_startup_summary -   Desktop Voice: embedded-local-mic enabled
+21:09:01 | INFO     | bootstrap:log_startup_summary -   Computer Control: enabled
+21:09:01 | INFO     | bootstrap:log_startup_summary -   WhatsApp: disabled (optional)
+21:09:01 | INFO     | bootstrap:log_startup_summary -   健康检查: http://localhost:8765/api/health
+21:09:01 | INFO     | bootstrap:log_startup_summary -   App Bootstrap: http://localhost:8765/api/app/v1/bootstrap
+21:09:01 | INFO     | bootstrap:log_startup_summary -   App Events: ws://localhost:8765/ws/app/v1/events
+21:09:01 | INFO     | bootstrap:log_startup_summary -   WebSocket: ws://localhost:8765/ws/device
+21:09:01 | INFO     | __main__:main - 桌面麦克风已内置到 main.py 进程；正常联调只需运行 python3 main.py，无需再启动 tools/desktop_voice_client.py
+172.20.10.3: Client protocols ['arduino'] don’t overlap server-known ones ()
+21:09:04 | INFO     | channels.device_channel:_handle_ws - 设备首次连接 (172.20.10.3)
+21:09:04 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-50dBm, 充电=False
+21:09:04 | INFO     | channels.device_channel:_on_text - 收到文字输入: '设备已连接，请用中文简短地自我介绍一下（不超过50字）'
+21:09:04 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-50dBm, 充电=False
+21:09:04 | INFO     | nanobot.agent.loop:_process_message - Processing message from device:esp32: 设备已连接，请用中文简短地自我介绍一下（不超过50字）
+21:09:07 | INFO     | nanobot.agent.loop:_process_message - Response to device:esp32: 你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。
+21:09:07 | INFO     | channels.device_channel:send_outbound - 发送回复给设备: '你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。'
+21:09:08 | INFO     | channels.device_channel:_weather_push_loop - 天气推送: 25°C
+21:09:19 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+21:09:34 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-48dBm, 充电=False
+21:09:49 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-52dBm, 充电=False
+21:10:04 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-50dBm, 充电=False
+21:10:19 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+21:10:34 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+21:10:49 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+21:11:10 | WARNING  | channels.device_channel:_connection_watchdog_loop - 设备连接超过 20.6s 无活动，主动判定离线
+21:11:10 | INFO     | channels.device_channel:_handle_ws - 设备已断开 (在线 126s)
+172.20.10.3: Client protocols ['arduino'] don’t overlap server-known ones ()
+21:14:30 | INFO     | channels.device_channel:_handle_ws - 设备重连 (第1次, 172.20.10.3)
+21:14:31 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+21:14:31 | INFO     | channels.device_channel:_on_text - 收到文字输入: '设备已连接，请用中文简短地自我介绍一下（不超过50字）'
+21:14:31 | INFO     | nanobot.agent.loop:_process_message - Processing message from device:esp32: 设备已连接，请用中文简短地自我介绍一下（不超过50字）
+21:14:33 | INFO     | nanobot.agent.loop:_process_message - Response to device:esp32: 你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。
+21:14:33 | INFO     | channels.device_channel:send_outbound - 发送回复给设备: '你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。'
+21:14:34 | INFO     | channels.device_channel:_weather_push_loop - 天气推送: 25°C
+21:14:40 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+21:14:55 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-32dBm, 充电=False
+21:15:10 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+21:15:25 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+21:15:40 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+21:15:55 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+21:16:11 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-56dBm, 充电=False
+21:16:25 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+21:16:40 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+21:16:55 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-70dBm, 充电=False
+21:17:10 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-59dBm, 充电=False
+21:17:15 | INFO     | channels.device_channel:_on_device_command_result - 设备命令结果: command=set_volume ok=True error=
+21:17:15 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-54dBm, 充电=False
+21:17:16 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+21:17:17 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+21:17:17 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 28672 bytes
+/Users/mandy/Documents/GitHub/AI-bot/server/.venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+Notice: ffmpeg is not installed. torchaudio is used to load audio
+If you want to use ffmpeg backend to load audio, please install it by:
+	sudo apt install ffmpeg # ubuntu
+	# brew install ffmpeg # mac
+21:17:21 | INFO     | services.asr:_ensure_model - 正在加载 SenseVoice 模型: FunAudioLLM/SenseVoiceSmall (device=cpu)
+funasr version: 1.3.1.
+Check update of funasr, and it would cost few times. You may disable it by set `disable_update=True` in AutoModel
+You are using the latest version of funasr-1.3.1
+Fetching 29 files:   0%|          | 0/29 [00:00<?, ?it/s]Fetching 29 files: 100%|██████████| 29/29 [00:00<00:00, 26850.95it/s]
+WARNING:root:trust_remote_code: False
+21:17:25 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-53dBm, 充电=False
+Downloading Model from https://www.modelscope.cn to directory: /Users/mandy/.cache/modelscope/hub/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
+WARNING:root:trust_remote_code: False
+21:17:30 | INFO     | services.asr:_ensure_model - SenseVoice 模型加载完成
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.000', 'extract_feat': '0.019', 'forward': '0.030', 'batch_size': '1', 'rtf': '0.034'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 33.45it/s]rtf_avg: 0.034: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 33.38it/s]                                                                                          rtf_avg: 0.034: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 33.31it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.11it/s][A
+{'load_data': '0.000', 'extract_feat': '0.001', 'forward': '0.474', 'batch_size': '1', 'rtf': '0.526'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.11it/s][A
+rtf_avg: 0.526: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.11it/s]                                                                                          [Artf_avg: 0.526: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.11it/s]
+100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.10it/s]rtf_avg: 0.531, time_speech:  0.896, time_escape: 0.476: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.10it/s]rtf_avg: 0.531, time_speech:  0.896, time_escape: 0.476: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.10it/s]
+21:17:30 | INFO     | services.asr:transcribe - ASR 识别完成: '你好。'
+21:17:30 | INFO     | nanobot.agent.loop:_process_message - Processing message from desktop_voice:desktop_mic: 你好。
+21:17:33 | INFO     | nanobot.agent.loop:_process_message - Response to desktop_voice:desktop_mic: 你好！我是小博，有什么需要帮忙的吗？
+21:17:33 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='你好！我是小博，有什么需要帮忙的吗？'
+21:17:33 | INFO     | services.tts:synthesize - TTS 自动选音色: text='你好！我是小博，有什么需要帮忙的吗？', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+21:17:33 | INFO     | services.tts:synthesize - TTS 开始合成: '你好！我是小博，有什么需要帮忙的吗？' (voice=zh-CN-XiaoxiaoNeural)
+21:17:33 | INFO     | services.tts:synthesize - TTS 合成完成: 132096 bytes PCM (4.1s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+21:17:33 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.7s] 33 chunks, 132096 bytes (4.1s 音频)
+21:17:40 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-53dBm, 充电=False
+21:17:55 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-34dBm, 充电=False
+21:18:10 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-41dBm, 充电=False
+21:18:25 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+21:18:40 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+21:18:55 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+21:19:11 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+21:19:31 | WARNING  | channels.device_channel:_connection_watchdog_loop - 设备连接超过 20.4s 无活动，主动判定离线
+21:19:31 | INFO     | channels.device_channel:_handle_ws - 设备已断开 (在线 300s)
+22:19:50 | INFO     | __main__:_signal_handler - 收到关闭信号，正在优雅关闭...
+22:19:50 | INFO     | __main__:main - 正在关闭服务...
+22:19:50 | INFO     | channels.device_channel:stop - DeviceChannel 已停止
+22:19:50 | INFO     | services.outbound_router:run - 统一 outbound 路由器已停止
+22:19:50 | INFO     | __main__:main - 服务已关闭 (运行 4249s)
+
+[2026-04-13 22:19:52] ===== server start =====
+22:19:54 | INFO     | __main__:main - AI-Bot 服务端 v0.6.0
+22:19:54 | INFO     | __main__:main - WhatsApp channel 未启用；当前主流程不依赖 WhatsApp
+22:19:54 | INFO     | nanobot.agent.loop:run - Agent loop started
+22:19:54 | INFO     | services.outbound_router:run - 统一 outbound 路由器已启动
+22:19:54 | INFO     | services.reminder_scheduler:start - ReminderScheduler started
+22:19:54 | INFO     | bootstrap:log_startup_summary - 服务已启动: http://0.0.0.0:8765
+22:19:54 | INFO     | bootstrap:log_startup_summary -   模型: z-ai/glm-4.7 (openrouter)
+22:19:54 | INFO     | bootstrap:log_startup_summary -   ASR: FunAudioLLM/SenseVoiceSmall | TTS: en-US-AriaNeural
+22:19:54 | INFO     | bootstrap:log_startup_summary -   Device Auth: disabled
+22:19:54 | INFO     | bootstrap:log_startup_summary -   App Auth: disabled
+22:19:54 | INFO     | bootstrap:log_startup_summary -   Desktop Voice: embedded-local-mic enabled
+22:19:54 | INFO     | bootstrap:log_startup_summary -   Computer Control: enabled
+22:19:54 | INFO     | bootstrap:log_startup_summary -   WhatsApp: disabled (optional)
+22:19:54 | INFO     | bootstrap:log_startup_summary -   健康检查: http://localhost:8765/api/health
+22:19:54 | INFO     | bootstrap:log_startup_summary -   App Bootstrap: http://localhost:8765/api/app/v1/bootstrap
+22:19:54 | INFO     | bootstrap:log_startup_summary -   App Events: ws://localhost:8765/ws/app/v1/events
+22:19:54 | INFO     | bootstrap:log_startup_summary -   WebSocket: ws://localhost:8765/ws/device
+22:19:54 | INFO     | __main__:main - 桌面麦克风已内置到 main.py 进程；正常联调只需运行 python3 main.py，无需再启动 tools/desktop_voice_client.py
+172.20.10.3: Client protocols ['arduino'] don’t overlap server-known ones ()
+22:26:05 | INFO     | channels.device_channel:_handle_ws - 设备首次连接 (172.20.10.3)
+22:26:05 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-53dBm, 充电=False
+22:26:05 | INFO     | channels.device_channel:_on_text - 收到文字输入: '设备已连接，请用中文简短地自我介绍一下（不超过50字）'
+22:26:05 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-53dBm, 充电=False
+22:26:05 | INFO     | nanobot.agent.loop:_process_message - Processing message from device:esp32: 设备已连接，请用中文简短地自我介绍一下（不超过50字）
+22:26:07 | INFO     | channels.device_channel:_weather_push_loop - 天气推送: 25°C
+22:26:08 | INFO     | nanobot.agent.loop:_process_message - Response to device:esp32: 你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。
+22:26:08 | INFO     | channels.device_channel:send_outbound - 发送回复给设备: '你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。'
+22:26:20 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-46dBm, 充电=False
+22:26:35 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-50dBm, 充电=False
+22:26:50 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-49dBm, 充电=False
+22:27:05 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-71dBm, 充电=False
+22:27:19 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+22:27:20 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-80dBm, 充电=False
+22:27:21 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+22:27:21 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 65536 bytes
+/Users/mandy/Documents/GitHub/AI-bot/server/.venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+Notice: ffmpeg is not installed. torchaudio is used to load audio
+If you want to use ffmpeg backend to load audio, please install it by:
+	sudo apt install ffmpeg # ubuntu
+	# brew install ffmpeg # mac
+22:27:25 | INFO     | services.asr:_ensure_model - 正在加载 SenseVoice 模型: FunAudioLLM/SenseVoiceSmall (device=cpu)
+funasr version: 1.3.1.
+Check update of funasr, and it would cost few times. You may disable it by set `disable_update=True` in AutoModel
+You are using the latest version of funasr-1.3.1
+Fetching 29 files:   0%|          | 0/29 [00:00<?, ?it/s]Fetching 29 files: 100%|██████████| 29/29 [00:00<00:00, 10232.59it/s]
+WARNING:root:trust_remote_code: False
+22:27:27 | INFO     | channels.device_channel:_on_device_command_result - 设备命令结果: command=set_volume ok=True error=
+22:27:27 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-59dBm, 充电=False
+22:27:35 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-62dBm, 充电=False
+Downloading Model from https://www.modelscope.cn to directory: /Users/mandy/.cache/modelscope/hub/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
+WARNING:root:trust_remote_code: False
+22:27:39 | INFO     | services.asr:_ensure_model - SenseVoice 模型加载完成
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.000', 'extract_feat': '0.027', 'forward': '0.041', 'batch_size': '1', 'rtf': '0.020'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 24.06it/s]rtf_avg: 0.020: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 24.01it/s]                                                                                          rtf_avg: 0.020: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 23.98it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.22it/s][A
+{'load_data': '0.000', 'extract_feat': '0.001', 'forward': '0.450', 'batch_size': '1', 'rtf': '0.577'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.22it/s][A
+rtf_avg: 0.577: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.22it/s]                                                                                          [Artf_avg: 0.577: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.22it/s]
+100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.21it/s]rtf_avg: 0.221, time_speech:  2.048, time_escape: 0.453: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.21it/s]rtf_avg: 0.221, time_speech:  2.048, time_escape: 0.453: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.21it/s]
+22:27:40 | INFO     | services.asr:transcribe - ASR 识别完成: '我是你。'
+22:27:40 | INFO     | nanobot.agent.loop:_process_message - Processing message from desktop_voice:desktop_mic: 我是你。
+22:27:50 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-57dBm, 充电=False
+22:27:54 | INFO     | nanobot.agent.loop:_process_message - Response to desktop_voice:desktop_mic: 哈哈，那我就是你啦！有什么需要帮忙的吗？
+22:27:54 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='哈哈，那我就是你啦！有什么需要帮忙的吗？'
+22:27:54 | INFO     | services.tts:synthesize - TTS 自动选音色: text='哈哈，那我就是你啦！有什么需要帮忙的吗？', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+22:27:54 | INFO     | services.tts:synthesize - TTS 开始合成: '哈哈，那我就是你啦！有什么需要帮忙的吗？' (voice=zh-CN-XiaoxiaoNeural)
+22:27:54 | INFO     | services.tts:synthesize - TTS 合成完成: 143616 bytes PCM (4.5s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+22:27:54 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.6s] 36 chunks, 143616 bytes (4.5s 音频)
+22:28:05 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+22:28:20 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-62dBm, 充电=False
+22:28:21 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+22:28:24 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+22:28:24 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 65536 bytes
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.000', 'extract_feat': '0.003', 'forward': '0.016', 'batch_size': '1', 'rtf': '0.008'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 63.16it/s]rtf_avg: 0.008: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 62.73it/s]                                                                                          rtf_avg: 0.008: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 62.41it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.68it/s][A
+{'load_data': '0.000', 'extract_feat': '0.001', 'forward': '0.596', 'batch_size': '1', 'rtf': '0.292'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.68it/s][A
+rtf_avg: 0.292: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.68it/s]                                                                                          [Artf_avg: 0.292: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.68it/s]
+100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.67it/s]rtf_avg: 0.293, time_speech:  2.048, time_escape: 0.600: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.67it/s]rtf_avg: 0.293, time_speech:  2.048, time_escape: 0.600: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.67it/s]
+22:28:24 | INFO     | services.asr:transcribe - ASR 识别完成: '切换到陪伴模式。'
+22:28:24 | INFO     | nanobot.agent.loop:_process_message - Processing message from desktop_voice:desktop_mic: 切换到陪伴模式。
+22:28:29 | INFO     | nanobot.agent.loop:_process_message - Response to desktop_voice:desktop_mic: 好的！现在进入陪伴模式，有什么想聊的吗？
+22:28:29 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='好的！现在进入陪伴模式，有什么想聊的吗？'
+22:28:29 | INFO     | services.tts:synthesize - TTS 自动选音色: text='好的！现在进入陪伴模式，有什么想聊的吗？', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+22:28:29 | INFO     | services.tts:synthesize - TTS 开始合成: '好的！现在进入陪伴模式，有什么想聊的吗？' (voice=zh-CN-XiaoxiaoNeural)
+22:28:30 | INFO     | services.tts:synthesize - TTS 合成完成: 151296 bytes PCM (4.7s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+22:28:30 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.6s] 37 chunks, 151296 bytes (4.7s 音频)
+22:28:35 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-66dBm, 充电=False
+22:28:50 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-56dBm, 充电=False
+22:29:05 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-67dBm, 充电=False
+22:29:20 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-39dBm, 充电=False
+22:29:35 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+22:29:50 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-44dBm, 充电=False
+22:30:05 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+22:30:20 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+22:30:35 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+22:30:50 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+22:31:05 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+22:31:20 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+22:31:35 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-44dBm, 充电=False
+22:31:50 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+22:32:05 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+22:32:20 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-53dBm, 充电=False
+22:32:41 | WARNING  | channels.device_channel:_connection_watchdog_loop - 设备连接超过 20.9s 无活动，主动判定离线
+22:32:41 | INFO     | channels.device_channel:_handle_ws - 设备已断开 (在线 397s)
+22:34:14 | INFO     | __main__:_signal_handler - 收到关闭信号，正在优雅关闭...
+22:34:14 | INFO     | __main__:main - 正在关闭服务...
+22:34:14 | INFO     | channels.device_channel:stop - DeviceChannel 已停止
+22:34:14 | INFO     | services.outbound_router:run - 统一 outbound 路由器已停止
+
+[2026-04-13 22:34:19] ===== server start =====
+/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/resource_tracker.py:216: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+22:34:21 | INFO     | __main__:main - AI-Bot 服务端 v0.6.0
+22:34:21 | INFO     | __main__:main - WhatsApp channel 未启用；当前主流程不依赖 WhatsApp
+22:34:21 | INFO     | nanobot.agent.loop:run - Agent loop started
+22:34:21 | INFO     | services.outbound_router:run - 统一 outbound 路由器已启动
+22:34:21 | INFO     | services.reminder_scheduler:start - ReminderScheduler started
+22:34:21 | INFO     | bootstrap:log_startup_summary - 服务已启动: http://0.0.0.0:8765
+22:34:21 | INFO     | bootstrap:log_startup_summary -   模型: z-ai/glm-4.7 (openrouter)
+22:34:21 | INFO     | bootstrap:log_startup_summary -   ASR: FunAudioLLM/SenseVoiceSmall | TTS: en-US-AriaNeural
+22:34:21 | INFO     | bootstrap:log_startup_summary -   Device Auth: disabled
+22:34:21 | INFO     | bootstrap:log_startup_summary -   App Auth: disabled
+22:34:21 | INFO     | bootstrap:log_startup_summary -   Desktop Voice: embedded-local-mic enabled
+22:34:21 | INFO     | bootstrap:log_startup_summary -   Computer Control: enabled
+22:34:21 | INFO     | bootstrap:log_startup_summary -   WhatsApp: disabled (optional)
+22:34:21 | INFO     | bootstrap:log_startup_summary -   健康检查: http://localhost:8765/api/health
+22:34:21 | INFO     | bootstrap:log_startup_summary -   App Bootstrap: http://localhost:8765/api/app/v1/bootstrap
+22:34:21 | INFO     | bootstrap:log_startup_summary -   App Events: ws://localhost:8765/ws/app/v1/events
+22:34:21 | INFO     | bootstrap:log_startup_summary -   WebSocket: ws://localhost:8765/ws/device
+22:34:21 | INFO     | __main__:main - 桌面麦克风已内置到 main.py 进程；正常联调只需运行 python3 main.py，无需再启动 tools/desktop_voice_client.py
+
+[2026-04-13 22:51:05] ===== server start =====
+22:51:07 | INFO     | __main__:main - AI-Bot 服务端 v0.6.0
+22:51:07 | INFO     | __main__:main - WhatsApp channel 未启用；当前主流程不依赖 WhatsApp
+22:51:07 | INFO     | nanobot.agent.loop:run - Agent loop started
+22:51:07 | INFO     | services.outbound_router:run - 统一 outbound 路由器已启动
+22:51:07 | INFO     | services.reminder_scheduler:start - ReminderScheduler started
+22:51:07 | INFO     | bootstrap:log_startup_summary - 服务已启动: http://0.0.0.0:8765
+22:51:07 | INFO     | bootstrap:log_startup_summary -   模型: z-ai/glm-4.7 (openrouter)
+22:51:07 | INFO     | bootstrap:log_startup_summary -   ASR: FunAudioLLM/SenseVoiceSmall | TTS: en-US-AriaNeural
+22:51:07 | INFO     | bootstrap:log_startup_summary -   Device Auth: disabled
+22:51:07 | INFO     | bootstrap:log_startup_summary -   App Auth: disabled
+22:51:07 | INFO     | bootstrap:log_startup_summary -   Desktop Voice: embedded-local-mic enabled
+22:51:07 | INFO     | bootstrap:log_startup_summary -   Computer Control: enabled
+22:51:07 | INFO     | bootstrap:log_startup_summary -   WhatsApp: disabled (optional)
+22:51:07 | INFO     | bootstrap:log_startup_summary -   健康检查: http://localhost:8765/api/health
+22:51:07 | INFO     | bootstrap:log_startup_summary -   App Bootstrap: http://localhost:8765/api/app/v1/bootstrap
+22:51:07 | INFO     | bootstrap:log_startup_summary -   App Events: ws://localhost:8765/ws/app/v1/events
+22:51:07 | INFO     | bootstrap:log_startup_summary -   WebSocket: ws://localhost:8765/ws/device
+22:51:07 | INFO     | __main__:main - 桌面麦克风已内置到 main.py 进程；正常联调只需运行 python3 main.py，无需再启动 tools/desktop_voice_client.py
+172.20.10.3: Client protocols ['arduino'] don’t overlap server-known ones ()
+15:34:24 | INFO     | channels.device_channel:_handle_ws - 设备首次连接 (172.20.10.3)
+15:34:24 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-45dBm, 充电=False
+15:34:25 | INFO     | channels.device_channel:_on_text - 收到文字输入: '设备已连接，请用中文简短地自我介绍一下（不超过50字）'
+15:34:25 | INFO     | nanobot.agent.loop:_process_message - Processing message from device:esp32: 设备已连接，请用中文简短地自我介绍一下（不超过50字）
+15:34:27 | INFO     | channels.device_channel:_weather_push_loop - 天气推送: 27°C
+15:34:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-49dBm, 充电=False
+15:34:34 | INFO     | nanobot.agent.loop:_process_message - Response to device:esp32: 你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。
+15:34:34 | INFO     | channels.device_channel:send_outbound - 发送回复给设备: '你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。'
+15:34:46 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:34:46 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前没有可用的拍一拍确认上下文。'
+15:34:46 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前没有可用的拍一拍确认上下文。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:34:46 | INFO     | services.tts:synthesize - TTS 开始合成: '当前没有可用的拍一拍确认上下文。' (voice=zh-CN-XiaoxiaoNeural)
+15:34:47 | INFO     | services.tts:synthesize - TTS 合成完成: 124416 bytes PCM (3.9s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:34:47 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 1.0s] 31 chunks, 124416 bytes (3.9s 音频)
+15:34:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-45dBm, 充电=False
+15:34:52 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:34:52 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前没有可用的拍一拍确认上下文。'
+15:34:52 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前没有可用的拍一拍确认上下文。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:34:52 | INFO     | services.tts:synthesize - TTS 开始合成: '当前没有可用的拍一拍确认上下文。' (voice=zh-CN-XiaoxiaoNeural)
+15:34:53 | INFO     | services.tts:synthesize - TTS 合成完成: 124416 bytes PCM (3.9s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:34:53 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.5s] 31 chunks, 124416 bytes (3.9s 音频)
+15:35:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+15:35:03 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:03 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:03 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:03 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:03 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:04 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:05 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:05 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:05 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:05 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:05 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:05 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:05 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:05 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:06 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:07 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:08 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:35:08 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:35:15 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:35:15 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前只支持 1 / 2 / 3 连拍。'
+15:35:15 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前只支持 1 / 2 / 3 连拍。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:35:15 | INFO     | services.tts:synthesize - TTS 开始合成: '当前只支持 1 / 2 / 3 连拍。' (voice=zh-CN-XiaoxiaoNeural)
+15:35:16 | INFO     | services.tts:synthesize - TTS 合成完成: 121344 bytes PCM (3.8s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:35:16 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 1.0s] 30 chunks, 121344 bytes (3.8s 音频)
+15:35:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+15:35:24 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:35:24 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前只支持 1 / 2 / 3 连拍。'
+15:35:24 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前只支持 1 / 2 / 3 连拍。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:35:24 | INFO     | services.tts:synthesize - TTS 开始合成: '当前只支持 1 / 2 / 3 连拍。' (voice=zh-CN-XiaoxiaoNeural)
+15:35:25 | INFO     | services.tts:synthesize - TTS 合成完成: 121344 bytes PCM (3.8s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:35:25 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.5s] 30 chunks, 121344 bytes (3.8s 音频)
+15:35:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-45dBm, 充电=False
+15:35:42 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:35:42 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前没有可用的拍一拍确认上下文。'
+15:35:42 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前没有可用的拍一拍确认上下文。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:35:42 | INFO     | services.tts:synthesize - TTS 开始合成: '当前没有可用的拍一拍确认上下文。' (voice=zh-CN-XiaoxiaoNeural)
+15:35:42 | INFO     | services.tts:synthesize - TTS 合成完成: 124416 bytes PCM (3.9s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:35:42 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.6s] 31 chunks, 124416 bytes (3.9s 音频)
+15:35:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-44dBm, 充电=False
+15:36:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+15:36:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+15:36:23 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:36:23 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前没有可用的拍一拍确认上下文。'
+15:36:23 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前没有可用的拍一拍确认上下文。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:36:23 | INFO     | services.tts:synthesize - TTS 开始合成: '当前没有可用的拍一拍确认上下文。' (voice=zh-CN-XiaoxiaoNeural)
+15:36:23 | INFO     | services.tts:synthesize - TTS 合成完成: 124416 bytes PCM (3.9s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:36:23 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.5s] 31 chunks, 124416 bytes (3.9s 音频)
+15:36:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+15:36:36 | INFO     | channels.device_channel:_on_device_command_result - 设备命令结果: command=set_volume ok=True error=
+15:36:36 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-36dBm, 充电=False
+15:36:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+15:36:52 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:36:52 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前没有可用的拍一拍确认上下文。'
+15:36:52 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前没有可用的拍一拍确认上下文。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:36:52 | INFO     | services.tts:synthesize - TTS 开始合成: '当前没有可用的拍一拍确认上下文。' (voice=zh-CN-XiaoxiaoNeural)
+15:36:53 | INFO     | services.tts:synthesize - TTS 合成完成: 124416 bytes PCM (3.9s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:36:53 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.8s] 31 chunks, 124416 bytes (3.9s 音频)
+15:37:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+15:37:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+15:37:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+15:37:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+15:37:52 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:37:52 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前没有可用的拍一拍确认上下文。'
+15:37:52 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前没有可用的拍一拍确认上下文。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:37:52 | INFO     | services.tts:synthesize - TTS 开始合成: '当前没有可用的拍一拍确认上下文。' (voice=zh-CN-XiaoxiaoNeural)
+15:37:52 | INFO     | services.tts:synthesize - TTS 合成完成: 124416 bytes PCM (3.9s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:37:52 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.4s] 31 chunks, 124416 bytes (3.9s 音频)
+15:37:57 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+15:37:59 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+15:38:00 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 73728 bytes
+/Users/mandy/Documents/GitHub/AI-bot/server/.venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+Notice: ffmpeg is not installed. torchaudio is used to load audio
+If you want to use ffmpeg backend to load audio, please install it by:
+	sudo apt install ffmpeg # ubuntu
+	# brew install ffmpeg # mac
+15:38:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+15:38:04 | INFO     | services.asr:_ensure_model - 正在加载 SenseVoice 模型: FunAudioLLM/SenseVoiceSmall (device=cpu)
+funasr version: 1.3.1.
+Check update of funasr, and it would cost few times. You may disable it by set `disable_update=True` in AutoModel
+You are using the latest version of funasr-1.3.1
+Fetching 29 files:   0%|          | 0/29 [00:00<?, ?it/s]Fetching 29 files: 100%|██████████| 29/29 [00:00<00:00, 24572.69it/s]
+WARNING:root:trust_remote_code: False
+Downloading Model from https://www.modelscope.cn to directory: /Users/mandy/.cache/modelscope/hub/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
+WARNING:root:trust_remote_code: False
+15:38:13 | INFO     | services.asr:_ensure_model - SenseVoice 模型加载完成
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.000', 'extract_feat': '0.019', 'forward': '0.033', 'batch_size': '1', 'rtf': '0.015'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 30.11it/s]rtf_avg: 0.015: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 30.04it/s]                                                                                          rtf_avg: 0.015: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 29.99it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.30it/s][A
+{'load_data': '0.000', 'extract_feat': '0.002', 'forward': '0.435', 'batch_size': '1', 'rtf': '0.191'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.30it/s][A
+rtf_avg: 0.191: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.30it/s]                                                                                          [Artf_avg: 0.191: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.30it/s]
+100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.29it/s]rtf_avg: 0.190, time_speech:  2.304, time_escape: 0.437: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.29it/s]rtf_avg: 0.190, time_speech:  2.304, time_escape: 0.437: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.29it/s]
+15:38:13 | INFO     | services.asr:transcribe - ASR 识别完成: '切换成陪伴模式。'
+15:38:13 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='已将人格切换为温暖陪伴。'
+15:38:13 | INFO     | services.tts:synthesize - TTS 自动选音色: text='已将人格切换为温暖陪伴。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:38:13 | INFO     | services.tts:synthesize - TTS 开始合成: '已将人格切换为温暖陪伴。' (voice=zh-CN-XiaoxiaoNeural)
+15:38:14 | INFO     | services.tts:synthesize - TTS 合成完成: 95232 bytes PCM (3.0s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:38:14 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 1.0s] 24 chunks, 95232 bytes (3.0s 音频)
+15:38:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-49dBm, 充电=False
+15:38:30 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: unknown
+15:38:30 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='当前没有可打断的流程。'
+15:38:30 | INFO     | services.tts:synthesize - TTS 自动选音色: text='当前没有可打断的流程。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:38:30 | INFO     | services.tts:synthesize - TTS 开始合成: '当前没有可打断的流程。' (voice=zh-CN-XiaoxiaoNeural)
+15:38:30 | INFO     | services.tts:synthesize - TTS 合成完成: 83712 bytes PCM (2.6s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:38:30 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.7s] 21 chunks, 83712 bytes (2.6s 音频)
+15:38:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+15:38:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+15:39:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-46dBm, 充电=False
+15:39:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+15:39:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-52dBm, 充电=False
+15:39:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-54dBm, 充电=False
+15:40:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-46dBm, 充电=False
+15:40:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-47dBm, 充电=False
+15:40:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-46dBm, 充电=False
+15:40:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+15:41:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-44dBm, 充电=False
+15:41:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-38dBm, 充电=False
+15:41:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+15:41:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+15:42:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-35dBm, 充电=False
+15:42:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-33dBm, 充电=False
+15:42:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+15:42:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-43dBm, 充电=False
+15:43:03 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+15:43:18 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-37dBm, 充电=False
+15:43:33 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+15:43:38 | INFO     | channels.device_channel:_on_shake_event - 收到摇一摇事件
+15:43:38 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='今日提示，稳住节奏，先把当前主线做实。'
+15:43:38 | INFO     | services.tts:synthesize - TTS 自动选音色: text='今日提示，稳住节奏，先把当前主线做实。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+15:43:38 | INFO     | services.tts:synthesize - TTS 开始合成: '今日提示，稳住节奏，先把当前主线做实。' (voice=zh-CN-XiaoxiaoNeural)
+15:43:39 | INFO     | services.tts:synthesize - TTS 合成完成: 147456 bytes PCM (4.6s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+15:43:39 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 1.2s] 36 chunks, 147456 bytes (4.6s 音频)
+15:43:48 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-36dBm, 充电=False
+15:44:08 | WARNING  | channels.device_channel:_connection_watchdog_loop - 设备连接超过 20.0s 无活动，主动判定离线
+15:44:08 | INFO     | channels.device_channel:_handle_ws - 设备已断开 (在线 584s)
+WARNING:aiohttp.websocket:172.20.10.3: Client protocols ['arduino'] don’t overlap server-known ones ()
+20:19:16 | INFO     | channels.device_channel:_handle_ws - 设备重连 (第1次, 172.20.10.3)
+20:19:16 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+20:19:17 | INFO     | channels.device_channel:_on_text - 收到文字输入: '设备已连接，请用中文简短地自我介绍一下（不超过50字）'
+20:19:17 | INFO     | nanobot.agent.loop:_process_message - Processing message from device:esp32: 设备已连接，请用中文简短地自我介绍一下（不超过50字）
+20:19:20 | INFO     | channels.device_channel:_weather_push_loop - 天气推送: 26°C
+20:19:25 | INFO     | nanobot.agent.loop:_process_message - Response to device:esp32: 你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。
+20:19:25 | INFO     | channels.device_channel:send_outbound - 发送回复给设备: '你好！我是小博，你的桌面AI助手，可以通过语音帮你控制电脑、搜索信息。'
+20:19:26 | INFO     | channels.device_channel:_on_device_command_result - 设备命令结果: command=set_volume ok=True error=
+20:19:26 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+20:19:26 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+20:19:28 | INFO     | channels.device_channel:_on_shake_event - 收到摇一摇事件
+20:19:28 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='今日提示，稳住节奏，先把当前主线做实。'
+20:19:28 | INFO     | services.tts:synthesize - TTS 自动选音色: text='今日提示，稳住节奏，先把当前主线做实。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+20:19:28 | INFO     | services.tts:synthesize - TTS 开始合成: '今日提示，稳住节奏，先把当前主线做实。' (voice=zh-CN-XiaoxiaoNeural)
+20:19:29 | INFO     | services.tts:synthesize - TTS 合成完成: 147456 bytes PCM (4.6s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+20:19:29 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.7s] 36 chunks, 147456 bytes (4.6s 音频)
+20:19:41 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-41dBm, 充电=False
+20:19:47 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:19:48 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:19:49 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 38912 bytes
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.001', 'extract_feat': '0.056', 'forward': '0.081', 'batch_size': '1', 'rtf': '0.067'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 12.33it/s]rtf_avg: 0.067: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 12.30it/s]                                                                                          rtf_avg: 0.067: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 12.29it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:03<00:00,  3.46s/it][A
+{'load_data': '0.000', 'extract_feat': '0.002', 'forward': '3.464', 'batch_size': '1', 'rtf': '2.887'}, : 100%|[34m██████████[0m| 1/1 [00:03<00:00,  3.46s/it][A
+rtf_avg: 2.887: 100%|[34m██████████[0m| 1/1 [00:03<00:00,  3.46s/it]                                                                                          [Artf_avg: 2.887: 100%|[34m██████████[0m| 1/1 [00:03<00:00,  3.47s/it]
+100%|[31m██████████[0m| 1/1 [00:03<00:00,  3.49s/it]rtf_avg: 2.868, time_speech:  1.216, time_escape: 3.488: 100%|[31m██████████[0m| 1/1 [00:03<00:00,  3.49s/it]rtf_avg: 2.868, time_speech:  1.216, time_escape: 3.488: 100%|[31m██████████[0m| 1/1 [00:03<00:00,  3.49s/it]
+20:19:52 | INFO     | services.asr:transcribe - ASR 识别完成: '那咋啦？'
+20:19:52 | INFO     | nanobot.agent.loop:_process_message - Processing message from desktop_voice:desktop_mic: 那咋啦？
+20:19:56 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-51dBm, 充电=False
+20:20:01 | INFO     | nanobot.agent.loop:_process_message - Response to desktop_voice:desktop_mic: 没什么呀，就是想陪你聊聊天！😊
+20:20:01 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='没什么呀，就是想陪你聊聊天！😊'
+20:20:01 | INFO     | services.tts:synthesize - TTS 自动选音色: text='没什么呀，就是想陪你聊聊天！😊', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+20:20:01 | INFO     | services.tts:synthesize - TTS 开始合成: '没什么呀，就是想陪你聊聊天！😊' (voice=zh-CN-XiaoxiaoNeural)
+20:20:03 | INFO     | services.tts:synthesize - TTS 合成完成: 148224 bytes PCM (4.6s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+20:20:03 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 1.4s] 37 chunks, 148224 bytes (4.6s 音频)
+20:20:11 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-52dBm, 充电=False
+20:20:24 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:20:26 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-52dBm, 充电=False
+20:20:26 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:20:26 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 65536 bytes
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.000', 'extract_feat': '0.003', 'forward': '0.014', 'batch_size': '1', 'rtf': '0.007'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 70.19it/s]rtf_avg: 0.007: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 69.70it/s]                                                                                          rtf_avg: 0.007: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 69.29it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.64it/s][A
+{'load_data': '0.000', 'extract_feat': '0.001', 'forward': '0.610', 'batch_size': '1', 'rtf': '0.299'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.64it/s][A
+rtf_avg: 0.299: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.64it/s]                                                                                          [Artf_avg: 0.299: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.64it/s]
+100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.63it/s]rtf_avg: 0.299, time_speech:  2.048, time_escape: 0.612: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.63it/s]rtf_avg: 0.299, time_speech:  2.048, time_escape: 0.612: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.63it/s]
+20:20:27 | INFO     | services.asr:transcribe - ASR 识别完成: '你好棒啊。😔'
+20:20:27 | INFO     | nanobot.agent.loop:_process_message - Processing message from desktop_voice:desktop_mic: 你好棒啊。😔
+20:20:32 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:20:32 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:20:32 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:20:32 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:20:32 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:20:32 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:20:32 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:20:33 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:20:41 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-46dBm, 充电=False
+20:20:50 | INFO     | nanobot.agent.loop:_process_message - Response to desktop_voice:desktop_mic: 谢谢你的夸奖！不过你看起来有点难过，想聊聊吗？
+20:20:50 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='谢谢你的夸奖！不过你看起来有点难过，想聊聊吗？'
+20:20:50 | INFO     | services.tts:synthesize - TTS 自动选音色: text='谢谢你的夸奖！不过你看起来有点难过，想聊聊吗？', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+20:20:50 | INFO     | services.tts:synthesize - TTS 开始合成: '谢谢你的夸奖！不过你看起来有点难过，想聊聊吗？' (voice=zh-CN-XiaoxiaoNeural)
+20:20:51 | INFO     | services.tts:synthesize - TTS 合成完成: 165888 bytes PCM (5.2s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+20:20:51 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 1.2s] 41 chunks, 165888 bytes (5.2s 音频)
+20:20:56 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-42dBm, 充电=False
+20:21:09 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:21:11 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-66dBm, 充电=False
+20:21:11 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:21:11 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 86016 bytes
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.000', 'extract_feat': '0.005', 'forward': '0.023', 'batch_size': '1', 'rtf': '0.009'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 42.80it/s]rtf_avg: 0.009: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 42.64it/s]                                                                                          rtf_avg: 0.009: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 42.51it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.59it/s][A
+{'load_data': '0.000', 'extract_feat': '0.002', 'forward': '0.628', 'batch_size': '1', 'rtf': '0.243'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.59it/s][A
+rtf_avg: 0.243: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.59it/s]                                                                                          [Artf_avg: 0.243: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  1.59it/s]
+100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.59it/s]rtf_avg: 0.235, time_speech:  2.688, time_escape: 0.631: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.59it/s]rtf_avg: 0.235, time_speech:  2.688, time_escape: 0.631: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  1.59it/s]
+20:21:12 | INFO     | services.asr:transcribe - ASR 识别完成: '真的假的，你这你都知道。'
+20:21:12 | INFO     | nanobot.agent.loop:_process_message - Processing message from desktop_voice:desktop_mic: 真的假的，你这你都知道。
+20:21:16 | INFO     | nanobot.agent.loop:_process_message - Response to desktop_voice:desktop_mic: 哈哈，我能感觉到你的语气呀！有什么心事可以跟我说说。
+20:21:16 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='哈哈，我能感觉到你的语气呀！有什么心事可以跟我说说。'
+20:21:16 | INFO     | services.tts:synthesize - TTS 自动选音色: text='哈哈，我能感觉到你的语气呀！有什么心事可以跟我说说。', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+20:21:16 | INFO     | services.tts:synthesize - TTS 开始合成: '哈哈，我能感觉到你的语气呀！有什么心事可以跟我说说。' (voice=zh-CN-XiaoxiaoNeural)
+20:21:17 | INFO     | services.tts:synthesize - TTS 合成完成: 185088 bytes PCM (5.8s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+20:21:17 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 1.1s] 46 chunks, 185088 bytes (5.8s 音频)
+20:21:26 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-53dBm, 充电=False
+20:21:28 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:21:31 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:21:31 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 106496 bytes
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.000', 'extract_feat': '0.004', 'forward': '0.019', 'batch_size': '1', 'rtf': '0.006'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 52.76it/s]rtf_avg: 0.006: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 52.49it/s]                                                                                          rtf_avg: 0.006: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 52.29it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.20it/s][A
+{'load_data': '0.000', 'extract_feat': '0.002', 'forward': '0.454', 'batch_size': '1', 'rtf': '0.154'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.20it/s][A
+rtf_avg: 0.154: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.20it/s]                                                                                          [Artf_avg: 0.154: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.20it/s]
+100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.19it/s]rtf_avg: 0.137, time_speech:  3.328, time_escape: 0.456: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.19it/s]rtf_avg: 0.137, time_speech:  3.328, time_escape: 0.456: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.19it/s]
+20:21:32 | INFO     | services.asr:transcribe - ASR 识别完成: '我要100万我要100万。'
+20:21:32 | INFO     | nanobot.agent.loop:_process_message - Processing message from desktop_voice:desktop_mic: 我要100万我要100万。
+20:21:39 | INFO     | nanobot.agent.loop:_process_message - Response to desktop_voice:desktop_mic: 哈哈，我也想要100万！可惜我只是个AI助手，帮不了你发财呀😄
+20:21:39 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='哈哈，我也想要100万！可惜我只是个AI助手，帮不了你发财呀😄'
+20:21:39 | INFO     | services.tts:synthesize - TTS 自动选音色: text='哈哈，我也想要100万！可惜我只是个AI助手，帮不了你发财呀...', candidates=['zh-CN-XiaoxiaoNeural', 'en-US-AriaNeural']
+20:21:39 | INFO     | services.tts:synthesize - TTS 开始合成: '哈哈，我也想要100万！可惜我只是个AI助手，帮不了你发财呀...' (voice=zh-CN-XiaoxiaoNeural)
+20:21:40 | INFO     | services.tts:synthesize - TTS 合成完成: 250368 bytes PCM (7.8s, voice=zh-CN-XiaoxiaoNeural, volume_scale=0.55)
+20:21:41 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-44dBm, 充电=False
+20:21:42 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 2.9s] 62 chunks, 250368 bytes (7.8s 音频)
+20:21:49 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_press
+20:21:51 | INFO     | channels.device_channel:_on_touch_event - 收到触摸事件: long_release
+20:21:51 | INFO     | services.asr:transcribe - ASR 开始识别, 音频大小: 36864 bytes
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s]{'load_data': '0.000', 'extract_feat': '0.002', 'forward': '0.011', 'batch_size': '1', 'rtf': '0.010'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00, 90.89it/s]rtf_avg: 0.010: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 90.15it/s]                                                                                          rtf_avg: 0.010: 100%|[34m██████████[0m| 1/1 [00:00<00:00, 89.56it/s]
+  0%|[31m          [0m| 0/1 [00:00<?, ?it/s]
+  0%|[34m          [0m| 0/1 [00:00<?, ?it/s][A
+100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.09it/s][A
+{'load_data': '0.000', 'extract_feat': '0.001', 'forward': '0.477', 'batch_size': '1', 'rtf': '0.419'}, : 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.09it/s][A
+rtf_avg: 0.419: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.09it/s]                                                                                          [Artf_avg: 0.419: 100%|[34m██████████[0m| 1/1 [00:00<00:00,  2.09it/s]
+100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.08it/s]rtf_avg: 0.416, time_speech:  1.152, time_escape: 0.480: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.08it/s]rtf_avg: 0.416, time_speech:  1.152, time_escape: 0.480: 100%|[31m██████████[0m| 1/1 [00:00<00:00,  2.08it/s]
+20:21:51 | INFO     | services.asr:transcribe - ASR 识别完成: '讲英文。'
+20:21:51 | INFO     | nanobot.agent.loop:_process_message - Processing message from desktop_voice:desktop_mic: 讲英文。
+20:21:56 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+20:22:11 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-40dBm, 充电=False
+20:22:12 | INFO     | nanobot.agent.loop:_process_message - Response to desktop_voice:desktop_mic: Okay! I'll speak English now. How can I help you?
+20:22:12 | INFO     | channels.device_channel:_stream_voice_reply - 开始向设备发送 TTS 音频: voice=en-US-AriaNeural, text='Okay! I'll speak English now. How can I help you?'
+20:22:12 | INFO     | services.tts:synthesize - TTS 自动选音色: text='Okay! I'll speak English now. ...', candidates=['en-US-AriaNeural', 'zh-CN-XiaoxiaoNeural']
+20:22:12 | INFO     | services.tts:synthesize - TTS 开始合成: 'Okay! I'll speak English now. ...' (voice=en-US-AriaNeural)
+20:22:13 | INFO     | services.tts:synthesize - TTS 合成完成: 178944 bytes PCM (5.6s, voice=en-US-AriaNeural, volume_scale=0.55)
+20:22:13 | INFO     | channels.device_channel:_stream_voice_reply - [TTS 0.7s] 44 chunks, 178944 bytes (5.6s 音频)
+20:22:26 | INFO     | channels.device_channel:_on_device_status - 设备状态更新: 电量=-1%, WiFi=-46dBm, 充电=False

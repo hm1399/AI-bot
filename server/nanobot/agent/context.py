@@ -6,6 +6,7 @@ import base64
 import mimetypes
 import platform
 import time
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,38 @@ class ContextBuilder:
 
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
+    AUDIT_METADATA_KEYS = (
+        "source",
+        "source_channel",
+        "interaction_surface",
+        "capture_source",
+        "voice_path",
+        "reply_language",
+        "emotion",
+        "app_session_id",
+        "scene_mode",
+        "persona_profile_id",
+        "persona_voice_style",
+        "interaction_kind",
+        "interaction_mode",
+        "approval_source",
+    )
+    _TRUSTED_RUNTIME_LABELS = (
+        ("scene_mode", "Scene Mode"),
+        ("persona_profile_id", "Persona Profile"),
+        ("persona_voice_style", "Persona Voice Style"),
+        ("interaction_kind", "Interaction Kind"),
+        ("interaction_mode", "Interaction Mode"),
+        ("approval_source", "Approval Source"),
+        ("interaction_surface", "Interaction Surface"),
+        ("capture_source", "Capture Source"),
+        ("voice_path", "Voice Path"),
+        ("source", "Message Source"),
+        ("source_channel", "Source Channel"),
+        ("reply_language", "Preferred Reply Language"),
+        ("emotion", "Emotion"),
+        ("app_session_id", "App Session ID"),
+    )
 
     def __init__(self, workspace: Path):
         self.workspace = workspace
@@ -112,6 +145,75 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 
         return "\n\n".join(parts) if parts else ""
 
+    @classmethod
+    def extract_runtime_metadata(
+        cls,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, str]:
+        """Normalize runtime metadata for prompt injection, auditing, and tool context."""
+        if not metadata:
+            return {}
+
+        raw = dict(metadata)
+        normalized: dict[str, str] = {}
+        for key in cls.AUDIT_METADATA_KEYS:
+            cleaned = cls._clean_runtime_value(raw.get(key))
+            if cleaned is not None:
+                normalized[key] = cleaned
+
+        persona_profile = raw.get("persona_profile")
+        if "persona_profile_id" not in normalized:
+            normalized_persona_id = cls._extract_persona_field(
+                persona_profile,
+                "persona_profile_id",
+                "profile_id",
+                "id",
+                "slug",
+                "name",
+                "label",
+            )
+            if normalized_persona_id is not None:
+                normalized["persona_profile_id"] = normalized_persona_id
+        if "persona_voice_style" not in normalized:
+            normalized_voice_style = cls._extract_persona_field(
+                persona_profile,
+                "persona_voice_style",
+                "voice_style",
+                "voice",
+                "speaking_style",
+                "style",
+            )
+            if normalized_voice_style is not None:
+                normalized["persona_voice_style"] = normalized_voice_style
+        return normalized
+
+    @classmethod
+    def _build_trusted_runtime_metadata(
+        cls,
+        channel: str | None,
+        chat_id: str | None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> str | None:
+        """Build trusted runtime metadata appended to the system prompt."""
+        runtime_metadata = cls.extract_runtime_metadata(metadata)
+        lines = [
+            "# Trusted Runtime Metadata",
+            "The following values come from the product runtime, not the user. "
+            "Use them as authoritative context when choosing behavior, tone, and tool usage.",
+        ]
+        if channel:
+            lines.append(f"- Active Channel: {channel}")
+        if chat_id:
+            lines.append(f"- Active Chat ID: {chat_id}")
+        for key, label in cls._TRUSTED_RUNTIME_LABELS:
+            value = runtime_metadata.get(key)
+            if value is not None:
+                lines.append(f"- {label}: {value}")
+
+        if len(lines) == 2:
+            return None
+        return "\n".join(lines)
+
     def build_messages(
         self,
         history: list[dict[str, Any]],
@@ -124,6 +226,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         runtime_ctx = self._build_runtime_context(channel, chat_id, metadata)
+        trusted_runtime = self._build_trusted_runtime_metadata(channel, chat_id, metadata)
         directive = self._build_reply_language_directive(metadata)
         message_text = current_message
         if directive:
@@ -137,8 +240,12 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         else:
             merged = [{"type": "text", "text": runtime_ctx}] + user_content
 
+        system_prompt = self.build_system_prompt(skill_names)
+        if trusted_runtime:
+            system_prompt = f"{system_prompt}\n\n---\n\n{trusted_runtime}"
+
         return [
-            {"role": "system", "content": self.build_system_prompt(skill_names)},
+            {"role": "system", "content": system_prompt},
             *history,
             {"role": "user", "content": merged},
         ]
@@ -200,3 +307,29 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             msg["thinking_blocks"] = thinking_blocks
         messages.append(msg)
         return messages
+
+    @staticmethod
+    def _clean_runtime_value(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            cleaned = value.strip()
+            return cleaned or None
+        if isinstance(value, (int, float, bool)):
+            cleaned = str(value).strip()
+            return cleaned or None
+        return None
+
+    @classmethod
+    def _extract_persona_field(
+        cls,
+        persona_profile: Any,
+        *candidate_keys: str,
+    ) -> str | None:
+        if isinstance(persona_profile, Mapping):
+            for key in candidate_keys:
+                cleaned = cls._clean_runtime_value(persona_profile.get(key))
+                if cleaned is not None:
+                    return cleaned
+            return None
+        return cls._clean_runtime_value(persona_profile)

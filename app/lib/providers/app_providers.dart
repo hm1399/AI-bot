@@ -15,6 +15,7 @@ import '../models/control/computer_action_model.dart';
 import '../models/device_pairing/device_pairing_bundle_model.dart';
 import '../models/device_pairing/device_pairing_draft_model.dart';
 import '../models/device_pairing/device_pairing_state_model.dart';
+import '../models/experience/experience_model.dart';
 import '../models/events/event_model.dart';
 import '../models/notifications/notification_model.dart';
 import '../models/planning/planning_conflict_model.dart';
@@ -35,6 +36,7 @@ import '../services/device_pairing/serial_pairing_service.dart';
 import '../services/device_pairing/serial_pairing_service_base.dart';
 import '../services/demo/demo_service_bundle.dart';
 import '../services/events/events_service.dart';
+import '../services/experience/experience_service.dart';
 import '../services/home/device_service.dart';
 import '../services/home/runtime_service.dart';
 import '../services/notifications/notifications_service.dart';
@@ -105,6 +107,9 @@ final serialPairingServiceProvider = Provider<SerialPairingService>((Ref ref) {
 });
 final settingsServiceProvider = Provider<SettingsService>(
   (Ref ref) => SettingsService(ref.read(apiClientProvider)),
+);
+final experienceServiceProvider = Provider<ExperienceService>(
+  (Ref ref) => ExperienceService(ref.read(apiClientProvider)),
 );
 final computerControlServiceProvider = Provider<ComputerControlService>(
   (Ref ref) => ComputerControlService(ref.read(apiClientProvider)),
@@ -244,6 +249,9 @@ class AppController extends StateNotifier<AppState> {
         capabilities: bootstrap.capabilities,
         runtimeState: bootstrap.runtime,
         sessions: bootstrap.sessions,
+        sessionExperienceOverrides: _experienceOverridesFromSessions(
+          bootstrap.sessions,
+        ),
         globalMessage: silent ? null : 'Connected to AI-bot backend.',
       );
       if (sessionId.isNotEmpty) {
@@ -291,6 +299,107 @@ class AppController extends StateNotifier<AppState> {
     return sessions.isNotEmpty ? sessions.first.sessionId : '';
   }
 
+  Map<String, SessionExperienceOverrideModel> _storeSessionExperience(
+    Map<String, SessionExperienceOverrideModel> current,
+    String sessionId,
+    SessionExperienceOverrideModel? override,
+  ) {
+    if (sessionId.trim().isEmpty) {
+      return current;
+    }
+    final next = Map<String, SessionExperienceOverrideModel>.from(current);
+    if (override == null || !override.hasOverrides) {
+      next.remove(sessionId);
+      return next;
+    }
+    next[sessionId] = override;
+    return next;
+  }
+
+  SessionExperienceOverrideModel? _experienceOverrideFromSession(
+    SessionModel? session,
+  ) {
+    final override = session?.experienceOverride;
+    if (override == null || !override.hasOverrides) {
+      return null;
+    }
+    return override;
+  }
+
+  Map<String, SessionExperienceOverrideModel> _experienceOverridesFromSessions(
+    Iterable<SessionModel> sessions, {
+    Map<String, SessionExperienceOverrideModel> seed =
+        const <String, SessionExperienceOverrideModel>{},
+  }) {
+    var next = Map<String, SessionExperienceOverrideModel>.from(seed);
+    for (final session in sessions) {
+      next = _storeSessionExperience(
+        next,
+        session.sessionId,
+        _experienceOverrideFromSession(session),
+      );
+    }
+    return next;
+  }
+
+  Future<void> updateCurrentSessionExperience({
+    String? sceneMode,
+    PersonaPresetModel? personaPreset,
+  }) async {
+    final sessionId = state.currentSessionId.trim();
+    if (sessionId.isEmpty) {
+      state = state.copyWith(
+        globalMessage: 'Create or select a conversation before changing scene.',
+      );
+      return;
+    }
+
+    final existing =
+        state.experienceOverrideFor(sessionId) ??
+        const SessionExperienceOverrideModel();
+    final next = existing.copyWith(
+      sceneMode: sceneMode ?? existing.sceneMode,
+      personaProfileId: personaPreset?.id ?? existing.personaProfileId,
+      persona: personaPreset?.profile ?? existing.persona,
+      source: 'session_override',
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+
+    state = state.copyWith(
+      sessionExperienceOverrides: _storeSessionExperience(
+        state.sessionExperienceOverrides,
+        sessionId,
+        next,
+      ),
+      globalMessage: 'Conversation experience updated.',
+    );
+
+    if (state.isDemoMode) {
+      return;
+    }
+
+    _apiClient.setConnection(state.connection);
+    try {
+      final synced = await ref
+          .read(experienceServiceProvider)
+          .patchSessionExperience(sessionId, next);
+      state = state.copyWith(
+        sessionExperienceOverrides: _storeSessionExperience(
+          state.sessionExperienceOverrides,
+          sessionId,
+          synced.hasOverrides ? synced : next,
+        ),
+        globalMessage: 'Conversation experience synced.',
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(
+        globalMessage: error.isBackendNotReady
+            ? 'Conversation experience updated locally. Backend sync is not ready yet.'
+            : error.message,
+      );
+    }
+  }
+
   Future<void> connectDemo() async {
     ref.read(wsReconnectServiceProvider).disconnect();
     _apiClient.clearConnection();
@@ -315,6 +424,8 @@ class AppController extends StateNotifier<AppState> {
       runtimeState: DemoServiceBundle.runtime,
       sessions: DemoServiceBundle.sessions,
       messagesBySession: DemoServiceBundle.messagesBySession,
+      sessionExperienceOverrides:
+          const <String, SessionExperienceOverrideModel>{},
       settingsStatus: FeatureStatus.demo,
       settings: _demoSettings(),
       tasksStatus: FeatureStatus.demo,
@@ -380,6 +491,8 @@ class AppController extends StateNotifier<AppState> {
         runtimeState: DemoServiceBundle.runtime,
         sessions: DemoServiceBundle.sessions,
         messagesBySession: DemoServiceBundle.messagesBySession,
+        sessionExperienceOverrides:
+            const <String, SessionExperienceOverrideModel>{},
         settingsStatus: FeatureStatus.demo,
         settings: _demoSettings(),
         tasksStatus: FeatureStatus.demo,
@@ -429,6 +542,9 @@ class AppController extends StateNotifier<AppState> {
         capabilities: bootstrap.capabilities,
         runtimeState: bootstrap.runtime,
         sessions: bootstrap.sessions,
+        sessionExperienceOverrides: _experienceOverridesFromSessions(
+          bootstrap.sessions,
+        ),
         globalMessage: 'Workspace refreshed.',
       );
       if (sessionId.isNotEmpty) {
@@ -489,6 +605,10 @@ class AppController extends StateNotifier<AppState> {
       state = state.copyWith(
         connection: nextConnection,
         sessions: sessions,
+        sessionExperienceOverrides: _experienceOverridesFromSessions(
+          sessions,
+          seed: state.sessionExperienceOverrides,
+        ),
         globalMessage: sessions.isEmpty
             ? 'No conversations yet.'
             : 'Conversation list refreshed.',
@@ -2038,6 +2158,46 @@ class AppController extends StateNotifier<AppState> {
         mode: 'config_only',
         status: 'saved_only',
       ),
+      'default_scene_mode': SettingApplyResultModel(
+        field: 'default_scene_mode',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'persona_tone_style': SettingApplyResultModel(
+        field: 'persona_tone_style',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'persona_reply_length': SettingApplyResultModel(
+        field: 'persona_reply_length',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'persona_proactivity': SettingApplyResultModel(
+        field: 'persona_proactivity',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'persona_voice_style': SettingApplyResultModel(
+        field: 'persona_voice_style',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'physical_interaction_enabled': SettingApplyResultModel(
+        field: 'physical_interaction_enabled',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'shake_enabled': SettingApplyResultModel(
+        field: 'shake_enabled',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
+      'tap_confirmation_enabled': SettingApplyResultModel(
+        field: 'tap_confirmation_enabled',
+        mode: 'config_only',
+        status: 'saved_only',
+      ),
     };
   }
 
@@ -2277,9 +2437,22 @@ class AppController extends StateNotifier<AppState> {
       case 'runtime.task.queue_changed':
       case 'device.state.changed':
       case 'device.status.updated':
+      case 'device.interaction.recorded':
       case 'todo.summary.changed':
       case 'calendar.summary.changed':
         unawaited(refreshRuntime());
+        break;
+      case 'runtime.experience.updated':
+        final rawExperience = event.payload['experience'];
+        if (rawExperience is Map<String, dynamic>) {
+          final nextExperience = ExperienceRuntimeModel.fromJson(rawExperience);
+          final nextRuntime = state.runtimeState.copyWithExperience(
+            nextExperience,
+          );
+          state = state.copyWith(runtimeState: nextRuntime);
+        } else {
+          unawaited(refreshRuntime());
+        }
         break;
       case 'device.connection.changed':
         final connected = event.payload['connected'] == true;
@@ -2314,6 +2487,11 @@ class AppController extends StateNotifier<AppState> {
           final nextSession = SessionModel.fromJson(rawSession);
           state = state.copyWith(
             sessions: _replaceSession(state.sessions, nextSession),
+            sessionExperienceOverrides: _storeSessionExperience(
+              state.sessionExperienceOverrides,
+              nextSession.sessionId,
+              _experienceOverrideFromSession(nextSession),
+            ),
           );
         }
         break;
@@ -2360,15 +2538,16 @@ class AppController extends StateNotifier<AppState> {
               ? event.payload['metadata'] as Map<String, dynamic>
               : const <String, dynamic>{},
         );
+        final updated = _upsertMessage(
+          List<MessageModel>.from(
+            state.messagesBySession[sessionId] ?? const <MessageModel>[],
+          ),
+          streaming,
+        );
         state = state.copyWith(
           messagesBySession: <String, List<MessageModel>>{
             ...state.messagesBySession,
-            sessionId: _upsertMessage(
-              List<MessageModel>.from(
-                state.messagesBySession[sessionId] ?? const <MessageModel>[],
-              ),
-              streaming,
-            ),
+            sessionId: updated,
           },
         );
         break;

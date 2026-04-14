@@ -8,6 +8,7 @@ import tempfile
 import time
 import types
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from types import MethodType
 from unittest.mock import patch
@@ -36,6 +37,16 @@ class SequencedProvider(FakeProvider):
         if not self._responses:
             raise AssertionError("No more fake responses queued")
         return self._responses.pop(0)
+
+
+class CapturingProvider(SequencedProvider):
+    def __init__(self, responses: list[LLMResponse]) -> None:
+        super().__init__(responses)
+        self.calls: list[dict[str, object]] = []
+
+    async def chat(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        return await super().chat(**kwargs)
 
 
 class FakePlanningBackend:
@@ -129,6 +140,9 @@ class FakePlanningBackend:
             "source_channel": payload.get("source_channel"),
             "source_message_id": payload.get("source_message_id"),
             "source_session_id": payload.get("source_session_id"),
+            "interaction_surface": payload.get("interaction_surface"),
+            "capture_source": payload.get("capture_source"),
+            "voice_path": payload.get("voice_path"),
             "linked_task_id": payload.get("linked_task_id"),
             "linked_event_id": payload.get("linked_event_id"),
             "linked_reminder_id": payload.get("linked_reminder_id"),
@@ -172,6 +186,9 @@ class FakePlanningBackend:
             "source_channel": payload.get("source_channel"),
             "source_message_id": payload.get("source_message_id"),
             "source_session_id": payload.get("source_session_id"),
+            "interaction_surface": payload.get("interaction_surface"),
+            "capture_source": payload.get("capture_source"),
+            "voice_path": payload.get("voice_path"),
             "linked_task_id": payload.get("linked_task_id"),
             "linked_event_id": payload.get("linked_event_id"),
             "linked_reminder_id": payload.get("linked_reminder_id"),
@@ -194,6 +211,9 @@ class FakePlanningBackend:
             "source_channel": payload.get("source_channel"),
             "source_message_id": payload.get("source_message_id"),
             "source_session_id": payload.get("source_session_id"),
+            "interaction_surface": payload.get("interaction_surface"),
+            "capture_source": payload.get("capture_source"),
+            "voice_path": payload.get("voice_path"),
             "linked_task_id": payload.get("linked_task_id"),
             "linked_event_id": payload.get("linked_event_id"),
             "linked_reminder_id": payload.get("linked_reminder_id"),
@@ -260,6 +280,7 @@ class FakeComputerControlBackend:
                 "status": "awaiting_confirmation",
                 "confirmation_needed": True,
                 "risk_level": "high",
+                "metadata": deepcopy(payload.get("metadata") or {}),
                 "message": "Waiting for user confirmation.",
                 "result": {
                     "target": payload.get("target"),
@@ -272,6 +293,7 @@ class FakeComputerControlBackend:
             "status": "completed",
             "confirmation_needed": False,
             "risk_level": "low",
+            "metadata": deepcopy(payload.get("metadata") or {}),
             "message": "Action completed.",
             "result": {
                 "target": payload.get("target"),
@@ -572,6 +594,18 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
             content="Remember to renew my passport today",
             metadata={
                 "task_id": "runtime_task",
+                "source": "device",
+                "interaction_surface": "device_shake",
+                "capture_source": "imu_sensor",
+                "voice_path": "desktop_mic",
+                "scene_mode": "companion",
+                "persona_profile": {
+                    "id": "planner_companion",
+                    "voice_style": "warm_concise",
+                },
+                "interaction_kind": "shake_event",
+                "interaction_mode": "physical",
+                "approval_source": "device_tap",
                 "assistant_message_id": "msg_assistant",
             },
         )
@@ -582,6 +616,15 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         planning_results = response.metadata["tool_results"]["planning"]
         self.assertEqual(planning_results[0]["action"], "create_task")
         self.assertEqual(planning_results[0]["resource_ids"]["task_id"], "task_created")
+        self.assertEqual(planning_results[0]["request_metadata"]["scene_mode"], "companion")
+        self.assertEqual(planning_results[0]["request_metadata"]["persona_profile_id"], "planner_companion")
+        self.assertEqual(planning_results[0]["request_metadata"]["persona_voice_style"], "warm_concise")
+        self.assertEqual(planning_results[0]["request_metadata"]["interaction_kind"], "shake_event")
+        self.assertEqual(planning_results[0]["request_metadata"]["interaction_mode"], "physical")
+        self.assertEqual(planning_results[0]["request_metadata"]["approval_source"], "device_tap")
+        self.assertEqual(planning_results[0]["result"]["task"]["interaction_surface"], "device_shake")
+        self.assertEqual(planning_results[0]["result"]["task"]["capture_source"], "imu_sensor")
+        self.assertEqual(planning_results[0]["result"]["task"]["voice_path"], "desktop_mic")
 
         session = agent.sessions.get_or_create("app:main")
         persisted = [
@@ -620,6 +663,14 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
                 "reply_language": "Chinese",
                 "emotion": "calm",
                 "app_session_id": "app:main",
+                "scene_mode": "focus",
+                "persona_profile": {
+                    "id": "coach",
+                    "voice_style": "calm_direct",
+                },
+                "interaction_kind": "press_hold",
+                "interaction_mode": "hands_free",
+                "approval_source": "device_double_tap",
             },
         )
 
@@ -645,9 +696,52 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(entry["reply_language"], "Chinese")
             self.assertEqual(entry["emotion"], "calm")
             self.assertEqual(entry["app_session_id"], "app:main")
+            self.assertEqual(entry["scene_mode"], "focus")
+            self.assertEqual(entry["persona_profile_id"], "coach")
+            self.assertEqual(entry["persona_voice_style"], "calm_direct")
+            self.assertEqual(entry["interaction_kind"], "press_hold")
+            self.assertEqual(entry["interaction_mode"], "hands_free")
+            self.assertEqual(entry["approval_source"], "device_double_tap")
         self.assertEqual(user_entry["message_id"], "msg_user")
         self.assertEqual(user_entry["client_message_id"], "client_user")
         self.assertEqual(assistant_entry["message_id"], "msg_assistant")
+        self.assertEqual(response.metadata["scene_mode"], "focus")
+        self.assertEqual(response.metadata["persona_profile_id"], "coach")
+        self.assertEqual(response.metadata["persona_voice_style"], "calm_direct")
+
+    async def test_agent_loop_injects_trusted_runtime_metadata_into_system_prompt(self) -> None:
+        provider = CapturingProvider([LLMResponse(content="Ready.")])
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=self.workspace,
+        )
+        msg = InboundMessage(
+            channel="device",
+            sender_id="esp32",
+            chat_id="living-room",
+            content="现在状态怎么样",
+            metadata={
+                "scene_mode": "meeting",
+                "interaction_kind": "wake_word",
+                "interaction_mode": "ambient",
+                "persona_profile": {
+                    "id": "briefing",
+                    "voice_style": "short_formal",
+                },
+            },
+        )
+
+        response = await agent._process_message(msg)
+
+        self.assertIsNotNone(response)
+        system_prompt = provider.calls[0]["messages"][0]["content"]
+        self.assertIn("Trusted Runtime Metadata", system_prompt)
+        self.assertIn("Scene Mode: meeting", system_prompt)
+        self.assertIn("Interaction Kind: wake_word", system_prompt)
+        self.assertIn("Interaction Mode: ambient", system_prompt)
+        self.assertIn("Persona Profile: briefing", system_prompt)
+        self.assertIn("Persona Voice Style: short_formal", system_prompt)
 
 
 class AgentLoopComputerControlToolTests(unittest.IsolatedAsyncioTestCase):
@@ -684,7 +778,24 @@ class AgentLoopComputerControlToolTests(unittest.IsolatedAsyncioTestCase):
         )
         tool = agent.tools.get("computer_control")
         assert tool is not None
-        tool.set_context("app", "main", "msg_user", "runtime_task")
+        tool.set_context(
+            "app",
+            "main",
+            "msg_user",
+            "runtime_task",
+            metadata={
+                "source": "voice",
+                "scene_mode": "focus",
+                "persona_profile_id": "operator",
+                "persona_voice_style": "calm_direct",
+                "interaction_kind": "button_press",
+                "interaction_mode": "hands_free",
+                "approval_source": "device_tap",
+                "interaction_surface": "device_button",
+                "capture_source": "desktop_mic",
+                "voice_path": "desktop_mic",
+            },
+        )
         tool.start_turn()
 
         result = await agent.tools.execute(
@@ -705,9 +816,19 @@ class AgentLoopComputerControlToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.backend.calls[0]["source_session_id"], "app:main")
         self.assertEqual(self.backend.calls[0]["source_message_id"], "msg_user")
         self.assertEqual(self.backend.calls[0]["task_id"], "runtime_task")
+        self.assertEqual(self.backend.calls[0]["metadata"]["scene_mode"], "focus")
+        self.assertEqual(self.backend.calls[0]["metadata"]["persona_profile_id"], "operator")
+        self.assertEqual(self.backend.calls[0]["metadata"]["persona_voice_style"], "calm_direct")
+        self.assertEqual(self.backend.calls[0]["metadata"]["interaction_kind"], "button_press")
+        self.assertEqual(self.backend.calls[0]["metadata"]["interaction_mode"], "hands_free")
+        self.assertEqual(self.backend.calls[0]["metadata"]["approval_source"], "device_tap")
+        self.assertEqual(self.backend.calls[0]["metadata"]["interaction_surface"], "device_button")
+        self.assertEqual(self.backend.calls[0]["metadata"]["capture_source"], "desktop_mic")
+        self.assertEqual(self.backend.calls[0]["metadata"]["voice_path"], "desktop_mic")
 
         turn_results = tool.consume_turn_results()
         self.assertEqual(turn_results[0]["action_id"], "cc_action_done")
+        self.assertEqual(turn_results[0]["metadata"]["scene_mode"], "focus")
 
     async def test_computer_control_tool_result_is_preserved_in_response_metadata_and_session(self) -> None:
         provider = SequencedProvider(
@@ -744,6 +865,14 @@ class AgentLoopComputerControlToolTests(unittest.IsolatedAsyncioTestCase):
                 "task_id": "runtime_task",
                 "message_id": "msg_user",
                 "assistant_message_id": "msg_assistant",
+                "scene_mode": "focus",
+                "persona_profile": {
+                    "id": "assistant_operator",
+                    "voice_style": "precise",
+                },
+                "interaction_kind": "voice_command",
+                "interaction_mode": "direct",
+                "approval_source": "app_confirm_button",
             },
         )
 
@@ -756,6 +885,12 @@ class AgentLoopComputerControlToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.backend.calls[0]["source_channel"], "app")
         self.assertEqual(self.backend.calls[0]["source_session_id"], "app:main")
         self.assertEqual(self.backend.calls[0]["source_message_id"], "msg_user")
+        self.assertEqual(control_results[0]["metadata"]["scene_mode"], "focus")
+        self.assertEqual(control_results[0]["metadata"]["persona_profile_id"], "assistant_operator")
+        self.assertEqual(control_results[0]["metadata"]["persona_voice_style"], "precise")
+        self.assertEqual(control_results[0]["metadata"]["interaction_kind"], "voice_command")
+        self.assertEqual(control_results[0]["metadata"]["interaction_mode"], "direct")
+        self.assertEqual(control_results[0]["metadata"]["approval_source"], "app_confirm_button")
 
         session = agent.sessions.get_or_create("app:main")
         persisted = [
