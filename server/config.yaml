@@ -3,11 +3,11 @@ server:
   port: 8765
 
 nanobot:
-  model: z-ai/glm-4.7
+  model: x-ai/grok-4.1-fast
   provider: openrouter
   api_key: ${OPENROUTER_API_KEY}
   max_tokens: 8192
-  temperature: 0.1
+  temperature: 0.4
   provider_timeout_seconds: 90
   max_tool_iterations: 20
   memory_window: 50
