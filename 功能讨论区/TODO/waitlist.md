@@ -199,6 +199,14 @@
 
 ### Checkpoint 2026-04-11-05 Reminder 调度仍是固定间隔全量轮询
 
+### Checkpoint 2026-04-14-02 设备全屏脸已不再消费状态栏/底部文案，但固件与服务端协议仍持续维护这条 UI 链路
+
+- 发现来源：本轮设备脸切换到 `m5stack-avatar` 风格实现。
+- 当前状态：`firmware/arduino/demo/face_display.cpp` 已收敛为全屏静态脸渲染，`faceSetText()`、`faceSetStatusBar()`、`faceSetWeather()`、`faceSetBattery()` 都是空实现；但 `firmware/arduino/demo/demo.ino` 仍频繁调用这些接口，服务端 `server/channels/device_channel.py` 也仍会发送 `status_bar_update`、`display_update`、`text_reply`。
+- 影响：当前链路不会再在设备屏幕上产生实际显示效果，但仍占用代码路径和心智负担；后续如果有人继续沿这条路径排查“为什么屏幕没显示文字/时间”，会被已经废弃的 UI 设计误导。
+- 建议动作：后续单独立项统一收口设备显示协议，明确哪些字段仍保留给语音/日志/前端，哪些字段应从固件和服务端设备屏幕链路中彻底下线。
+- 本轮处理：未处理。
+
 - 发现来源：本轮任务调度与性能优化调研。
 - 当前状态：`server/services/reminder_scheduler.py` 仍按固定 `poll_interval_s=15.0` 周期醒来，并对全部 reminder 做检查。
 - 影响：提醒数量增长后会出现无谓空转，且到点精度受轮询间隔限制，不利于后续扩展更复杂的日程/提醒体系。

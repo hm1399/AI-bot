@@ -2,7 +2,7 @@
 #define FACE_DISPLAY_H
 
 #include <TFT_eSPI.h>
-#include <U8g2_for_TFT_eSPI.h>
+
 #include "face_config.h"
 
 // 表情状态
@@ -23,7 +23,7 @@ void faceSetState(FaceState state);
 // 获取当前状态
 FaceState faceGetState();
 
-// 动画帧更新（loop 中调用，Phase 1 为空实现）
+// 动画帧更新（loop 中调用）
 void faceUpdate();
 
 // 设置底部文字区内容
