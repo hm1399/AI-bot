@@ -5,6 +5,14 @@
 - 只记录本轮调研或文档同步时发现、但未在当前任务内处理的问题。
 - 每条使用 checkpoint 记录，等待主线程确认后再决定是否立项或回填。
 
+### Checkpoint 2026-04-14-01 `arduino-cli` 默认板参会把 demo 固件误编成 4MB / 1.2MB APP
+
+- 发现来源：本轮设备 Avataaars 脸区替换与固件编译验证。
+- 当前状态：直接运行 `arduino-cli compile --fqbn esp32:esp32:esp32s3 firmware/arduino/demo` 时，CLI 默认使用 `FlashSize=4M`、`PartitionScheme=default`、`PSRAM=disabled`；而当前硬件实际是 `ESP32-S3-WROOM-1-N16R8`，需要按 `16MB Flash + OPI PSRAM` 的口径验证。
+- 影响：如果继续按 CLI 默认板参验证，固件会被误判成“程序超 Flash”，也会掩盖真实的可烧录配置，后续任何资源类 UI 改动都容易得到错误结论。
+- 建议动作：后续单独立项补一份 demo 固件明确板参说明，至少固定 `FlashSize / PartitionScheme / PSRAM / FlashMode` 的推荐组合，避免 Arduino IDE 与 CLI 口径漂移。
+- 本轮处理：未处理。
+
 ### Checkpoint 2026-04-11-01 `app/DESIGN.md` 的壳层口径已落后于当前产品结构
 
 - 发现来源：本轮 Chat 页面桌面化改版调研。
@@ -243,6 +251,30 @@
 - 当前状态：`server/workspace/skills/computer-control/SKILL.md` 仍标记 `always: true`，并直接指导使用 `exec` 打开应用、操作文件和查进程；`server/workspace/SOUL.md` 也把“控制电脑”直接表述为 `exec` 能力。
 - 影响：即使后续补出结构化 `computer_control` 服务层，agent 仍可能绕过未来的白名单、确认和审计链路，导致产品口径和实际执行边界不一致。
 - 建议动作：后续实现 `P1-3` 时，同步把这两处口径改成“结构化 `computer_control` 优先、raw `exec` 仅限调试/后备”，并明确高风险外发动作必须走确认流。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-13-01 WeChat `experimental_ui` 仍是占位开关
+
+- 发现来源：本轮 `P1-5 / P1-6` 与微信发送边界调研。
+- 当前状态：`server/services/computer_control/policies.py` 仍保留 `wechat_experimental_ui` 配置，但 `server/services/computer_control/adapters/wechat.py` 里这个开关只会改变返回文案，不会开启真实 UI 自动化或发送能力。
+- 影响：后续如果只看配置层，容易误以为“打开 experimental_ui 就能自动化发送微信”，从而高估当前产品能力边界。
+- 建议动作：后续单独立项决定是删掉这个占位开关，还是补一套真正可验证的专用 UI 自动化适配器；在当前任务中不顺手处理。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-13-03 `./manager.sh backend-restart` 本轮出现“pid 已写入但服务口未稳定监听”
+
+- 发现来源：本轮“陪伴模式”实时同步问题的联调验证。
+- 当前状态：执行 `./manager.sh backend-restart` 后，`.manager/server.pid` 会更新并输出“后端已启动”，但本轮实测随即出现 `connection refused`，随后 `8765` 端口未监听，`server.pid` 对应进程也不再存在；最终只能改用 `server/.venv/bin/python main.py` 前台拉起完成验证。
+- 影响：后续如果继续依赖 `backend-restart` 作为日常联调动作，容易误以为“代码没生效”或“前端没刷新”，实际是服务没有稳定跑住。
+- 建议动作：后续单独立项排查 `manager.sh` 的后台启动与存活检测逻辑，至少补齐“启动后端口探测 / 进程存活二次确认 / 失败时清理过期 pid”的诊断闭环。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-13-02 扬声器 DIN 引脚文档与当前固件口径不一致
+
+- 发现来源：本轮 `P1-6 物理交互产品化` 固件调研。
+- 当前状态：部分历史文档仍按 `IO8` 记录扬声器 DIN，引导口径与当前 `firmware/arduino/demo/demo.ino`、`test4`、`test4_tts` 使用的 `IO21` 不一致。
+- 影响：后续做焊接、排障、装配或复现音频问题时，容易因为旧文档误导而走错接线或判断方向。
+- 建议动作：后续单独立项统一 `CLAUDE.md`、硬件测试文档和固件注释里的音频引脚口径，避免继续积累硬件文档债。
 - 本轮处理：未处理。
 
 ### Checkpoint 2026-04-11-09 `computer_control.allowed_scripts` 的“字符串数组”口径与实际解析行为不一致

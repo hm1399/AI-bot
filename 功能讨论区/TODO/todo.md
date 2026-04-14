@@ -46,5 +46,11 @@
 功能讨论区/TODO/2026-04-08-WhatsApp改为可选辅助通道实施计划.md
 功能讨论区/TODO/2026-04-11-记忆管理页面建议补充到调度优化文档.md
 功能讨论区/TODO/2026-04-11-AI电脑端能力调研.md
+- [2026-04-14-设备Avataaars脸区替换与轻量动画实施计划](./2026-04-14-设备Avataaars脸区替换与轻量动画实施计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-14-设备Avataaars脸区替换与轻量动画实施计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-14-设备Avataaars脸区替换与轻量动画实施计划.md)
 - [2026-04-13-设备屏幕背光亮但内容不显示排查计划](./2026-04-13-设备屏幕背光亮但内容不显示排查计划.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-13-设备屏幕背光亮但内容不显示排查计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-13-设备屏幕背光亮但内容不显示排查计划.md)
+功能讨论区/TODO/2026-04-13-P1-5场景模式与人格系统骨架及P1-6物理交互产品化实施计划.md
+- [2026-04-13-P1-5场景模式与人格系统骨架及P1-6物理交互产品化实施计划](./2026-04-13-P1-5场景模式与人格系统骨架及P1-6物理交互产品化实施计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-13-P1-5场景模式与人格系统骨架及P1-6物理交互产品化实施计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-13-P1-5场景模式与人格系统骨架及P1-6物理交互产品化实施计划.md)
+- 状态：2026-04-13 代码实现已落地，已完成 `python3 -m py_compile` 与 `flutter analyze`；按当前用户约束，测试与 git 提交待确认后执行。

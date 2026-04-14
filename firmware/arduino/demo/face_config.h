@@ -16,31 +16,36 @@
 #define FACE_CX         (SCREEN_W / 2)              // 120
 #define FACE_CY         (FACE_AREA_Y + FACE_AREA_H / 2)  // 108
 
-// ===== 眼睛参数 =====
-#define EYE_SPACING     50      // 两眼间距（中心到中心）
-#define EYE_Y_OFFSET    -20     // 眼睛相对脸中心的 Y 偏移（负=上方）
-#define EYE_RADIUS_NORMAL   16  // 正常眼睛半径
-#define EYE_RADIUS_BIG      22  // 大眼半径（LISTENING 大眼侧）
-#define EYE_RADIUS_SMALL    12  // 小眼半径（LISTENING 小眼侧）
-#define EYE_RADIUS_ACTIVE   19  // ACTIVE 状态眼睛半径
+// ===== Avataaars 脸区资源参数 =====
+#define FACE_ASSET_W        168
+#define FACE_ASSET_H        168
 
-// ===== 嘴巴参数 =====
-#define MOUTH_Y_OFFSET  35      // 嘴巴相对脸中心的 Y 偏移（正=下方）
-#define MOUTH_WIDTH     40      // 嘴巴宽度
-#define MOUTH_HEIGHT    12      // 嘴巴高度/弧度
+// 轻量覆盖动画落点（以整屏坐标表示）
+#define FACE_LEFT_EYE_X     80
+#define FACE_RIGHT_EYE_X    160
+#define FACE_EYE_Y          86
+#define FACE_EYE_HALF_W     18
+#define FACE_EYE_CLEAR_W    32
+#define FACE_EYE_CLEAR_H    16
+#define FACE_MOUTH_X        120
+#define FACE_MOUTH_Y        137
+#define FACE_MOUTH_W        48
+#define FACE_MOUTH_H        30
+#define FACE_MOUTH_CLEAR_W  60
+#define FACE_MOUTH_CLEAR_H  38
+#define FACE_DOT_Y          60
 
 // ===== 颜色 =====
 #define COLOR_BG        TFT_BLACK
-#define COLOR_EYE       TFT_WHITE
-#define COLOR_MOUTH     TFT_WHITE
 #define COLOR_STATUS_BG TFT_BLACK
 #define COLOR_STATUS_TXT 0x07FF   // TFT_CYAN
 #define COLOR_TEXT_BG   TFT_BLACK
 #define COLOR_TEXT_FG   TFT_GREEN
 #define COLOR_DIVIDER   0x4208    // TFT_DARKGREY
-#define COLOR_DOT       TFT_YELLOW
-#define COLOR_NOTE      TFT_CYAN
-#define COLOR_WAVE      0x4208    // 声波线颜色（暗灰）
+#define COLOR_FACE_FEATURE 0x4229
+#define COLOR_FACE_TONGUE  0xFA6D
+#define COLOR_FACE_HIGHLIGHT 0xFFBE
+#define COLOR_DOT       0xFA6D
 
 // ===== 动画参数（Phase 2 用，Phase 1 先定义） =====
 #define ANIM_FPS        15
@@ -49,12 +54,6 @@
 #define BLINK_INTERVAL_MIN  3000  // 眨眼最小间隔 ms
 #define BLINK_INTERVAL_MAX  5000  // 眨眼最大间隔 ms
 #define BLINK_DURATION      200   // 眨眼持续 ms
-
-#define ACTIVE_EYE_MOVE_RANGE  5  // ACTIVE 眼球移动像素
-#define ACTIVE_EYE_MOVE_PERIOD 2000 // 眼球移动周期 ms
-
-#define LISTEN_TILT_ANGLE   5     // 歪头角度（度）
-#define LISTEN_TILT_PERIOD  2000  // 歪头周期 ms
 
 #define PROCESS_DOT_PERIOD  500   // 加载点切换间隔 ms
 
