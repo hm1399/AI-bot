@@ -5,6 +5,16 @@
 - 只记录本轮调研或文档同步时发现、但未在当前任务内处理的问题。
 - 每条使用 checkpoint 记录，等待主线程确认后再决定是否立项或回填。
 
+### Checkpoint 2026-04-15-01 AI 提醒链路对“指定日期提醒”仍存在调度时间与 delivery_mode 偏差
+
+- 发现来源：本轮“语音对话驱动 Agenda 实时同步与 AI 提醒任务”完成后的隔离运行时链路模拟。使用真实 `openrouter / x-ai/grok-4.1-fast` 走 `handle_post_message -> AgentLoop -> planning tool -> AppResourceService / PlanningProjectionService`，发送了两条自然语言请求：一条创建 `2026-04-16 15:00-16:00` 行程，一条创建 `2026-04-16 17:00` 的 AI 提醒任务。
+- 当前状态：行程和 task 均按预期落库，`event.planning_surface=agenda`、`task.planning_surface=tasks`、`reminder.planning_surface=hidden` 也正确；但提醒侧存在两个偏差：
+- `create_reminder` 实际写入结果里 `time=2026-04-16T17:00:00`，却被调度成 `next_trigger_at=2026-04-15T17:00:00+08:00`，早于用户指定日期。
+- 该 AI 提醒链路下生成的 `task.delivery_mode` / `reminder.delivery_mode` 都仍为 `none`，没有落到计划里预期的语音/通知投递模式。
+- 影响：当前用户如果说“明天 17:00 提醒我……”，task 会显示在正确日期，但 reminder 可能在今天先触发一次；同时默认 AI 提醒不会经过预期的设备语音/通知投递链路，实际体验与实施计划口径不一致。
+- 建议动作：后续单独立项复核 `planning.create_reminder` 对“带日期的 time + 未显式 repeat”组合的归一化逻辑，以及 AI reminder 默认 `delivery_mode` 的生成策略；修完后再补一条真实链路回归用例，覆盖“绝对日期提醒”与“默认 AI 提醒投递模式”。
+- 本轮处理：未处理。
+
 ### Checkpoint 2026-04-14-01 `arduino-cli` 默认板参会把 demo 固件误编成 4MB / 1.2MB APP
 
 - 发现来源：本轮设备 Avataaars 脸区替换与固件编译验证。
