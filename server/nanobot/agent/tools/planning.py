@@ -165,7 +165,8 @@ class PlanningTool(Tool):
             "Use create_event for calendar items like trips, appointments, and "
             "scheduled outings. For 'remind me' or 'wake me at' requests, prefer "
             "a task with owner_kind=assistant plus a reminder with "
-            "planning_surface=hidden instead of an agenda event. When the user "
+            "planning_surface=hidden and delivery_mode=device_voice_and_notification "
+            "instead of an agenda event. When the user "
             "asks what is due today, tomorrow, or on a "
             "specific date, call list_today before answering."
         )
@@ -528,7 +529,7 @@ class PlanningTool(Tool):
     ) -> dict[str, Any]:
         clean_title = self._require_text(title, "title")
         normalized_time = self._normalize_reminder_time(time)
-        normalized_repeat = self._normalize_repeat(repeat)
+        normalized_repeat = self._resolve_reminder_repeat(repeat, normalized_time)
         request_metadata = self._build_request_metadata(
             created_via=created_via,
             source_channel=source_channel,
@@ -547,6 +548,13 @@ class PlanningTool(Tool):
             interaction_mode=interaction_mode,
             approval_source=approval_source,
         )
+        if request_metadata.get("delivery_mode") is None:
+            default_delivery_mode = self._default_delivery_mode_for_resource(
+                resource_type="reminder",
+                request_metadata=request_metadata,
+            )
+            if default_delivery_mode is not None:
+                request_metadata["delivery_mode"] = default_delivery_mode
         metadata = self._build_creation_metadata(
             resource_type="reminder",
             bundle_id=bundle_id,
@@ -564,11 +572,23 @@ class PlanningTool(Tool):
                 **metadata,
             }
         )
-        await self._backfill_linked_resources(
+        updated_task, _, _ = await self._backfill_linked_resources(
             task_id=reminder.get("linked_task_id"),
             event_id=reminder.get("linked_event_id"),
             reminder_id=reminder["reminder_id"],
+            linked_task_delivery_mode=self._clean_optional_text(reminder.get("delivery_mode")),
         )
+        if updated_task is not None:
+            self._sync_turn_result_resource(
+                action="create_task",
+                resource_key="task_id",
+                resource_id=str(updated_task["task_id"]),
+                resource_type="task",
+                resource=updated_task,
+                request_metadata_patch={
+                    "delivery_mode": self._clean_optional_text(updated_task.get("delivery_mode")),
+                },
+            )
         return self._result_payload(
             bundle_id=bundle_id,
             action="create_reminder",
@@ -883,16 +903,71 @@ class PlanningTool(Tool):
         task_id: str | None = None,
         event_id: str | None = None,
         reminder_id: str | None = None,
-    ) -> None:
+        linked_task_delivery_mode: str | None = None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+        updated_task: dict[str, Any] | None = None
+        updated_event: dict[str, Any] | None = None
+        updated_reminder: dict[str, Any] | None = None
         if task_id and event_id:
-            await self._backend.update_task(task_id, {"linked_event_id": event_id})
-            await self._backend.update_event(event_id, {"linked_task_id": task_id})
+            updated_task = await self._backend.update_task(task_id, {"linked_event_id": event_id})
+            updated_event = await self._backend.update_event(event_id, {"linked_task_id": task_id})
         if task_id and reminder_id:
-            await self._backend.update_task(task_id, {"linked_reminder_id": reminder_id})
-            await self._backend.update_reminder(reminder_id, {"linked_task_id": task_id})
+            task_patch: dict[str, Any] = {"linked_reminder_id": reminder_id}
+            if linked_task_delivery_mode is not None:
+                task_patch["delivery_mode"] = linked_task_delivery_mode
+            updated_task = await self._backend.update_task(task_id, task_patch)
+            updated_reminder = await self._backend.update_reminder(reminder_id, {"linked_task_id": task_id})
         if event_id and reminder_id:
-            await self._backend.update_event(event_id, {"linked_reminder_id": reminder_id})
-            await self._backend.update_reminder(reminder_id, {"linked_event_id": event_id})
+            updated_event = await self._backend.update_event(event_id, {"linked_reminder_id": reminder_id})
+            updated_reminder = await self._backend.update_reminder(reminder_id, {"linked_event_id": event_id})
+        return updated_task, updated_event, updated_reminder
+
+    @staticmethod
+    def _default_delivery_mode_for_resource(
+        *,
+        resource_type: str,
+        request_metadata: dict[str, Any],
+    ) -> str | None:
+        if request_metadata.get("delivery_mode") is not None:
+            return request_metadata["delivery_mode"]
+        if (
+            resource_type == "reminder"
+            and request_metadata.get("planning_surface") == "hidden"
+            and request_metadata.get("owner_kind") == "assistant"
+        ):
+            return "device_voice_and_notification"
+        return None
+
+    def _sync_turn_result_resource(
+        self,
+        *,
+        action: str,
+        resource_key: str,
+        resource_id: str,
+        resource_type: str,
+        resource: dict[str, Any],
+        request_metadata_patch: dict[str, Any] | None = None,
+    ) -> None:
+        updated_results: list[dict[str, Any]] = []
+        for payload in self._turn_results_var.get():
+            current = deepcopy(payload)
+            current_ids = current.get("resource_ids")
+            if (
+                current.get("action") == action
+                and isinstance(current_ids, dict)
+                and current_ids.get(resource_key) == resource_id
+            ):
+                result_payload = current.setdefault("result", {})
+                if isinstance(result_payload, dict):
+                    result_payload[resource_type] = deepcopy(resource)
+                if request_metadata_patch:
+                    metadata = current.setdefault("request_metadata", {})
+                    if isinstance(metadata, dict):
+                        for key, value in request_metadata_patch.items():
+                            if value is not None:
+                                metadata[key] = value
+            updated_results.append(current)
+        self._turn_results_var.set(updated_results)
 
     @staticmethod
     def _result_payload(
@@ -950,6 +1025,13 @@ class PlanningTool(Tool):
         if clean not in self._SUPPORTED_REPEATS:
             raise ValueError("repeat must be one of: daily, once, weekdays, weekends")
         return clean
+
+    def _resolve_reminder_repeat(self, value: Any, normalized_time: str) -> str:
+        if value is not None:
+            return self._normalize_repeat(value)
+        if "T" in normalized_time:
+            return "once"
+        return "daily"
 
     @staticmethod
     def _normalize_optional_enum(

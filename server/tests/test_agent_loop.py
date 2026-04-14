@@ -510,6 +510,20 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["result"]["reminder"]["bundle_id"], payload["bundle_id"])
         self.assertEqual(payload["result"]["reminder"]["created_via"], "agent")
 
+    async def test_planning_tool_create_reminder_defaults_once_for_absolute_datetime(self) -> None:
+        result = await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_reminder",
+                "title": "Dentist reminder",
+                "time": "2026-04-16T17:00:00+08:00",
+            },
+        )
+
+        payload = json.loads(result)
+        self.assertEqual(payload["result"]["reminder"]["repeat"], "once")
+        self.assertEqual(self.backend.create_reminder_payloads[-1]["repeat"], "once")
+
     async def test_planning_tool_reminder_style_task_and_hidden_reminder_pass_metadata(self) -> None:
         planning_tool = self.agent.tools.get("planning")
         assert planning_tool is not None
@@ -566,6 +580,71 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.backend.create_reminder_payloads[-1]["source_session_id"],
             "app:main",
+        )
+
+    async def test_planning_tool_hidden_assistant_reminder_defaults_delivery_and_syncs_linked_task(self) -> None:
+        planning_tool = self.agent.tools.get("planning")
+        assert planning_tool is not None
+        planning_tool.start_turn()
+
+        await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_task",
+                "title": "Prepare weekly review",
+                "due_at": "2026-04-16T17:00:00+08:00",
+                "source_channel": "app",
+                "source_message_id": "msg_followup",
+                "source_session_id": "app:main",
+                "planning_surface": "tasks",
+                "owner_kind": "assistant",
+            },
+        )
+        reminder_payload = json.loads(await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_reminder",
+                "title": "Weekly review reminder",
+                "time": "2026-04-16T17:00:00+08:00",
+                "source_channel": "app",
+                "source_message_id": "msg_followup",
+                "source_session_id": "app:main",
+                "planning_surface": "hidden",
+                "owner_kind": "assistant",
+            },
+        ))
+
+        turn_results = planning_tool.consume_turn_results()
+        task_result = next(item for item in turn_results if item["action"] == "create_task")
+        reminder_result = next(item for item in turn_results if item["action"] == "create_reminder")
+
+        self.assertEqual(
+            reminder_payload["request_metadata"]["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(
+            reminder_payload["result"]["reminder"]["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(
+            reminder_result["request_metadata"]["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(
+            reminder_result["result"]["reminder"]["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(
+            task_result["request_metadata"]["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(
+            task_result["result"]["task"]["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(
+            self.backend.tasks[-1]["delivery_mode"],
+            "device_voice_and_notification",
         )
 
     async def test_planning_tool_complete_task_returns_updated_task_id(self) -> None:

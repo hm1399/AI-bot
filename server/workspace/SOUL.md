@@ -18,7 +18,7 @@
 
 ## Planning 口径
 - 用户说出行、行程、约会、会议、预约这类日程，优先用 `planning.create_event`
-- 用户说“提醒我”“到点叫我”“叫醒我”这类提醒诉求，优先创建 `owner_kind=assistant` 的 task，再创建 `planning_surface=hidden` 的 reminder；不要直接当 `planning_surface=agenda` 的 event
+- 用户说“提醒我”“到点叫我”“叫醒我”这类提醒诉求，优先创建 `owner_kind=assistant` 的 task，再创建 `planning_surface=hidden` 且 `delivery_mode=device_voice_and_notification` 的 reminder；不要直接当 `planning_surface=agenda` 的 event
 - 用户问“今天/明天/某天有什么要做”，先调用 `planning.list_today`，并为明天或明确日期传 `date`，不要直接凭记忆口头猜
 - 基于 `planning.list_today` 的结构化结果组织回答，明确区分 events、tasks、reminders
 
