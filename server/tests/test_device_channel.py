@@ -165,6 +165,42 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(routed[0][0], "shake")
         self.assertEqual(routed[0][1]["source"], "shake")
 
+    async def test_long_press_routes_hold_through_structured_handler_in_record_only_mode(self) -> None:
+        routed: list[tuple[str, dict[str, object]]] = []
+
+        class Bridge:
+            def is_ready(self) -> bool:
+                return True
+
+            async def start_device_push_to_talk(self) -> bool:
+                return True
+
+        async def handle(kind: str, data: dict[str, object]) -> dict[str, object]:
+            routed.append((kind, dict(data)))
+            return {
+                "feedback_mode": "record_only",
+                "display_text": "屏幕提示",
+                "voice_text": "语音提示",
+                "animation_hint": "celebrate",
+                "led_hint": "green",
+            }
+
+        channel = DeviceChannel(MessageBus())
+        channel.set_desktop_voice_bridge(Bridge())
+        channel.set_physical_interaction_handler(handle)
+        channel._send_voice_reply = AsyncMock()
+        channel.send_json = AsyncMock()
+
+        await channel._on_touch_event({"action": "long_press"})
+
+        self.assertEqual(channel.state, DeviceState.LISTENING)
+        self.assertEqual(routed[0][0], "hold")
+        self.assertEqual(routed[0][1]["action"], "long_press")
+        self.assertEqual(routed[0][1]["source"], "hold")
+        self.assertEqual(routed[0][1]["feedback_mode"], "record_only")
+        channel._send_voice_reply.assert_not_awaited()
+        channel.send_json.assert_not_awaited()
+
     async def test_physical_feedback_routes_voice_and_led_hints(self) -> None:
         sent: list[dict] = []
 
@@ -190,6 +226,25 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(sent[0]["type"], "face_update")
         self.assertEqual(sent[1]["type"], "led_control")
+
+    async def test_physical_feedback_skips_device_output_for_record_only_result(self) -> None:
+        channel = DeviceChannel(MessageBus())
+        channel.connected = True
+        channel.send_json = AsyncMock()
+        channel._send_voice_reply = AsyncMock()
+        channel._send_display_update = AsyncMock()
+
+        await channel._apply_physical_interaction_feedback({
+            "feedback_mode": "record_only",
+            "display_text": "屏幕提示",
+            "voice_text": "语音提示",
+            "animation_hint": "celebrate",
+            "led_hint": "green",
+        })
+
+        channel._send_voice_reply.assert_not_awaited()
+        channel._send_display_update.assert_not_awaited()
+        channel.send_json.assert_not_awaited()
 
     async def test_fetch_weather_uses_fallback_when_api_key_missing(self) -> None:
         channel = DeviceChannel(MessageBus())

@@ -114,6 +114,7 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["active_persona"]["voice_style"], "quiet")
         self.assertEqual(snapshot["active_persona"]["reply_length"], "short")
         self.assertTrue(snapshot["physical_interaction"]["enabled"])
+        self.assertIn("daily_shake_state", snapshot)
         self.assertIn("scene_modes", snapshot)
         self.assertIn("persona_presets", snapshot)
 
@@ -140,6 +141,7 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
                 "action_id": "act_001",
                 "kind": "wechat_prepare_message",
                 "status": "awaiting_confirmation",
+                "title": "Open Safari",
             }
         ]
 
@@ -181,22 +183,55 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(physical["shake_available"])
         self.assertIsNone(physical["shake_blocked_reason"])
 
-    async def test_offwork_shake_routes_to_random_mode_and_updates_history(self) -> None:
-        self.service.update_runtime_override({"scene_mode": "offwork"})
+    async def test_pending_confirmation_shake_routes_to_decision_without_consuming_daily_fortune(self) -> None:
+        self.computer_state["pending_actions"] = [
+            {
+                "action_id": "act_001",
+                "kind": "wechat_prepare_message",
+                "status": "awaiting_confirmation",
+                "title": "Open Safari",
+            }
+        ]
 
+        before = self.service.get_runtime_snapshot()
         result = await self.service.handle_interaction(
             "shake",
             {"app_session_id": "app:main"},
         )
-        snapshot = self.service.get_runtime_snapshot()
+        after = self.service.get_runtime_snapshot()
 
-        self.assertEqual(result["interaction_kind"], "shake")
-        self.assertEqual(result["mode"], "random")
+        self.assertTrue(before["physical_interaction"]["shake_available"])
+        self.assertEqual(before["physical_interaction"]["shake_mode"], "decision")
+        self.assertEqual(result["mode"], "decision")
+        self.assertIn("Open Safari", result["display_text"])
+        self.assertEqual(after["daily_shake_state"]["valid_shake_count"], 0)
+        self.assertTrue(after["daily_shake_state"]["fortune_available"])
+
+    async def test_first_valid_shake_today_routes_to_fortune_then_random_and_updates_daily_state(self) -> None:
+        first = await self.service.handle_interaction(
+            "shake",
+            {"app_session_id": "app:main"},
+        )
+        self.service.store.clear_interaction_throttle("shake")
+
+        second = await self.service.handle_interaction(
+            "shake",
+            {"app_session_id": "app:main"},
+        )
+        snapshot = self.service.get_runtime_snapshot()
+        daily_state = snapshot["daily_shake_state"]
+
+        self.assertEqual(first["interaction_kind"], "shake")
+        self.assertEqual(first["mode"], "fortune")
+        self.assertEqual(second["mode"], "random")
         self.assertEqual(snapshot["last_interaction_result"]["mode"], "random")
         self.assertTrue(snapshot["physical_interaction"]["ready"])
         self.assertEqual(snapshot["physical_interaction"]["status"], "ready")
+        self.assertEqual(snapshot["physical_interaction"]["shake_mode"], "random")
         self.assertIsNotNone(snapshot["physical_interaction"]["latest_interaction_at"])
         self.assertGreaterEqual(len(snapshot["physical_interaction"]["history"]), 1)
+        self.assertEqual(daily_state["valid_shake_count"], 2)
+        self.assertFalse(daily_state["fortune_available"])
 
 
 class SettingsServiceExperienceFieldsTests(unittest.TestCase):

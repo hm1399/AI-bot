@@ -57,6 +57,7 @@ class AppState {
     required this.planningConflictsStatus,
     required this.planningConflicts,
     required this.planningConflictsMessage,
+    required this.physicalInteractionDebugPendingKey,
     required this.themeMode,
     required this.globalMessage,
   });
@@ -97,6 +98,7 @@ class AppState {
   final FeatureStatus planningConflictsStatus;
   final List<PlanningConflictModel> planningConflicts;
   final String? planningConflictsMessage;
+  final String? physicalInteractionDebugPendingKey;
   final ThemeMode themeMode;
   final String? globalMessage;
 
@@ -209,6 +211,7 @@ class AppState {
     FeatureStatus? planningConflictsStatus,
     List<PlanningConflictModel>? planningConflicts,
     Object? planningConflictsMessage = _unset,
+    Object? physicalInteractionDebugPendingKey = _unset,
     ThemeMode? themeMode,
     Object? globalMessage = _unset,
   }) {
@@ -275,6 +278,10 @@ class AppState {
       planningConflictsMessage: identical(planningConflictsMessage, _unset)
           ? this.planningConflictsMessage
           : planningConflictsMessage as String?,
+      physicalInteractionDebugPendingKey:
+          identical(physicalInteractionDebugPendingKey, _unset)
+          ? this.physicalInteractionDebugPendingKey
+          : physicalInteractionDebugPendingKey as String?,
       themeMode: themeMode ?? this.themeMode,
       globalMessage: identical(globalMessage, _unset)
           ? this.globalMessage
@@ -321,6 +328,7 @@ class AppState {
       planningConflictsStatus: FeatureStatus.idle,
       planningConflicts: const <PlanningConflictModel>[],
       planningConflictsMessage: null,
+      physicalInteractionDebugPendingKey: null,
       themeMode: ThemeMode.dark,
       globalMessage: null,
     );

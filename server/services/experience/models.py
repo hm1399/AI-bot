@@ -108,12 +108,14 @@ INTERACTION_THROTTLE_SECONDS = {
 def build_experience_catalog(
     *,
     runtime_path: str = "/api/app/v1/experience",
+    interactions_path: str = "/api/app/v1/experience/interactions",
     settings_path: str = "/api/app/v1/settings",
     session_path_template: str = "/api/app/v1/sessions/{session_id}",
 ) -> dict[str, Any]:
     return {
         "available": True,
         "runtime_path": runtime_path,
+        "interactions_path": interactions_path,
         "settings_path": settings_path,
         "session_path_template": session_path_template,
         "scene_modes": [
@@ -276,6 +278,7 @@ def build_physical_interaction_result(
     voice_text: str | None,
     animation_hint: str | None = None,
     led_hint: str | None = None,
+    feedback_mode: str | None = None,
     history_entry: Any = None,
     approval_source: str | None = None,
     metadata: Mapping[str, Any] | None = None,
@@ -289,6 +292,7 @@ def build_physical_interaction_result(
         "voice_text": voice_text,
         "animation_hint": animation_hint,
         "led_hint": led_hint,
+        "feedback_mode": feedback_mode,
         "approval_source": approval_source,
         "history_entry": deepcopy(history_entry),
         "metadata": deepcopy(dict(metadata or {})) or None,

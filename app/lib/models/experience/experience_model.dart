@@ -622,6 +622,14 @@ class PhysicalInteractionStateModel {
     required this.holdToTalkAvailable,
     required this.ready,
     required this.status,
+    this.shakeMode = '',
+    this.firstShakeUsedToday = false,
+    this.recentShakeMode,
+    this.dailyShakeDate,
+    this.dailyShakeCount = 0,
+    this.dailyShakeFirstResultMode,
+    this.dailyShakeLastMode,
+    this.dailyShakeLastInteractionAt,
     this.statusMessage,
     this.blockedReason,
     this.awaitingConfirmation = false,
@@ -636,6 +644,14 @@ class PhysicalInteractionStateModel {
   final bool holdToTalkAvailable;
   final bool ready;
   final String status;
+  final String shakeMode;
+  final bool firstShakeUsedToday;
+  final String? recentShakeMode;
+  final String? dailyShakeDate;
+  final int dailyShakeCount;
+  final String? dailyShakeFirstResultMode;
+  final String? dailyShakeLastMode;
+  final String? dailyShakeLastInteractionAt;
   final String? statusMessage;
   final String? blockedReason;
   final bool awaitingConfirmation;
@@ -660,12 +676,38 @@ class PhysicalInteractionStateModel {
   }
 
   factory PhysicalInteractionStateModel.fromJson(Map<String, dynamic> json) {
+    final debug = _asMap(json['debug']);
+    final dailyShake = _firstMap(json, const <String>[
+      'daily_shake',
+      'daily_shake_state',
+      'shake_today',
+      'today_shake',
+    ]);
     final historyItems = _readList(json, const <String>[
       'history',
       'entries',
       'recent_results',
       'events',
     ]);
+    final dailyShakeCount = _readInt(dailyShake, const <String>[
+      'count',
+      'daily_count',
+      'shake_count',
+      'valid_shake_count',
+    ]);
+    final dailyShakeFirstResultMode = _cleanString(
+      dailyShake['first_result_mode'] ??
+          dailyShake['first_mode'] ??
+          dailyShake['first_shake_mode'],
+    );
+    final dailyShakeLastMode = _cleanString(
+      dailyShake['last_mode'] ??
+          dailyShake['recent_mode'] ??
+          json['recent_shake_mode'] ??
+          json['last_shake_mode'] ??
+          debug['recent_shake_mode'] ??
+          debug['last_shake_mode'],
+    );
     return PhysicalInteractionStateModel(
       enabled: _readBool(json, const <String>[
         'enabled',
@@ -688,6 +730,44 @@ class PhysicalInteractionStateModel {
           _readBool(json, const <String>['ready']) ||
           ((_cleanString(json['status']) ?? '') == 'ready'),
       status: _cleanString(json['status'] ?? json['state']) ?? 'unknown',
+      shakeMode:
+          _cleanString(
+            json['shake_mode'] ??
+                json['current_shake_mode'] ??
+                json['recommended_shake_mode'] ??
+                debug['shake_mode'] ??
+                debug['current_shake_mode'],
+          ) ??
+          '',
+      firstShakeUsedToday:
+          _readBool(json, const <String>[
+            'first_shake_used_today',
+            'today_first_shake_used',
+            'daily_first_shake_used',
+          ]) ||
+          _readBool(dailyShake, const <String>[
+            'first_shake_used',
+            'used_first_shake',
+          ]) ||
+          dailyShakeCount > 0 ||
+          dailyShakeFirstResultMode != null,
+      recentShakeMode: dailyShakeLastMode,
+      dailyShakeDate: _cleanString(
+        dailyShake['date'] ??
+            dailyShake['day'] ??
+            json['daily_shake_date'] ??
+            debug['daily_shake_date'],
+      ),
+      dailyShakeCount: dailyShakeCount,
+      dailyShakeFirstResultMode: dailyShakeFirstResultMode,
+      dailyShakeLastMode: dailyShakeLastMode,
+      dailyShakeLastInteractionAt: _cleanString(
+        dailyShake['last_interaction_at'] ??
+            dailyShake['last_valid_shake_at'] ??
+            dailyShake['updated_at'] ??
+            json['daily_shake_last_interaction_at'] ??
+            debug['daily_shake_last_interaction_at'],
+      ),
       statusMessage: _cleanString(
         json['status_message'] ?? json['message'] ?? json['note'],
       ),
@@ -718,6 +798,9 @@ class PhysicalInteractionStateModel {
       holdToTalkAvailable: true,
       ready: false,
       status: enabled ? 'waiting' : 'disabled',
+      shakeMode: '',
+      firstShakeUsedToday: false,
+      dailyShakeCount: 0,
     );
   }
 }
@@ -779,17 +862,11 @@ class ExperienceRuntimeModel {
       activePersona: persona,
       overrideSource:
           _cleanString(json['override_source'] ?? json['source']) ?? 'default',
-      physicalInteraction: physicalPayload.isEmpty
-          ? PhysicalInteractionStateModel.empty(
-              enabled: _readBool(json, const <String>[
-                'physical_interaction_enabled',
-              ]),
-              shakeEnabled: _readBool(json, const <String>['shake_enabled']),
-              tapConfirmationEnabled: _readBool(json, const <String>[
-                'tap_confirmation_enabled',
-              ]),
-            )
-          : PhysicalInteractionStateModel.fromJson(physicalPayload),
+      physicalInteraction: PhysicalInteractionStateModel.fromJson(
+        physicalPayload.isEmpty
+            ? json
+            : <String, dynamic>{...json, ...physicalPayload},
+      ),
       lastInteractionResult: interactionPayload.isEmpty
           ? InteractionResultModel.empty()
           : InteractionResultModel.fromJson(interactionPayload),
@@ -993,6 +1070,20 @@ bool _readBool(Map<String, dynamic> json, List<String> keys) {
     }
   }
   return false;
+}
+
+int _readInt(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is int) {
+      return value;
+    }
+    final parsed = int.tryParse(value?.toString() ?? '');
+    if (parsed != null) {
+      return parsed;
+    }
+  }
+  return 0;
 }
 
 List<dynamic> _readList(Map<String, dynamic> json, List<String> keys) {

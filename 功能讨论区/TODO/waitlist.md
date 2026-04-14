@@ -13,6 +13,14 @@
 - 建议动作：后续单独立项补一份 demo 固件明确板参说明，至少固定 `FlashSize / PartitionScheme / PSRAM / FlashMode` 的推荐组合，避免 Arduino IDE 与 CLI 口径漂移。
 - 本轮处理：未处理。
 
+### Checkpoint 2026-04-14-03 macOS Pods 仍保留过低的 deployment target
+
+- 发现来源：本轮 Flutter macOS 构建报错复核。
+- 当前状态：构建日志里 `app/macos/Pods/Pods.xcodeproj` 仍提示 `libserialport` target 的 `MACOSX_DEPLOYMENT_TARGET=10.11`，低于当前 CocoaPods/Flutter 支持区间 `10.13+`。
+- 影响：这条警告不是本次 Dart 回调签名报错的根因，但会持续污染构建输出；后续如果 Xcode / CocoaPods 再收紧门槛，可能升级成真实构建兼容问题。
+- 建议动作：后续单独立项检查 `Podfile`、`post_install` 和 `libserialport` 相关 pod target 的最低 macOS 版本设置，统一收口到当前 Flutter macOS 支持版本。
+- 本轮处理：未处理。
+
 ### Checkpoint 2026-04-11-01 `app/DESIGN.md` 的壳层口径已落后于当前产品结构
 
 - 发现来源：本轮 Chat 页面桌面化改版调研。
@@ -199,12 +207,12 @@
 
 ### Checkpoint 2026-04-11-05 Reminder 调度仍是固定间隔全量轮询
 
-### Checkpoint 2026-04-14-02 设备全屏脸已不再消费状态栏/底部文案，但固件与服务端协议仍持续维护这条 UI 链路
+### Checkpoint 2026-04-14-02 设备显示协议仍保留未消费的状态栏链路
 
-- 发现来源：本轮设备脸切换到 `m5stack-avatar` 风格实现。
-- 当前状态：`firmware/arduino/demo/face_display.cpp` 已收敛为全屏静态脸渲染，`faceSetText()`、`faceSetStatusBar()`、`faceSetWeather()`、`faceSetBattery()` 都是空实现；但 `firmware/arduino/demo/demo.ino` 仍频繁调用这些接口，服务端 `server/channels/device_channel.py` 也仍会发送 `status_bar_update`、`display_update`、`text_reply`。
-- 影响：当前链路不会再在设备屏幕上产生实际显示效果，但仍占用代码路径和心智负担；后续如果有人继续沿这条路径排查“为什么屏幕没显示文字/时间”，会被已经废弃的 UI 设计误导。
-- 建议动作：后续单独立项统一收口设备显示协议，明确哪些字段仍保留给语音/日志/前端，哪些字段应从固件和服务端设备屏幕链路中彻底下线。
+- 发现来源：本轮设备脸切换到 `m5stack-avatar` 风格实现，以及后续按用户要求恢复“仅 AI 回复字幕”。
+- 当前状态：`firmware/arduino/demo/face_display.cpp` 现在重新消费 `faceSetText()`，但仅用于底部 AI 回复字幕；`faceSetStatusBar()`、`faceSetWeather()`、`faceSetBattery()` 仍是空实现。`firmware/arduino/demo/demo.ino` 已把 `display_update` 等状态文案收敛到 `setFaceStatusHint()` 空实现，服务端 `server/channels/device_channel.py` 仍会发送 `status_bar_update`、`display_update`。
+- 影响：当前设备屏幕只对 `text_reply` 形成实际显示闭环；如果后续有人继续沿 `status_bar_update / display_update` 路径排查“为什么设备没显示时间/状态提示”，仍会被旧协议心智误导。
+- 建议动作：后续单独立项统一收口设备显示协议，明确哪些字段继续保留给前端/日志，哪些字段从设备屏幕链路彻底下线。
 - 本轮处理：未处理。
 
 - 发现来源：本轮任务调度与性能优化调研。
@@ -299,4 +307,20 @@
 - 当前状态：`app/lib/models/connect/connection_config_model.dart` + `app/lib/services/storage/auth_storage_service.dart` 持久化的是 operator console 实际连接用的 `host/port/token`；同时 `app/lib/models/settings/settings_model.dart` / `server/services/app_api/settings_service.py` 还维护了一份 `server_url/server_port` 设置字段。
 - 影响：后续一旦机器人 pairing 默认值、App 实际连接地址和 Settings 里的服务端地址三者不一致，用户可能会把机器人配到 A 地址，而 operator console 自己连在 B 地址，造成“App 在线、机器人离线”的隐性错配。
 - 建议动作：后续单独立项统一“谁是前端侧唯一可信的服务端地址来源”，至少要明确 `Connect` 与 `Settings` 的职责边界，避免再叠第三套来源。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-14-03 `app/lib/services/chat/voice_capture_service.dart` 仍是未接线占位服务
+
+- 发现来源：本轮“语音对话驱动 Agenda 实时同步与 AI 提醒任务”前后端调研。
+- 当前状态：`app/lib/providers/app_providers.dart` 仍注册了 `voiceCaptureServiceProvider`，但仓库内没有任何实际调用；`app/lib/services/chat/voice_capture_service.dart` 目前固定返回 `isAvailable = false`，`captureText()` 也恒为 `null`。当前真实语音主链路已经转到 `device_channel + desktop_voice_service`。
+- 影响：后续如果有人只看 Flutter 侧 provider，容易误以为 App 已经具备“原生前端麦克风采集”能力，进而在语音问题排查或新功能设计时走错链路。
+- 建议动作：后续单独立项决定是删除这层占位服务，还是把它升级为真正的 Flutter 端麦克风采集入口；当前任务不顺手处理。
+- 本轮处理：未处理。
+
+### Checkpoint 2026-04-14-04 `device_channel.py` 仍会对部分设备显示文案做长度截断
+
+- 发现来源：本轮“设备底部字幕超长滚动”固件收口。
+- 当前状态：`server/channels/device_channel.py` 的 `_send_display_update()` 默认会在 `DISPLAY_MAX_CHARS` 处截断长文本并补 `...`，然后才发给设备。
+- 影响：当前固件新增横向滚动后，只能滚动“设备实际收到的文本”；如果上游已经被服务端截短，设备端滚动也拿不回被裁掉的后半句，后续容易误判成“滚动没生效”。
+- 建议动作：后续单独立项梳理 `display_update` 与 `text_reply` 的设备显示职责，确认哪些消息允许完整下发，哪些仍应截断。
 - 本轮处理：未处理。

@@ -130,9 +130,11 @@ class ExperienceService:
             runtime_override=runtime_override,
             scene_mode=scene_mode,
         )
+        daily_shake_state = self.store.get_daily_shake_state()
         physical_interaction = self._build_physical_policy(
             settings=settings,
             scene_mode=scene_mode,
+            daily_shake_state=daily_shake_state,
             device_snapshot=device_snapshot,
             voice_runtime=voice_runtime,
             computer_control_state=computer_control_state,
@@ -147,6 +149,7 @@ class ExperienceService:
                 runtime_override=runtime_override,
                 scene_mode=scene_mode,
             ),
+            "daily_shake_state": daily_shake_state,
             "physical_interaction": physical_interaction,
             "last_interaction_result": self.store.get_last_interaction_result(),
         }
@@ -361,6 +364,17 @@ class ExperienceService:
                 blocked_reason="unsupported_interaction",
                 metadata=metadata,
             )
+        if interaction_kind == "shake":
+            mode = str(result.get("mode") or "").strip()
+            daily_shake_state = (
+                self.store.record_valid_shake(mode)
+                if mode in {"fortune", "random"}
+                else self.store.get_daily_shake_state()
+            )
+            result = dict(result)
+            result_metadata = dict(result.get("metadata") or {})
+            result_metadata["daily_shake_state"] = daily_shake_state
+            result["metadata"] = result_metadata
         return self.store.record_interaction_result(result)
 
     def _settings(self) -> dict[str, Any]:
@@ -467,6 +481,7 @@ class ExperienceService:
         *,
         settings: Mapping[str, Any],
         scene_mode: str,
+        daily_shake_state: Mapping[str, Any],
         device_snapshot: Mapping[str, Any] | None,
         voice_runtime: Mapping[str, Any] | None,
         computer_control_state: Mapping[str, Any] | None,
@@ -479,6 +494,18 @@ class ExperienceService:
         pending_actions = self._pending_actions(computer)
         history = self.store.list_history(limit=20)
         last_result = self.store.get_last_interaction_result() or {}
+        pending_action = pending_actions[0] if pending_actions else {}
+        pending_action_title = str(
+            pending_action.get("title")
+            or pending_action.get("label")
+            or pending_action.get("action_id")
+            or ""
+        ).strip() or None
+        pending_action_kind = str(
+            pending_action.get("kind")
+            or pending_action.get("action")
+            or ""
+        ).strip() or None
 
         enabled = bool(settings.get("physical_interaction_enabled", True))
         tap_enabled = bool(settings.get("tap_confirmation_enabled", True))
@@ -521,7 +548,6 @@ class ExperienceService:
             and device_connected
             and not pending_command
             and not speech_busy
-            and not pending_confirmation
             and not high_priority_pending
         )
 
@@ -560,8 +586,6 @@ class ExperienceService:
             shake_blocked_reason = "voice_busy"
         elif high_priority_pending:
             shake_blocked_reason = "high_priority_pending"
-        elif pending_confirmation:
-            shake_blocked_reason = "confirmation_pending"
 
         blocked_reasons = {
             "hold": hold_blocked_reason,
@@ -569,14 +593,13 @@ class ExperienceService:
             "shake": shake_blocked_reason,
         }
         latest_interaction_at = clean_optional_string(last_result.get("created_at"))
-        primary_blocked_reason = hold_blocked_reason or tap_blocked_reason or shake_blocked_reason
         ready = hold_available or tap_available or shake_available
         if not enabled:
             status = "disabled"
             status_message = "物理交互已关闭。"
         elif pending_confirmation:
             status = "awaiting_confirmation"
-            status_message = "当前有待确认动作，可用拍一拍确认。"
+            status_message = "当前有待确认动作，可用拍一拍确认，摇一摇会给出决策建议。"
         elif speech_busy:
             status = "busy"
             status_message = "当前语音链路忙碌中，先等当前流程结束。"
@@ -586,6 +609,11 @@ class ExperienceService:
         else:
             status = "blocked"
             status_message = "当前物理交互暂不可用。"
+        primary_blocked_reason: str | None = None
+        if status in {"disabled", "busy", "blocked"}:
+            primary_blocked_reason = (
+                hold_blocked_reason or tap_blocked_reason or shake_blocked_reason
+            )
 
         return {
             "enabled": enabled,
@@ -606,11 +634,17 @@ class ExperienceService:
             "status_message": status_message,
             "blocked_reason": primary_blocked_reason,
             "latest_interaction_at": latest_interaction_at,
-            "shake_mode": self.router.pick_shake_mode(scene_mode=scene_mode),
+            "shake_mode": self.router.pick_shake_mode(
+                scene_mode=scene_mode,
+                physical_state={"pending_confirmation": pending_confirmation},
+                daily_shake_state=dict(daily_shake_state),
+            ),
             "blocked_reasons": blocked_reasons,
             "hold_blocked_reason": hold_blocked_reason,
             "tap_blocked_reason": tap_blocked_reason,
             "shake_blocked_reason": shake_blocked_reason,
+            "pending_action_title": pending_action_title,
+            "pending_action_kind": pending_action_kind,
             "history": history,
             "debug": {
                 "pending_confirmation": pending_confirmation,
@@ -804,6 +838,7 @@ class ExperienceService:
             session_id=session_id,
             scene_mode=str(snapshot.get("active_scene_mode") or DEFAULT_SCENE_MODE),
             physical_state=dict(physical),
+            daily_shake_state=dict(snapshot.get("daily_shake_state") or {}),
             requested_mode=clean_optional_string(payload.get("mode")),
         )
         merged_metadata = dict(metadata)
@@ -820,7 +855,10 @@ class ExperienceService:
         metadata: Mapping[str, Any],
     ) -> dict[str, Any]:
         physical = snapshot.get("physical_interaction") or {}
-        action = str(payload.get("action") or "hold").strip() or "hold"
+        action = str(payload.get("action") or "long_press").strip() or "long_press"
+        feedback_mode = clean_optional_string(payload.get("feedback_mode"))
+        operation_status = clean_optional_string(payload.get("operation_status"))
+        payload_blocked_reason = clean_optional_string(payload.get("blocked_reason"))
         if not physical.get("hold_available"):
             return self._blocked_result(
                 interaction_kind="hold",
@@ -828,16 +866,31 @@ class ExperienceService:
                 title="按住说话",
                 display_text="桌面麦克风当前不可用。",
                 blocked_reason=str(physical.get("hold_blocked_reason") or "hold_unavailable"),
+                feedback_mode=feedback_mode,
                 metadata=metadata,
             )
-        mode = "push_to_talk_start" if action == "long_press" else "push_to_talk_stop"
+        if operation_status == "failed":
+            return self._blocked_result(
+                interaction_kind="hold",
+                mode="blocked",
+                title="按住说话",
+                display_text="桌面麦克风当前不可用。",
+                blocked_reason=payload_blocked_reason or "hold_operation_failed",
+                feedback_mode=feedback_mode,
+                metadata=metadata,
+            )
+        mode = "push_to_talk_stop" if action == "long_release" else "push_to_talk_start"
+        display_text = "桌面麦克风按住说话已接管。"
+        if mode == "push_to_talk_stop":
+            display_text = "桌面麦克风按住说话已结束。"
         return build_physical_interaction_result(
             interaction_kind="hold",
             mode=mode,
             title="按住说话",
             short_result="ready",
-            display_text="桌面麦克风按住说话已接管。",
+            display_text=display_text,
             voice_text=None,
+            feedback_mode=feedback_mode,
             history_entry={"action": action, "capture_source": "desktop_mic"},
             metadata={**dict(metadata), "capture_source": "desktop_mic"},
         )
@@ -879,6 +932,7 @@ class ExperienceService:
         title: str,
         display_text: str,
         blocked_reason: str,
+        feedback_mode: str | None = None,
         metadata: Mapping[str, Any],
     ) -> dict[str, Any]:
         return build_physical_interaction_result(
@@ -889,6 +943,7 @@ class ExperienceService:
             display_text=display_text,
             voice_text=display_text,
             animation_hint="idle",
+            feedback_mode=feedback_mode,
             metadata={**dict(metadata), "blocked_reason": blocked_reason},
             history_entry={"blocked_reason": blocked_reason},
         )

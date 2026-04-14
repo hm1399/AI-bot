@@ -263,6 +263,9 @@ class DeviceChannel:
         )
 
     async def _apply_physical_interaction_feedback(self, result: dict[str, Any]) -> None:
+        feedback_mode = str(result.get("feedback_mode") or "").strip().lower()
+        if feedback_mode == "record_only":
+            return
         display_text = result.get("display_text")
         voice_text = result.get("voice_text")
         display_value = display_text.strip() if isinstance(display_text, str) else ""
@@ -1007,19 +1010,38 @@ class DeviceChannel:
                 bridge = self._desktop_voice_bridge
                 if bridge is None:
                     await self._send_display_update("桌面麦克风未连接")
+                    await self._record_hold_interaction(
+                        action="long_press",
+                        operation_status="failed",
+                        blocked_reason="desktop_bridge_unavailable",
+                    )
                     return
 
                 if not getattr(bridge, "is_ready", lambda: False)():
                     await self._send_display_update("桌面麦克风未连接")
+                    await self._record_hold_interaction(
+                        action="long_press",
+                        operation_status="failed",
+                        blocked_reason="desktop_bridge_unavailable",
+                    )
                     return
 
                 started = await bridge.start_device_push_to_talk()
                 if started:
                     await self._set_state(DeviceState.LISTENING)
+                    await self._record_hold_interaction(
+                        action="long_press",
+                        operation_status="accepted",
+                    )
                 else:
                     await self._send_display_update("桌面麦克风不可用")
                     if self.state != DeviceState.IDLE:
                         await self._set_state(DeviceState.IDLE)
+                    await self._record_hold_interaction(
+                        action="long_press",
+                        operation_status="failed",
+                        blocked_reason="desktop_mic_unavailable",
+                    )
 
         elif action == "long_release":
             # 长按松开：结束录音
@@ -1027,10 +1049,25 @@ class DeviceChannel:
                 bridge = self._desktop_voice_bridge
                 if bridge is None or not getattr(bridge, "is_ready", lambda: False)():
                     await self._set_state(DeviceState.IDLE)
+                    await self._record_hold_interaction(
+                        action="long_release",
+                        operation_status="failed",
+                        blocked_reason="desktop_bridge_unavailable",
+                    )
                     return
                 stopped = await bridge.stop_device_push_to_talk()
                 if not stopped:
                     await self._set_state(DeviceState.IDLE)
+                    await self._record_hold_interaction(
+                        action="long_release",
+                        operation_status="failed",
+                        blocked_reason="desktop_mic_unavailable",
+                    )
+                    return
+                await self._record_hold_interaction(
+                    action="long_release",
+                    operation_status="accepted",
+                )
 
         else:
             logger.warning("未知触摸动作: {}", action)
@@ -1045,6 +1082,24 @@ class DeviceChannel:
             {
                 **dict(data),
                 "source": "shake",
+            },
+        )
+
+    async def _record_hold_interaction(
+        self,
+        *,
+        action: str,
+        operation_status: str,
+        blocked_reason: str | None = None,
+    ) -> None:
+        await self._dispatch_physical_interaction(
+            "hold",
+            {
+                "action": action,
+                "source": "hold",
+                "operation_status": operation_status,
+                "blocked_reason": blocked_reason,
+                "feedback_mode": "record_only",
             },
         )
 
@@ -1476,6 +1531,7 @@ class DeviceChannel:
         """
         if not self.tts:
             logger.warning("TTS 服务未初始化，仅发送文字回复")
+            await self.send_text_reply(text)
             await self._send_display_update(display_text or text)
             return
         playback_task = asyncio.create_task(self._stream_voice_reply(
@@ -1494,6 +1550,7 @@ class DeviceChannel:
         except Exception:
             logger.exception("TTS 合成/发送失败，降级为文字回复")
             # TTS 失败降级: 发送文字回复 (Phase 6.2)
+            await self.send_text_reply(text)
             await self._send_display_update(display_text or text)
         finally:
             if self._tts_task is playback_task and playback_task.done():
@@ -1509,6 +1566,7 @@ class DeviceChannel:
         update_display: bool = True,
     ) -> None:
         """执行实际的 TTS 合成与音频流发送。"""
+        await self.send_text_reply(text)
         if update_display:
             await self._send_display_update(display_text or text)
         await self._set_state(DeviceState.SPEAKING)

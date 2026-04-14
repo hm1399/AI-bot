@@ -271,6 +271,56 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(runtime["task_queue"]), 1)
         self.assertEqual(runtime["task_queue"][0]["task_id"], task_id)
 
+    async def test_post_experience_interaction_reuses_real_runtime_guards(self) -> None:
+        response = await self.service.handle_post_experience_interaction(FakeRequest(
+            headers=self.headers,
+            json_body={
+                "kind": "shake",
+                "payload": {
+                    "app_session_id": "app:main",
+                },
+            },
+        ))
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)
+
+        self.assertEqual(payload["data"]["result"]["interaction_kind"], "shake")
+        self.assertEqual(payload["data"]["result"]["mode"], "blocked")
+        self.assertEqual(
+            payload["data"]["result"]["metadata"]["blocked_reason"],
+            "device_offline",
+        )
+        self.assertEqual(
+            payload["data"]["experience"]["last_interaction_result"]["mode"],
+            "blocked",
+        )
+
+    async def test_interrupt_interaction_does_not_publish_duplicate_stop_when_device_is_processing(self) -> None:
+        self.device.state = "PROCESSING"
+        self.device.interrupt_current_activity = AsyncMock()
+        self.service.get_runtime_state = AsyncMock(return_value={
+            "current_task": {"task_id": "task_001"},
+            "voice": {"desktop_bridge": {"ready": True, "status": "idle"}},
+            "computer_control": {},
+            "device": self.device.get_snapshot(),
+        })
+        self.service.experience_service.handle_interaction = AsyncMock(return_value={
+            "interaction_kind": "tap",
+            "mode": "interrupt",
+            "title": "打断",
+            "short_result": "interrupted",
+            "display_text": "已请求打断当前流程。",
+        })
+        self.bus.publish_inbound = AsyncMock()
+
+        await self.service._handle_physical_interaction(
+            "tap",
+            {"tap_count": 3, "app_session_id": "app:main"},
+        )
+
+        self.device.interrupt_current_activity.assert_awaited_once_with(notice="")
+        self.bus.publish_inbound.assert_not_awaited()
+
     async def test_post_message_scene_command_updates_session_without_queueing_task(self) -> None:
         ws = FakeWebSocket()
         self.service._ws_clients.add(ws)

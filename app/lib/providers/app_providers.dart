@@ -400,6 +400,71 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  Future<void> triggerPhysicalInteraction({
+    required String kind,
+    Map<String, dynamic> payload = const <String, dynamic>{},
+  }) async {
+    final normalizedKind = kind.trim().toLowerCase();
+    if (normalizedKind.isEmpty) {
+      return;
+    }
+    if (state.physicalInteractionDebugPendingKey != null) {
+      return;
+    }
+    if (state.isDemoMode) {
+      state = state.copyWith(
+        globalMessage: 'Demo mode does not trigger live physical interactions.',
+      );
+      return;
+    }
+    if (!state.isConnected) {
+      state = state.copyWith(globalMessage: 'Connect to the backend first.');
+      return;
+    }
+
+    final requestPayload = <String, dynamic>{
+      if (state.currentSessionId.trim().startsWith('app:'))
+        'app_session_id': state.currentSessionId.trim(),
+      if (!payload.containsKey('source')) 'source': 'control_center_debug',
+      ...payload,
+    };
+    final pendingKey = _physicalInteractionDebugKey(
+      normalizedKind,
+      requestPayload,
+    );
+    final refreshRuntimeFromBackend = !state.eventStreamConnected;
+    final refreshComputerControl =
+        normalizedKind == 'tap' && !state.eventStreamConnected;
+
+    state = state.copyWith(physicalInteractionDebugPendingKey: pendingKey);
+    _apiClient.setConnection(state.connection);
+    try {
+      final result = await ref
+          .read(experienceServiceProvider)
+          .triggerPhysicalInteraction(
+            kind: normalizedKind,
+            payload: requestPayload,
+          );
+      if (refreshRuntimeFromBackend) {
+        try {
+          await refreshRuntime();
+        } on ApiError {
+          // Keep the trigger result visible even if the follow-up runtime pull lags.
+        }
+      }
+      if (refreshComputerControl) {
+        unawaited(loadComputerControl(silent: true));
+      }
+      state = state.copyWith(
+        globalMessage: _physicalInteractionTriggerMessage(result),
+      );
+    } on ApiError catch (error) {
+      state = state.copyWith(globalMessage: error.message);
+    } finally {
+      state = state.copyWith(physicalInteractionDebugPendingKey: null);
+    }
+  }
+
   Future<void> connectDemo() async {
     ref.read(wsReconnectServiceProvider).disconnect();
     _apiClient.clearConnection();
@@ -2094,6 +2159,33 @@ class AppController extends StateNotifier<AppState> {
           : 'Computer action failed: $summary ($detail).';
     }
     return 'Computer action requested: $summary.';
+  }
+
+  String _physicalInteractionDebugKey(
+    String kind,
+    Map<String, dynamic> payload,
+  ) {
+    if (kind == 'tap') {
+      final tapCount = int.tryParse(
+        '${payload['tap_count'] ?? payload['tapCount'] ?? ''}',
+      );
+      if (tapCount != null && tapCount > 0) {
+        return 'tap:$tapCount';
+      }
+    }
+    return kind;
+  }
+
+  String _physicalInteractionTriggerMessage(InteractionResultModel result) {
+    final detail = result.displayText?.trim();
+    if (detail != null && detail.isNotEmpty) {
+      return detail;
+    }
+    final title = result.title.trim();
+    if (title.isNotEmpty) {
+      return title;
+    }
+    return 'Physical interaction trigger sent to backend.';
   }
 
   String? _deviceCommandFailureDetail(String? error) {

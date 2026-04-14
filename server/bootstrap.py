@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import time
+import inspect
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -243,15 +244,47 @@ def load_runtime_config() -> tuple[dict[str, Any], dict[str, Any]]:
     return cfg, get_server_config(cfg)
 
 
-def _create_default_planning_backend() -> AppPlanningBackend:
+def _create_default_planning_backend(cfg: dict[str, Any] | None = None) -> AppPlanningBackend:
     """Build a standalone planning facade for the agent bootstrap path."""
-    from services.app_api.resource_service import AppResourceService
     from services.reminder_scheduler import ReminderScheduler
 
     runtime_dir = WORKSPACE_DIR / "runtime"
-    resources = AppResourceService(runtime_dir)
+    resources = _build_resource_service(runtime_dir, cfg or {})
     reminder_scheduler = ReminderScheduler(resources)
     return AppPlanningBackend(resources, reminder_scheduler)
+
+
+def _invoke_with_storage_support(factory: Any, *args: Any, storage_config: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+    """Call a constructor with storage_config only when it explicitly supports it."""
+    target = factory
+    try:
+        signature = inspect.signature(target)
+    except (TypeError, ValueError):
+        signature = None
+
+    if storage_config and signature is not None and "storage_config" in signature.parameters:
+        kwargs["storage_config"] = dict(storage_config)
+    return target(*args, **kwargs)
+
+
+def _build_session_manager(workspace: Path, cfg: dict[str, Any]) -> SessionManager:
+    storage_config = cfg.get("storage", {})
+    return _invoke_with_storage_support(
+        SessionManager,
+        workspace,
+        storage_config=storage_config,
+    )
+
+
+def _build_resource_service(runtime_dir: Path, cfg: dict[str, Any]) -> Any:
+    from services.app_api.resource_service import AppResourceService
+
+    storage_config = cfg.get("storage", {})
+    return _invoke_with_storage_support(
+        AppResourceService,
+        runtime_dir,
+        storage_config=storage_config,
+    )
 
 
 def create_agent(
@@ -272,8 +305,8 @@ def create_agent(
         provider_name=provider_name,
         request_timeout_seconds=get_provider_timeout_seconds(cfg),
     )
-    session_manager = SessionManager(WORKSPACE_DIR)
-    resolved_planning_backend = planning_backend or _create_default_planning_backend()
+    session_manager = _build_session_manager(WORKSPACE_DIR, cfg)
+    resolved_planning_backend = planning_backend or _create_default_planning_backend(cfg)
 
     agent = AgentLoop(
         bus=bus,
@@ -379,7 +412,7 @@ def create_http_app(
 
     resolved_sessions = getattr(agent, "sessions", None)
     if not hasattr(resolved_sessions, "workspace"):
-        resolved_sessions = SessionManager(WORKSPACE_DIR)
+        resolved_sessions = _build_session_manager(WORKSPACE_DIR, cfg)
 
     resolved_desktop_voice_service = desktop_voice_service or _NullDesktopVoiceService()
     runtime_dir = getattr(resolved_sessions, "workspace", WORKSPACE_DIR)

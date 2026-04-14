@@ -237,6 +237,13 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
           lastResult: experience.lastInteractionResult,
           deviceConnected: runtime.device.connected,
           desktopBridgeReady: runtime.voice.desktopBridgeReady,
+          pendingDebugTriggerKey: state.physicalInteractionDebugPendingKey,
+          onTriggerPhysicalInteraction:
+              (String kind, Map<String, dynamic> payload) =>
+                  controller.triggerPhysicalInteraction(
+                    kind: kind,
+                    payload: payload,
+                  ),
         ),
         const SizedBox(height: LinearSpacing.md),
         if (showComputerActions) ...<Widget>[

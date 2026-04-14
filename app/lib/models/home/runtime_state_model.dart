@@ -766,6 +766,11 @@ Map<String, dynamic> _extractExperienceRuntimePayload(
     'physical_interaction',
     'last_interaction_result',
     'shake_enabled',
+    'shake_mode',
+    'recent_shake_mode',
+    'last_shake_mode',
+    'daily_shake',
+    'daily_shake_state',
     'tap_confirmation_enabled',
     'physical_interaction_enabled',
   ]) {

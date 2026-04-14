@@ -19,6 +19,7 @@ CONFIG_YAML = SERVER_DIR / "config.yaml"
 NANOBOT_CONFIG_JSON = WORKSPACE_DIR / "config.json"
 ENV_FILE = SERVER_DIR / ".env"
 DEFAULT_PROVIDER_TIMEOUT_SECONDS = 90.0
+_VALID_STORAGE_MODES = {"json", "dual", "sqlite"}
 
 
 def _load_dotenv() -> None:
@@ -97,6 +98,13 @@ def load_yaml_config() -> dict:
     wechat_cfg.setdefault("enabled", False)
     wechat_cfg.setdefault("experimental_ui", False)
     wechat_cfg.setdefault("allowed_contacts", [])
+
+    storage_cfg = cfg.setdefault("storage", {})
+    storage_cfg.setdefault("session_storage_mode", "json")
+    storage_cfg.setdefault("planning_storage_mode", "json")
+    storage_cfg.setdefault("experience_storage_mode", "json")
+    storage_cfg.setdefault("computer_action_storage_mode", "json")
+    storage_cfg.setdefault("sqlite_path", str(WORKSPACE_DIR / "state.sqlite3"))
 
     return cfg
 
@@ -251,6 +259,24 @@ def validate_config(cfg: dict) -> list[str]:
             allowed_contacts = wechat_cfg.get("allowed_contacts", [])
             if not isinstance(allowed_contacts, list) or any(not isinstance(item, str) for item in allowed_contacts):
                 errors.append("computer_control.wechat.allowed_contacts 必须是字符串数组")
+
+    storage_cfg = cfg.get("storage", {})
+    if storage_cfg and not isinstance(storage_cfg, dict):
+        errors.append("storage 必须是对象")
+    else:
+        for key in (
+            "session_storage_mode",
+            "planning_storage_mode",
+            "experience_storage_mode",
+            "computer_action_storage_mode",
+        ):
+            value = str(storage_cfg.get(key, "json")).strip().lower()
+            if value not in _VALID_STORAGE_MODES:
+                allowed = ", ".join(sorted(_VALID_STORAGE_MODES))
+                errors.append(f"storage.{key} 必须是以下之一: {allowed}")
+        sqlite_path = storage_cfg.get("sqlite_path")
+        if sqlite_path is not None and not isinstance(sqlite_path, str):
+            errors.append("storage.sqlite_path 必须是字符串")
 
     # 运行时依赖检查（在真正实例化服务前先给出明确错误）
     dependency_requirements = [

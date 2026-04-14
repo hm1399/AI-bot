@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../models/experience/experience_model.dart';
@@ -12,6 +14,8 @@ class PhysicalInteractionPanel extends StatelessWidget {
     required this.lastResult,
     required this.deviceConnected,
     required this.desktopBridgeReady,
+    required this.onTriggerPhysicalInteraction,
+    this.pendingDebugTriggerKey,
     super.key,
   });
 
@@ -21,11 +25,14 @@ class PhysicalInteractionPanel extends StatelessWidget {
   final InteractionResultModel lastResult;
   final bool deviceConnected;
   final bool desktopBridgeReady;
+  final Future<void> Function(String kind, Map<String, dynamic> payload)
+  onTriggerPhysicalInteraction;
+  final String? pendingDebugTriggerKey;
 
   @override
   Widget build(BuildContext context) {
     final chrome = context.linear;
-    final history = interaction.history.take(5).toList();
+    final history = interaction.history.reversed.take(5).toList();
 
     return Container(
       width: double.infinity,
@@ -44,7 +51,7 @@ class PhysicalInteractionPanel extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Read-only runtime state for hold, tap confirmation, and shake routing. No synthetic success states are shown here.',
+            'Read-only runtime state for hold, tap confirmation, and shake routing. State only follows backend runtime; debug buttons send triggers but do not synthesize success locally.',
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
@@ -131,7 +138,31 @@ class PhysicalInteractionPanel extends StatelessWidget {
                 ? 'Enabled when the current scene and guard rails allow it.'
                 : 'Off for the current runtime state.',
           ),
-          if (interaction.blockedReason != null &&
+          const SizedBox(height: LinearSpacing.sm),
+          _ReadOnlyRow(
+            label: 'Current shake tendency',
+            value: interaction.shakeMode.trim().isEmpty
+                ? 'Not reported by backend yet.'
+                : _humanizeValue(interaction.shakeMode),
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          _ReadOnlyRow(
+            label: 'First shake today',
+            value: interaction.firstShakeUsedToday
+                ? interaction.dailyShakeCount > 0
+                      ? 'Used. ${interaction.dailyShakeCount} valid shake${interaction.dailyShakeCount == 1 ? '' : 's'} reported today.'
+                      : 'Used.'
+                : 'Unused.',
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          _ReadOnlyRow(
+            label: 'Recent shake mode',
+            value: interaction.recentShakeMode?.trim().isNotEmpty == true
+                ? _recentShakeModeLabel(interaction)
+                : 'Not reported by backend yet.',
+          ),
+          if (!interaction.ready &&
+              interaction.blockedReason != null &&
               interaction.blockedReason!.isNotEmpty) ...<Widget>[
             const SizedBox(height: LinearSpacing.sm),
             _ReadOnlyRow(
@@ -167,6 +198,58 @@ class PhysicalInteractionPanel extends StatelessWidget {
           const SizedBox(height: LinearSpacing.md),
           Text('Debug', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 6),
+          Text('Debug Trigger', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 6),
+          Text(
+            'Buttons call the backend debug API. Panel state still waits for backend runtime or event updates.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          Wrap(
+            spacing: LinearSpacing.sm,
+            runSpacing: LinearSpacing.sm,
+            children: <Widget>[
+              _DebugTriggerButton(
+                label: 'Shake',
+                pending: pendingDebugTriggerKey == 'shake',
+                enabled: pendingDebugTriggerKey == null,
+                onPressed: () => onTriggerPhysicalInteraction(
+                  'shake',
+                  const <String, dynamic>{},
+                ),
+              ),
+              _DebugTriggerButton(
+                label: 'Tap 1',
+                pending: pendingDebugTriggerKey == 'tap:1',
+                enabled: pendingDebugTriggerKey == null,
+                onPressed: () => onTriggerPhysicalInteraction(
+                  'tap',
+                  const <String, dynamic>{'tap_count': 1},
+                ),
+              ),
+              _DebugTriggerButton(
+                label: 'Tap 2',
+                pending: pendingDebugTriggerKey == 'tap:2',
+                enabled: pendingDebugTriggerKey == null,
+                onPressed: () => onTriggerPhysicalInteraction(
+                  'tap',
+                  const <String, dynamic>{'tap_count': 2},
+                ),
+              ),
+              _DebugTriggerButton(
+                label: 'Tap 3',
+                pending: pendingDebugTriggerKey == 'tap:3',
+                enabled: pendingDebugTriggerKey == null,
+                onPressed: () => onTriggerPhysicalInteraction(
+                  'tap',
+                  const <String, dynamic>{'tap_count': 3},
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: LinearSpacing.md),
           _ReadOnlyRow(
             label: 'Status',
             value: interaction.statusMessage ?? interaction.status,
@@ -185,6 +268,32 @@ class PhysicalInteractionPanel extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _DebugTriggerButton extends StatelessWidget {
+  const _DebugTriggerButton({
+    required this.label,
+    required this.pending,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool pending;
+  final bool enabled;
+  final Future<void> Function() onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonal(
+      onPressed: enabled
+          ? () {
+              unawaited(onPressed());
+            }
+          : null,
+      child: Text(pending ? 'Sending...' : label),
     );
   }
 }
@@ -362,4 +471,27 @@ class _HistoryRow extends StatelessWidget {
       ),
     );
   }
+}
+
+String _recentShakeModeLabel(PhysicalInteractionStateModel interaction) {
+  final mode = interaction.recentShakeMode?.trim() ?? '';
+  if (mode.isEmpty) {
+    return 'Not reported by backend yet.';
+  }
+  final occurredAt = interaction.dailyShakeLastInteractionAt?.trim();
+  if (occurredAt == null || occurredAt.isEmpty) {
+    return _humanizeValue(mode);
+  }
+  return '${_humanizeValue(mode)} · $occurredAt';
+}
+
+String _humanizeValue(String value) {
+  return value
+      .split(RegExp(r'[_\-\s]+'))
+      .where((String item) => item.isNotEmpty)
+      .map(
+        (String item) =>
+            '${item.substring(0, 1).toUpperCase()}${item.substring(1).toLowerCase()}',
+      )
+      .join(' ');
 }

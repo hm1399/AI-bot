@@ -54,6 +54,18 @@ class ExperienceService {
       fallback: const SessionExperienceOverrideModel(),
     );
   }
+
+  Future<InteractionResultModel> triggerPhysicalInteraction({
+    required String kind,
+    Map<String, dynamic> payload = const <String, dynamic>{},
+  }) {
+    return _apiClient.post(
+      '$_experiencePath/interactions',
+      body: <String, dynamic>{'kind': kind, 'payload': payload},
+      parser: (dynamic data) =>
+          _parsePhysicalInteractionResponse(_coerceMap(data)),
+    );
+  }
 }
 
 SessionExperienceOverrideModel _parseSessionExperienceResponse(
@@ -102,6 +114,43 @@ Map<String, dynamic> _extractExperiencePayload(Map<String, dynamic> json) {
   return _looksLikeExperience(json) ? json : <String, dynamic>{};
 }
 
+InteractionResultModel _parsePhysicalInteractionResponse(
+  Map<String, dynamic> json,
+) {
+  final result = _extractInteractionResultPayload(json);
+  if (result.isNotEmpty) {
+    return InteractionResultModel.fromJson(result);
+  }
+  return InteractionResultModel.empty();
+}
+
+Map<String, dynamic> _extractInteractionResultPayload(
+  Map<String, dynamic> json,
+) {
+  for (final key in const <String>[
+    'result',
+    'interaction_result',
+    'interaction',
+    'last_interaction_result',
+    'data',
+  ]) {
+    final value = _coerceMap(json[key]);
+    if (value.isEmpty) {
+      continue;
+    }
+    if (key == 'data') {
+      final nested = _extractInteractionResultPayload(value);
+      if (nested.isNotEmpty) {
+        return nested;
+      }
+    }
+    if (_looksLikeInteractionResult(value)) {
+      return value;
+    }
+  }
+  return _looksLikeInteractionResult(json) ? json : <String, dynamic>{};
+}
+
 bool _looksLikeExperience(Map<String, dynamic> json) {
   return json.containsKey('default_scene_mode') ||
       json.containsKey('active_scene_mode') ||
@@ -110,6 +159,13 @@ bool _looksLikeExperience(Map<String, dynamic> json) {
       json.containsKey('persona_profile') ||
       json.containsKey('persona_fields') ||
       json.containsKey('physical_interaction');
+}
+
+bool _looksLikeInteractionResult(Map<String, dynamic> json) {
+  return json.containsKey('interaction_kind') ||
+      json.containsKey('short_result') ||
+      json.containsKey('display_text') ||
+      json.containsKey('animation_hint');
 }
 
 bool _looksLikeSessionExperience(Map<String, dynamic> json) {

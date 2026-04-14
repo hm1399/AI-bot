@@ -19,6 +19,14 @@ class ExperienceStore:
                 "last_interaction_result": None,
                 "interaction_history": [],
                 "interaction_throttle": {},
+                "daily_shake_state": {
+                    "date": "",
+                    "valid_shake_count": 0,
+                    "first_result_mode": None,
+                    "first_valid_shake_at": None,
+                    "last_valid_shake_at": None,
+                    "last_mode": None,
+                },
             },
         )
 
@@ -133,3 +141,81 @@ class ExperienceStore:
         state["interaction_throttle"] = marks
         self._store.save(state)
         return now
+
+    def clear_interaction_throttle(self, kind: str | None = None) -> None:
+        state = self._store.load()
+        marks = state.get("interaction_throttle")
+        if not isinstance(marks, dict):
+            marks = {}
+        if kind is None:
+            marks = {}
+        else:
+            marks.pop(kind, None)
+        state["interaction_throttle"] = marks
+        self._store.save(state)
+
+    def get_daily_shake_state(self) -> dict[str, Any]:
+        state = self._store.load()
+        normalized, changed = self._normalize_daily_shake_state(state)
+        if changed:
+            state["daily_shake_state"] = dict(normalized)
+            self._store.save(state)
+        return self._daily_shake_state_view(normalized)
+
+    def record_valid_shake(self, mode: str) -> dict[str, Any]:
+        if mode not in {"fortune", "random"}:
+            return self.get_daily_shake_state()
+        state = self._store.load()
+        normalized, _ = self._normalize_daily_shake_state(state)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        if int(normalized.get("valid_shake_count") or 0) <= 0:
+            normalized["first_result_mode"] = mode
+        normalized["valid_shake_count"] = int(normalized.get("valid_shake_count") or 0) + 1
+        if not normalized.get("first_valid_shake_at"):
+            normalized["first_valid_shake_at"] = timestamp
+        normalized["last_valid_shake_at"] = timestamp
+        normalized["last_mode"] = mode
+        state["daily_shake_state"] = dict(normalized)
+        self._store.save(state)
+        return self._daily_shake_state_view(normalized)
+
+    @staticmethod
+    def _daily_shake_state_view(payload: dict[str, Any]) -> dict[str, Any]:
+        view = deepcopy(payload)
+        view["count"] = int(view.get("valid_shake_count") or 0)
+        view["first_shake_used"] = view["count"] > 0
+        view["last_interaction_at"] = view.get("last_valid_shake_at")
+        view["fortune_available"] = int(view.get("valid_shake_count") or 0) <= 0
+        return view
+
+    def _normalize_daily_shake_state(self, state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        today = datetime.now().astimezone().date().isoformat()
+        payload = state.get("daily_shake_state")
+        raw = payload if isinstance(payload, dict) else {}
+        normalized = {
+            "date": str(raw.get("date") or "").strip(),
+            "valid_shake_count": self._safe_int(raw.get("valid_shake_count")),
+            "first_result_mode": str(raw.get("first_result_mode") or "").strip() or None,
+            "first_valid_shake_at": raw.get("first_valid_shake_at"),
+            "last_valid_shake_at": raw.get("last_valid_shake_at"),
+            "last_mode": str(raw.get("last_mode") or "").strip() or None,
+        }
+        changed = not isinstance(payload, dict)
+        if normalized["date"] != today:
+            normalized = {
+                "date": today,
+                "valid_shake_count": 0,
+                "first_result_mode": None,
+                "first_valid_shake_at": None,
+                "last_valid_shake_at": None,
+                "last_mode": None,
+            }
+            changed = True
+        return normalized, changed or raw != normalized
+
+    @staticmethod
+    def _safe_int(value: Any) -> int:
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0

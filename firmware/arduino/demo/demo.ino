@@ -6,7 +6,7 @@
  * 1. 从 NVS 读取 WiFi / WebSocket / device token 运行时配置
  * 2. 无配置时进入首配提示态，通过 USB CDC 串口完成 pairing
  * 3. 有配置时正常连接服务端 WebSocket
- * 4. 触摸 IO7 按下发送 long_press，松开发送 long_release
+ * 4. 触摸 IO7 支持单 / 双 / 三连拍上报，以及按住说话与长按配对
  * 5. 服务端回传 PCM 16kHz/16bit/mono 音频，固件本地播放到 MAX98357A
  * 6. 屏幕显示连接状态、AI 回复文字、播放状态
  *
@@ -51,6 +51,9 @@
 constexpr unsigned long NTP_UPDATE_INTERVAL = 30000;
 constexpr unsigned long DEVICE_STATUS_INTERVAL = 15000;
 constexpr unsigned long TOUCH_SAMPLE_INTERVAL = 20;
+constexpr unsigned long TOUCH_DEBOUNCE_MS = 60;
+constexpr unsigned long TOUCH_TAP_WINDOW_MS = 320;
+constexpr unsigned long TOUCH_HOLD_TRIGGER_MS = 240;
 constexpr unsigned long REPAIR_TOUCH_HOLD_MS = 5000;
 constexpr unsigned long MOTION_SAMPLE_INTERVAL = 50;
 constexpr unsigned long SHAKE_WINDOW_MS = 400;
@@ -59,6 +62,7 @@ constexpr unsigned long WIFI_RETRY_DELAY_MS = 500;
 constexpr const char* FIRMWARE_VERSION = "demo-2026-04-11";
 constexpr float SHAKE_DELTA_THRESHOLD_G = 0.75f;
 constexpr int SHAKE_MIN_PEAKS = 2;
+constexpr uint32_t TOUCH_RELEASE_THRESHOLD = 38000;
 
 enum SpeakerSdMode {
   SPEAKER_SD_SHUTDOWN = 0,
@@ -86,7 +90,9 @@ PairingPhase pairingPhase = PAIRING_IDLE;
 bool wsConnected = false;
 bool introSent = false;
 bool touchPressed = false;
+bool touchRawPressed = false;
 bool voiceTouchActive = false;
+bool touchHoldTriggered = false;
 bool repairHoldHandled = false;
 bool motionReady = false;
 bool speakerReady = false;
@@ -97,6 +103,8 @@ String lastStatusBarTime = "";
 String lastStatusWeather = "";
 String lastPairingReason = "boot";
 unsigned long touchPressedAt = 0;
+unsigned long touchRawChangedAt = 0;
+unsigned long lastTapReleasedAt = 0;
 unsigned long lastTouchCheck = 0;
 unsigned long lastMotionCheck = 0;
 unsigned long lastShakeEventAt = 0;
@@ -105,9 +113,15 @@ unsigned long lastNtpUpdate = 0;
 unsigned long lastDeviceStatusPush = 0;
 float previousMotionTotalG = 1.0f;
 int shakeMotionPeaks = 0;
+uint8_t pendingTapCount = 0;
 
 void sendTouchEvent(const char* action, int tapCount = 0, bool hold = false);
 void sendShakeEvent();
+void flushPendingTapSequence();
+String translateFaceStatusHint(const char* text);
+void clearFaceStatusHint();
+void setFaceStatusHint(const char* text);
+void setFaceReplySubtitle(const char* text);
 
 int currentVolume = 70;
 bool currentMuted = false;
@@ -130,6 +144,100 @@ void updateStatusBar() {
       wifiOk,
       wsConnected);
   faceSetWeather(lastStatusWeather.isEmpty() ? nullptr : lastStatusWeather.c_str());
+}
+
+String translateFaceStatusHint(const char* text) {
+  const char* normalized = text != nullptr ? text : "";
+  if (normalized[0] == '\0') {
+    return String();
+  }
+
+  struct StatusMapping {
+    const char* source;
+    const char* target;
+  };
+
+  static const StatusMapping kMappings[] = {
+      {"请插线并长按配对", "Please connect to computer"},
+      {"Please connect to computer", "Please connect to computer"},
+      {"WiFi失败，请重启或长按重配", "Please connect to computer"},
+      {"配对模式已就绪", "Hold touch button to pair"},
+      {"Hold touch button to pair", "Hold touch button to pair"},
+      {"WiFi 连接中...", "Connecting to WiFi"},
+      {"Connecting to WiFi", "Connecting to WiFi"},
+      {"WiFi 连接失败!", "WiFi connection failed"},
+      {"WiFi connection failed", "WiFi connection failed"},
+      {"WiFi 已连接", "WiFi connected"},
+      {"WiFi connected", "WiFi connected"},
+      {"录音结束，识别中...", "Processing"},
+      {"录音结束，正在识别", "Processing"},
+      {"录音结束，正在处理", "Processing"},
+      {"正在回复", "Processing"},
+      {"Processing", "Processing"},
+      {"请对电脑说话...", "Please speak to computer"},
+      {"Please speak to computer", "Please speak to computer"},
+      {"服务器已断开", "Server disconnected"},
+      {"Server disconnected", "Server disconnected"},
+      {"已连接服务器", "Connected to server"},
+      {"Connected to server", "Connected to server"},
+      {"设备已唤醒", "Device awake"},
+      {"Device awake", "Device awake"},
+      {"设备休眠中", "Device sleeping"},
+      {"Device sleeping", "Device sleeping"},
+      {"正在写入配置...", "Saving pairing settings"},
+      {"Saving pairing settings", "Saving pairing settings"},
+      {"配置写入失败", "Pairing save failed"},
+      {"Pairing save failed", "Pairing save failed"},
+      {"配置已保存，重启中...", "Restarting"},
+      {"Restarting", "Restarting"},
+      {"正在清空配置...", "Clearing pairing settings"},
+      {"Clearing pairing settings", "Clearing pairing settings"},
+      {"清空配置失败", "Clear failed"},
+      {"Clear failed", "Clear failed"},
+      {"喇叭初始化失败", "Speaker init failed"},
+      {"Speaker init failed", "Speaker init failed"},
+      {"桌面麦克风未连接", "Please connect to computer"},
+      {"桌面麦克风不可用", "Please connect to computer"},
+      {"Desktop mic unavailable", "Please connect to computer"},
+      {"Please connect to computer", "Please connect to computer"},
+      {"录音超时，已取消", "Cancelled"},
+      {"已取消", "Cancelled"},
+      {"Cancelled", "Cancelled"},
+      {"语音识别失败，请重试", "Speech recognition failed"},
+      {"Speech recognition failed", "Speech recognition failed"},
+      {"没听清，请再说一次", "Please say that again"},
+      {"Please say that again", "Please say that again"},
+      {"录音太长，已自动截断", "Recording truncated"},
+      {"Recording truncated", "Recording truncated"},
+      {"检测到摇一摇", "Shake detected"},
+      {"Shake detected", "Shake detected"},
+  };
+
+  for (const StatusMapping& mapping : kMappings) {
+    if (strcmp(normalized, mapping.source) == 0) {
+      return String(mapping.target);
+    }
+  }
+  return String();
+}
+
+void clearFaceStatusHint() {
+  faceClearStatusText();
+}
+
+void setFaceStatusHint(const char* text) {
+  const String translated = translateFaceStatusHint(text);
+  if (translated.isEmpty()) {
+    return;
+  }
+  faceSetStatusText(translated.c_str());
+}
+
+void setFaceReplySubtitle(const char* text) {
+  const char* normalized = text != nullptr ? text : "";
+  lastReply = String(normalized);
+  clearFaceStatusHint();
+  faceSetReplyText(normalized);
 }
 
 // ──────────────────────────────────────────────
@@ -188,7 +296,7 @@ void enterPairingPrompt(const char* reason, const char* faceMessage = nullptr) {
   playbackActive = false;
   WiFi.mode(WIFI_OFF);
   faceSetState(FACE_IDLE);
-  faceSetText(faceMessage != nullptr ? faceMessage : "请插线并长按配对");
+  setFaceStatusHint(faceMessage != nullptr ? faceMessage : "请插线并长按配对");
   updateStatusBar();
   sendPairingStatus(lastPairingReason.c_str());
 }
@@ -207,7 +315,7 @@ void stopRuntimeForPairing(const char* faceMessage) {
   WiFi.mode(WIFI_OFF);
   faceSetState(FACE_IDLE);
   if (faceMessage != nullptr) {
-    faceSetText(faceMessage);
+    setFaceStatusHint(faceMessage);
   }
   updateStatusBar();
 }
@@ -227,14 +335,25 @@ void enterPairingMode(const char* reason) {
 }
 
 bool canSendVoiceTouch() {
-  return pairingPhase == PAIRING_DISABLED && wsConnected && !currentSleeping;
+  return pairingPhase == PAIRING_DISABLED &&
+         wsConnected &&
+         !currentSleeping &&
+         !playbackActive;
+}
+
+bool canSendTapEvent() {
+  return pairingPhase == PAIRING_DISABLED &&
+         wsConnected &&
+         !currentSleeping &&
+         !voiceTouchActive &&
+         !playbackActive;
 }
 
 bool canArmPairingFromTouch() {
   if (pairingPhase == PAIRING_APPLYING || pairingPhase == PAIRING_RESTARTING) {
     return false;
   }
-  if (voiceTouchActive) {
+  if (voiceTouchActive || playbackActive) {
     return false;
   }
   return !currentConfig.provisioned || pairingPhase == PAIRING_IDLE;
@@ -332,7 +451,7 @@ void showGestureFeedback(const char* text) {
   }
 
   faceSetState(FACE_ACTIVE);
-  faceSetText(text);
+  setFaceStatusHint(text);
 }
 
 // ──────────────────────────────────────────────
@@ -485,6 +604,38 @@ void sendShakeEvent() {
   Serial.println("Sent shake_event");
 }
 
+void resetPendingTapSequence() {
+  pendingTapCount = 0;
+  lastTapReleasedAt = 0;
+}
+
+void registerTapRelease() {
+  if (!canSendTapEvent()) {
+    resetPendingTapSequence();
+    return;
+  }
+
+  if (pendingTapCount < 3) {
+    pendingTapCount++;
+  }
+  lastTapReleasedAt = millis();
+
+  if (pendingTapCount >= 3) {
+    flushPendingTapSequence();
+  }
+}
+
+void flushPendingTapSequence() {
+  if (pendingTapCount == 0) {
+    return;
+  }
+
+  if (canSendTapEvent()) {
+    sendTouchEvent("tap", pendingTapCount, false);
+  }
+  resetPendingTapSequence();
+}
+
 void sendDeviceStatus() {
   if (!wsConnected) return;
 
@@ -616,7 +767,7 @@ void handleDeviceCommand(JsonObject data) {
   if (command == "wake") {
     currentSleeping = false;
     faceSetState(FACE_IDLE);
-    faceSetText("设备已唤醒");
+    setFaceStatusHint("设备已唤醒");
     updateStatusBar();
     JsonDocument doc;
     JsonObject result = beginDeviceCommandResult(
@@ -637,7 +788,7 @@ void handleDeviceCommand(JsonObject data) {
     currentSleeping = true;
     playbackActive = false;
     faceSetState(FACE_IDLE);
-    faceSetText("设备休眠中");
+    setFaceStatusHint("设备休眠中");
     updateStatusBar();
     JsonDocument doc;
     JsonObject result = beginDeviceCommandResult(
@@ -708,8 +859,7 @@ void handleServerMessage(uint8_t* payload, size_t length) {
   if (strcmp(type, "text_reply") == 0) {
     const char* text = data["text"] | "";
     Serial.printf("[text_reply] %s\n", text);
-    lastReply = String(text);
-    faceSetText(text);
+    setFaceReplySubtitle(text);
 
   } else if (strcmp(type, "state_change") == 0) {
     const char* state = data["state"] | "";
@@ -720,7 +870,6 @@ void handleServerMessage(uint8_t* payload, size_t length) {
       faceSetState(FACE_LISTENING);
     } else if (strcmp(state, "PROCESSING") == 0) {
       faceSetState(FACE_PROCESSING);
-      faceSetText("思考中...");
     } else if (strcmp(state, "SPEAKING") == 0) {
       faceSetState(FACE_SPEAKING);
     }
@@ -728,8 +877,7 @@ void handleServerMessage(uint8_t* payload, size_t length) {
   } else if (strcmp(type, "display_update") == 0) {
     const char* text = data["text"] | "";
     Serial.printf("[display_update] %s\n", text);
-    lastReply = String(text);
-    faceSetText(text);
+    setFaceStatusHint(text);
 
   } else if (strcmp(type, "face_update") == 0) {
     const char* faceState = data["state"] | "";
@@ -737,6 +885,17 @@ void handleServerMessage(uint8_t* payload, size_t length) {
     if (strcmp(faceState, "ACTIVE") == 0) {
       faceSetState(FACE_ACTIVE);
     } else if (strcmp(faceState, "IDLE") == 0) {
+      faceSetState(FACE_IDLE);
+    } else if (strcmp(faceState, "focus") == 0) {
+      faceSetState(FACE_FOCUS);
+    } else if (strcmp(faceState, "celebrate") == 0 ||
+               strcmp(faceState, "affirm") == 0) {
+      faceSetState(FACE_ACTIVE);
+    } else if (strcmp(faceState, "deny") == 0) {
+      faceSetState(FACE_DENY);
+    } else if (strcmp(faceState, "interrupt") == 0) {
+      faceSetState(FACE_INTERRUPT);
+    } else if (strcmp(faceState, "idle") == 0) {
       faceSetState(FACE_IDLE);
     }
 
@@ -789,9 +948,9 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       Serial.println("WebSocket disconnected");
       updateStatusBar();
       if (pairingPhase == PAIRING_DISABLED) {
-        faceSetText("服务器已断开");
+        setFaceStatusHint("服务器已断开");
       } else {
-        faceSetText("配对模式已就绪");
+        setFaceStatusHint("配对模式已就绪");
       }
       break;
 
@@ -800,7 +959,7 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       voiceTouchActive = false;
       Serial.println("WebSocket connected!");
       updateStatusBar();
-      faceSetText("已连接服务器");
+      clearFaceStatusHint();
       sendDeviceStatus();
 
       if (!introSent) {
@@ -841,7 +1000,7 @@ bool connectWiFi() {
   }
 
   Serial.printf("Connecting to WiFi: %s\n", currentConfig.wifiSsid.c_str());
-  faceSetText("WiFi 连接中...");
+  setFaceStatusHint("WiFi 连接中...");
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(currentConfig.wifiSsid.c_str(), currentConfig.wifiPass.c_str());
@@ -872,7 +1031,7 @@ bool connectWiFi() {
 
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi connection failed!");
-    faceSetText("WiFi 连接失败!");
+    setFaceStatusHint("WiFi 连接失败!");
     return false;
   }
 
@@ -882,7 +1041,7 @@ bool connectWiFi() {
   Serial.println("NTP time sync configured (UTC+8)");
 
   updateStatusBar();
-  faceSetText("WiFi 已连接");
+  setFaceStatusHint("WiFi 已连接");
   return true;
 }
 
@@ -943,13 +1102,13 @@ void handlePairingApply(const DeviceConfig& config) {
 
   pairingPhase = PAIRING_APPLYING;
   faceSetState(FACE_IDLE);
-  faceSetText("正在写入配置...");
+  setFaceStatusHint("正在写入配置...");
   updateStatusBar();
   sendPairingStatus("apply_requested");
 
   if (!deviceConfigStore.save(config)) {
     pairingPhase = PAIRING_ARMED;
-    faceSetText("配置写入失败");
+    setFaceStatusHint("配置写入失败");
     serialPairing.sendResult(
         false,
         "storage_write_failed",
@@ -961,7 +1120,7 @@ void handlePairingApply(const DeviceConfig& config) {
 
   currentConfig = config;
   pairingPhase = PAIRING_RESTARTING;
-  faceSetText("配置已保存，重启中...");
+  setFaceStatusHint("配置已保存，重启中...");
   sendPairingStatus("apply_saved");
   serialPairing.sendResult(true, "applied", "Pairing config saved", true);
   delay(250);
@@ -981,12 +1140,12 @@ void handlePairingClear() {
 
   pairingPhase = PAIRING_RESTARTING;
   faceSetState(FACE_IDLE);
-  faceSetText("正在清空配置...");
+  setFaceStatusHint("正在清空配置...");
   sendPairingStatus("clear_requested");
 
   if (!deviceConfigStore.clear()) {
     pairingPhase = currentConfig.provisioned ? PAIRING_ARMED : PAIRING_IDLE;
-    faceSetText("清空配置失败");
+    setFaceStatusHint("清空配置失败");
     serialPairing.sendResult(
         false,
         "clear_failed",
@@ -1070,41 +1229,80 @@ void handleMotion() {
 
 void handleTouch() {
   const uint32_t touchVal = touchRead(TOUCH_PIN);
-  const bool touched = touchVal > TOUCH_THRESHOLD;
   const unsigned long now = millis();
+  // Touch input is noisy around press/release edges, and speaker playback can
+  // induce false positives, so only stable samples become real state changes.
+  const bool allowNewTouch = !playbackActive || touchPressed || voiceTouchActive;
+  const bool rawTouched =
+      allowNewTouch &&
+      (touchPressed ? touchVal > TOUCH_RELEASE_THRESHOLD
+                    : touchVal > TOUCH_THRESHOLD);
+
+  if (rawTouched != touchRawPressed) {
+    touchRawPressed = rawTouched;
+    touchRawChangedAt = now;
+  }
+
+  const bool touched =
+      (rawTouched == touchPressed || now - touchRawChangedAt >= TOUCH_DEBOUNCE_MS)
+          ? rawTouched
+          : touchPressed;
+
+  if (!touchPressed &&
+      pendingTapCount > 0 &&
+      lastTapReleasedAt > 0 &&
+      now - lastTapReleasedAt >= TOUCH_TAP_WINDOW_MS) {
+    flushPendingTapSequence();
+  }
 
   if (touched && !touchPressed) {
     touchPressed = true;
     touchPressedAt = now;
+    touchHoldTriggered = false;
     repairHoldHandled = false;
-
-    if (canSendVoiceTouch()) {
-      voiceTouchActive = true;
-      Serial.println("Touch long_press");
-      faceSetState(FACE_LISTENING);
-      faceSetText("请对电脑说话...");
-      sendTouchEvent("long_press", 0, true);
-    }
   }
 
   if (touched && touchPressed && !repairHoldHandled) {
     if (canArmPairingFromTouch() && now - touchPressedAt >= REPAIR_TOUCH_HOLD_MS) {
       repairHoldHandled = true;
+      touchHoldTriggered = false;
+      resetPendingTapSequence();
       enterPairingMode("touch_long_press");
     }
   }
 
+  if (touched && touchPressed && !touchHoldTriggered && !repairHoldHandled) {
+    if (canSendVoiceTouch() && now - touchPressedAt >= TOUCH_HOLD_TRIGGER_MS) {
+      touchHoldTriggered = true;
+      voiceTouchActive = true;
+      resetPendingTapSequence();
+      Serial.println("Touch long_press");
+      faceSetState(FACE_LISTENING);
+      setFaceStatusHint("请对电脑说话...");
+      sendTouchEvent("long_press", 0, true);
+    }
+  }
+
   if (!touched && touchPressed) {
+    const bool pairingConsumedTouch = repairHoldHandled;
+    const bool holdConsumedTouch = touchHoldTriggered || voiceTouchActive;
+
     touchPressed = false;
     touchPressedAt = 0;
     repairHoldHandled = false;
 
     if (voiceTouchActive) {
       voiceTouchActive = false;
+      touchHoldTriggered = false;
       Serial.println("Touch long_release");
       faceSetState(FACE_PROCESSING);
-      faceSetText("录音结束，识别中...");
+      setFaceStatusHint("录音结束，识别中...");
       sendTouchEvent("long_release", 0, false);
+    } else {
+      if (!pairingConsumedTouch && !holdConsumedTouch) {
+        registerTapRelease();
+      }
+      touchHoldTriggered = false;
     }
   }
 }
@@ -1132,7 +1330,7 @@ void setup() {
   speakerReady = initSpeaker();
   if (!speakerReady) {
     Serial.println("Speaker init failed, will continue without local playback");
-    faceSetText("喇叭初始化失败");
+    setFaceStatusHint("喇叭初始化失败");
   }
 
   motionReady = initMotionSensor();

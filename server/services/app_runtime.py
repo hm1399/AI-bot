@@ -4,6 +4,7 @@ import asyncio
 from collections import deque
 from copy import deepcopy
 import hmac
+import inspect
 import ipaddress
 import json
 import re
@@ -97,6 +98,17 @@ _PERSONA_COMMAND_ALIASES: tuple[tuple[str, str, str], ...] = (
 )
 
 
+def _invoke_with_storage_support(factory: Any, *args: Any, storage_config: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+    """Call a constructor with storage_config only when it explicitly supports it."""
+    try:
+        signature = inspect.signature(factory)
+    except (TypeError, ValueError):
+        signature = None
+    if storage_config and signature is not None and "storage_config" in signature.parameters:
+        kwargs["storage_config"] = dict(storage_config)
+    return factory(*args, **kwargs)
+
+
 class AppRuntimeService:
     """Flutter App 本地局域网 API、事件流与共享运行态服务。"""
 
@@ -137,6 +149,7 @@ class AppRuntimeService:
         self._event_history: deque[dict[str, Any]] = deque(maxlen=self.event_buffer_size)
         self._runtime_dir = self.sessions.workspace / "runtime"
         self._runtime_dir.mkdir(parents=True, exist_ok=True)
+        self._storage_config = dict(cfg.get("storage") or {})
         self._todo_summary_path = self._runtime_dir / "todo_summary.json"
         self._calendar_summary_path = self._runtime_dir / "calendar_summary.json"
         self._todo_summary = self._load_summary_file(
@@ -148,12 +161,18 @@ class AppRuntimeService:
             self._default_calendar_summary(),
         )
         self.settings = SettingsService(self.cfg, self._runtime_dir)
-        self.experience_service = ExperienceService(
+        self.experience_service = _invoke_with_storage_support(
+            ExperienceService,
             self.settings,
             self.sessions,
             self._runtime_dir,
+            storage_config=self._storage_config,
         )
-        self.resources = AppResourceService(self._runtime_dir)
+        self.resources = _invoke_with_storage_support(
+            AppResourceService,
+            self._runtime_dir,
+            storage_config=self._storage_config,
+        )
         self.computer_control_service = computer_control_service or ComputerControlService(
             self.cfg,
             runtime_dir=self._runtime_dir,
@@ -191,6 +210,7 @@ class AppRuntimeService:
         app.router.add_post("/api/app/v1/settings/llm/test", self.handle_test_llm_settings)
         app.router.add_get("/api/app/v1/experience", self.handle_get_experience)
         app.router.add_patch("/api/app/v1/experience", self.handle_patch_experience)
+        app.router.add_post("/api/app/v1/experience/interactions", self.handle_post_experience_interaction)
         app.router.add_get("/api/app/v1/sessions", self.handle_list_sessions)
         app.router.add_post("/api/app/v1/sessions", self.handle_create_session)
         app.router.add_post("/api/app/v1/sessions/active", self.handle_set_active_session)
@@ -530,7 +550,9 @@ class AppRuntimeService:
         data: dict[str, Any],
     ) -> dict[str, Any]:
         runtime = await self.get_runtime_state()
-        session_id = self.get_active_app_session_id()
+        session_id = str(data.get("app_session_id") or self.get_active_app_session_id()).strip()
+        if not session_id.startswith("app:"):
+            session_id = self.get_active_app_session_id()
         current_task = runtime.get("current_task") if isinstance(runtime, dict) else None
         voice_runtime = runtime.get("voice") if isinstance(runtime, dict) else None
         computer_control = runtime.get("computer_control") if isinstance(runtime, dict) else None
@@ -544,11 +566,15 @@ class AppRuntimeService:
             computer_control_state=computer_control if isinstance(computer_control, dict) else None,
         )
         if result.get("mode") == "interrupt":
+            device_state = getattr(self.device_channel, "state", None)
+            device_will_publish_stop = str(
+                getattr(device_state, "value", device_state) or ""
+            ).lower() == "processing"
             await self.device_channel.interrupt_current_activity(notice="")
             task_id = ""
             if isinstance(current_task, dict):
                 task_id = str(current_task.get("task_id") or "").strip()
-            if task_id:
+            if task_id and not device_will_publish_stop:
                 await self.bus.publish_inbound(InboundMessage(
                     channel="system",
                     sender_id="device",
@@ -807,6 +833,55 @@ class AppRuntimeService:
         )
         return self._ok(experience)
 
+    async def handle_post_experience_interaction(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return self._error("UNAUTHORIZED", "unauthorized", status=401)
+        payload = await self._read_json(request)
+        if payload is None:
+            return self._error("INVALID_ARGUMENT", "invalid json body", status=400)
+
+        kind = str(payload.get("kind") or payload.get("interaction_kind") or "").strip().lower()
+        if not kind:
+            return self._error("INVALID_ARGUMENT", "interaction kind is required", status=400)
+
+        interaction_payload = payload.get("payload")
+        if interaction_payload is None:
+            interaction_payload = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"kind", "interaction_kind"}
+            }
+        if not isinstance(interaction_payload, dict):
+            return self._error("INVALID_ARGUMENT", "interaction payload must be an object", status=400)
+
+        session_id = str(
+            interaction_payload.get("app_session_id")
+            or payload.get("session_id")
+            or request.query.get("session_id")
+            or self.get_active_app_session_id()
+        ).strip() or self.get_active_app_session_id()
+        interaction_payload = dict(interaction_payload)
+        if session_id.startswith("app:"):
+            interaction_payload.setdefault("app_session_id", session_id)
+
+        result = await self._handle_physical_interaction(kind, interaction_payload)
+        runtime = await self.get_runtime_state()
+        current_task = runtime.get("current_task") if isinstance(runtime, dict) else None
+        voice_runtime = runtime.get("voice") if isinstance(runtime, dict) else None
+        computer_control = runtime.get("computer_control") if isinstance(runtime, dict) else None
+        device_snapshot = runtime.get("device") if isinstance(runtime, dict) else None
+        experience = await self._runtime_experience_state(
+            session_id=session_id,
+            device_snapshot=device_snapshot if isinstance(device_snapshot, dict) else None,
+            voice_runtime=voice_runtime if isinstance(voice_runtime, dict) else None,
+            computer_control_state=computer_control if isinstance(computer_control, dict) else None,
+            current_task=current_task if isinstance(current_task, dict) else None,
+        )
+        return self._ok({
+            "result": result,
+            "experience": experience,
+        })
+
     async def handle_list_sessions(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
             return self._error("UNAUTHORIZED", "unauthorized", status=401)
@@ -998,14 +1073,30 @@ class AppRuntimeService:
         if not valid:
             return self._error("INVALID_ARGUMENT", error, status=400)
 
+        limit = self._parse_limit(request.query.get("limit"), default=50, maximum=200)
+        before = request.query.get("before", "").strip() or None
+        after = request.query.get("after", "").strip() or None
+        page_loader = getattr(self.sessions, "get_messages_page", None)
+        if callable(page_loader):
+            try:
+                page = page_loader(
+                    session_id,
+                    before=before,
+                    after=after,
+                    limit=limit,
+                )
+            except KeyError:
+                return self._error("SESSION_NOT_FOUND", "session does not exist", status=404)
+            except ValueError as exc:
+                return self._error("INVALID_ARGUMENT", str(exc), status=400)
+            if isinstance(page, dict):
+                return self._ok(page)
+
         session = self.sessions.get(session_id)
         if session is None:
             return self._error("SESSION_NOT_FOUND", "session does not exist", status=404)
 
-        limit = self._parse_limit(request.query.get("limit"), default=50, maximum=200)
         messages = self._serialize_messages(session)
-        before = request.query.get("before", "").strip() or None
-        after = request.query.get("after", "").strip() or None
         page, error = self._paginate_messages(
             session_id=session_id,
             messages=messages,
@@ -1792,6 +1883,7 @@ class AppRuntimeService:
             "device": device_snapshot,
             "desktop_voice": desktop_voice,
             "voice": voice_runtime,
+            "storage": self._storage_runtime_state(),
             "experience": await self._runtime_experience_state(
                 session_id=self.get_active_app_session_id(),
                 device_snapshot=device_snapshot,
@@ -2103,6 +2195,17 @@ class AppRuntimeService:
         archived: bool | None = None,
         pinned_first: bool = True,
     ) -> list[dict[str, Any]]:
+        list_app_sessions = getattr(self.sessions, "list_app_sessions", None)
+        if callable(list_app_sessions):
+            payload = list_app_sessions(
+                limit=limit,
+                archived=archived,
+                pinned_first=pinned_first,
+                active_session_id=self.get_active_app_session_id(),
+            )
+            if isinstance(payload, list):
+                return [dict(item) for item in payload if isinstance(item, dict)]
+
         sessions: list[dict[str, Any]] = []
         for item in self.sessions.list_sessions():
             key = item.get("key", "")
@@ -2124,6 +2227,14 @@ class AppRuntimeService:
         return sessions
 
     def _serialize_session(self, session: Session) -> dict[str, Any]:
+        get_session_summary = getattr(self.sessions, "get_session_summary", None)
+        if callable(get_session_summary):
+            payload = get_session_summary(
+                session.key,
+                active_session_id=self.get_active_app_session_id(),
+            )
+            if isinstance(payload, dict):
+                return dict(payload)
         session = self._ensure_app_session(session.key, title=session.metadata.get("title"))
         visible_messages = self._serialize_messages(session)
         last_message = visible_messages[-1] if visible_messages else None
@@ -2426,6 +2537,16 @@ class AppRuntimeService:
         return metadata
 
     def _planning_inputs(self) -> dict[str, list[dict[str, Any]]]:
+        planning_inputs = getattr(self.resources, "planning_inputs", None)
+        if callable(planning_inputs):
+            payload = planning_inputs()
+            if isinstance(payload, dict):
+                return {
+                    "tasks": list(payload.get("tasks", [])),
+                    "events": list(payload.get("events", [])),
+                    "reminders": list(payload.get("reminders", [])),
+                    "notifications": list(payload.get("notifications", [])),
+                }
         return {
             "tasks": self.resources.task_store.list_items(),
             "events": self.resources.event_store.list_items(),
@@ -2701,6 +2822,27 @@ class AppRuntimeService:
             "conflicts_ready": True,
             "conflict_count": int(counts.get("conflict_count", 0) or 0),
             "generated_at": overview.get("generated_at"),
+        }
+
+    def _storage_runtime_state(self) -> dict[str, Any]:
+        sqlite_path = self._storage_config.get("sqlite_path")
+        sqlite_path_value = str(sqlite_path).strip() if sqlite_path is not None else ""
+        return {
+            "session_mode": str(
+                self._storage_config.get("session_storage_mode", "json")
+            ).strip().lower() or "json",
+            "planning_mode": str(
+                self._storage_config.get("planning_storage_mode", "json")
+            ).strip().lower() or "json",
+            "experience_mode": str(
+                self._storage_config.get("experience_storage_mode", "json")
+            ).strip().lower() or "json",
+            "computer_action_mode": str(
+                self._storage_config.get("computer_action_storage_mode", "json")
+            ).strip().lower() or "json",
+            "sqlite_path": sqlite_path_value or None,
+            "shadow_failures": 0,
+            "mismatch_count": 0,
         }
 
     def _computer_control_runtime_state(self) -> dict[str, Any]:
