@@ -198,6 +198,103 @@ class PlanningProjectionServiceTests(unittest.TestCase):
             ["event_span", "rem_today", "task_today"],
         )
 
+    def test_build_timeline_supports_surface_filter_and_metadata_passthrough(self) -> None:
+        service = PlanningProjectionService()
+
+        timeline = service.build_timeline(
+            tasks=[
+                {
+                    "task_id": "task_assistant",
+                    "title": "AI follow-up",
+                    "completed": False,
+                    "due_at": "2026-04-09T18:00:00+08:00",
+                    "planning_surface": "tasks",
+                    "owner_kind": "assistant",
+                    "delivery_mode": "none",
+                }
+            ],
+            events=[
+                {
+                    "event_id": "event_agenda",
+                    "title": "Dentist",
+                    "start_at": "2026-04-09T15:00:00+08:00",
+                    "end_at": "2026-04-09T16:00:00+08:00",
+                    "planning_surface": "agenda",
+                    "owner_kind": "user",
+                    "delivery_mode": "none",
+                }
+            ],
+            reminders=[
+                {
+                    "reminder_id": "rem_hidden",
+                    "title": "Meeting prompt",
+                    "time": "2026-04-09T17:00:00+08:00",
+                    "repeat": "once",
+                    "enabled": True,
+                    "next_trigger_at": "2026-04-09T17:00:00+08:00",
+                    "planning_surface": "hidden",
+                    "owner_kind": "assistant",
+                    "delivery_mode": "device_voice_and_notification",
+                }
+            ],
+            surface="agenda",
+        )
+
+        self.assertEqual([item["resource_id"] for item in timeline], ["event_agenda"])
+        self.assertEqual(timeline[0]["planning_surface"], "agenda")
+        self.assertEqual(timeline[0]["owner_kind"], "user")
+        self.assertEqual(timeline[0]["delivery_mode"], "none")
+
+        task_timeline = service.build_timeline(
+            tasks=[
+                {
+                    "task_id": "task_assistant",
+                    "title": "AI follow-up",
+                    "completed": False,
+                    "due_at": "2026-04-09T18:00:00+08:00",
+                    "planning_surface": "tasks",
+                    "owner_kind": "assistant",
+                    "delivery_mode": "none",
+                }
+            ],
+            events=[],
+            reminders=[],
+            surface="tasks",
+        )
+
+        self.assertEqual([item["resource_id"] for item in task_timeline], ["task_assistant"])
+        self.assertEqual(task_timeline[0]["planning_surface"], "tasks")
+        self.assertEqual(task_timeline[0]["owner_kind"], "assistant")
+
+    def test_build_timeline_ignores_invalid_surface_filter_values(self) -> None:
+        service = PlanningProjectionService()
+
+        timeline = service.build_timeline(
+            tasks=[
+                {
+                    "task_id": "task_assistant",
+                    "title": "AI follow-up",
+                    "completed": False,
+                    "due_at": "2026-04-09T18:00:00+08:00",
+                    "planning_surface": "tasks",
+                }
+            ],
+            events=[],
+            reminders=[
+                {
+                    "reminder_id": "rem_hidden",
+                    "title": "Delivery",
+                    "time": "2026-04-09T17:00:00+08:00",
+                    "repeat": "once",
+                    "enabled": True,
+                    "planning_surface": "hidden",
+                }
+            ],
+            surface="not-a-surface",
+        )
+
+        self.assertEqual([item["resource_id"] for item in timeline], ["task_assistant"])
+
     def test_summary_service_supports_raw_inputs_and_projection_results(self) -> None:
         projection_service = PlanningProjectionService()
         summary_service = PlanningSummaryService(projection_service=projection_service)

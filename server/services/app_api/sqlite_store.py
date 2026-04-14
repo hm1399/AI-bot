@@ -16,6 +16,9 @@ PLANNING_METADATA_FIELDS: tuple[str, ...] = (
     "source_message_id",
     "source_session_id",
     "interaction_surface",
+    "planning_surface",
+    "owner_kind",
+    "delivery_mode",
     "capture_source",
     "voice_path",
     "linked_task_id",
@@ -155,6 +158,11 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
 }
+_PLANNING_METADATA_TEXT_COLUMNS: dict[str, tuple[str, ...]] = {
+    "tasks": ("planning_surface", "owner_kind", "delivery_mode"),
+    "events": ("planning_surface", "owner_kind", "delivery_mode"),
+    "reminders": ("planning_surface", "owner_kind", "delivery_mode"),
+}
 
 
 class SQLitePlanningStore:
@@ -194,6 +202,9 @@ class SQLitePlanningStore:
                       reminders.source_message_id,
                       reminders.source_session_id,
                       reminders.interaction_surface,
+                      reminders.planning_surface,
+                      reminders.owner_kind,
+                      reminders.delivery_mode,
                       reminders.capture_source,
                       reminders.voice_path,
                       reminders.linked_task_id,
@@ -240,6 +251,9 @@ class SQLitePlanningStore:
                       reminders.source_message_id,
                       reminders.source_session_id,
                       reminders.interaction_surface,
+                      reminders.planning_surface,
+                      reminders.owner_kind,
+                      reminders.delivery_mode,
                       reminders.capture_source,
                       reminders.voice_path,
                       reminders.linked_task_id,
@@ -366,6 +380,9 @@ class SQLitePlanningStore:
               reminders.source_message_id,
               reminders.source_session_id,
               reminders.interaction_surface,
+              reminders.planning_surface,
+              reminders.owner_kind,
+              reminders.delivery_mode,
               reminders.capture_source,
               reminders.voice_path,
               reminders.linked_task_id,
@@ -447,6 +464,9 @@ class SQLitePlanningStore:
                       source_message_id TEXT,
                       source_session_id TEXT,
                       interaction_surface TEXT,
+                      planning_surface TEXT,
+                      owner_kind TEXT,
+                      delivery_mode TEXT,
                       capture_source TEXT,
                       voice_path TEXT,
                       linked_task_id TEXT,
@@ -472,6 +492,9 @@ class SQLitePlanningStore:
                       source_message_id TEXT,
                       source_session_id TEXT,
                       interaction_surface TEXT,
+                      planning_surface TEXT,
+                      owner_kind TEXT,
+                      delivery_mode TEXT,
                       capture_source TEXT,
                       voice_path TEXT,
                       linked_task_id TEXT,
@@ -512,6 +535,9 @@ class SQLitePlanningStore:
                       source_message_id TEXT,
                       source_session_id TEXT,
                       interaction_surface TEXT,
+                      planning_surface TEXT,
+                      owner_kind TEXT,
+                      delivery_mode TEXT,
                       capture_source TEXT,
                       voice_path TEXT,
                       linked_task_id TEXT,
@@ -554,7 +580,8 @@ class SQLitePlanningStore:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_reminder_runtime_snoozed_until_epoch ON reminder_runtime(snoozed_until_epoch)"
                 )
-                conn.execute("PRAGMA user_version=1;")
+                self._ensure_planning_metadata_columns(conn)
+                conn.execute("PRAGMA user_version=2;")
 
     def _config(self, domain: str) -> dict[str, Any]:
         try:
@@ -627,6 +654,9 @@ class SQLitePlanningStore:
               source_message_id=excluded.source_message_id,
               source_session_id=excluded.source_session_id,
               interaction_surface=excluded.interaction_surface,
+              planning_surface=excluded.planning_surface,
+              owner_kind=excluded.owner_kind,
+              delivery_mode=excluded.delivery_mode,
               capture_source=excluded.capture_source,
               voice_path=excluded.voice_path,
               linked_task_id=excluded.linked_task_id,
@@ -739,6 +769,9 @@ class SQLitePlanningStore:
               reminders.source_message_id,
               reminders.source_session_id,
               reminders.interaction_surface,
+              reminders.planning_surface,
+              reminders.owner_kind,
+              reminders.delivery_mode,
               reminders.capture_source,
               reminders.voice_path,
               reminders.linked_task_id,
@@ -760,6 +793,17 @@ class SQLitePlanningStore:
             (reminder_id,),
         ).fetchone()
         return self._row_to_reminder_item(row)
+
+    def _ensure_planning_metadata_columns(self, conn: sqlite3.Connection) -> None:
+        for table, columns in _PLANNING_METADATA_TEXT_COLUMNS.items():
+            existing_columns = {
+                str(row["name"])
+                for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            for column in columns:
+                if column in existing_columns:
+                    continue
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
 
     def _serialize_field(self, domain: str, field: str, value: Any) -> Any:
         config = self._config(domain)

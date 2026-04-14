@@ -23,6 +23,9 @@ class PlanningAgendaEntryModel {
     this.location,
     this.repeat,
     this.status,
+    this.planningSurface,
+    this.ownerKind,
+    this.deliveryMode,
     this.completed = false,
     this.overdue = false,
     this.allDay = false,
@@ -45,6 +48,9 @@ class PlanningAgendaEntryModel {
   final String? location;
   final String? repeat;
   final String? status;
+  final String? planningSurface;
+  final String? ownerKind;
+  final String? deliveryMode;
   final bool completed;
   final bool overdue;
   final bool allDay;
@@ -56,6 +62,12 @@ class PlanningAgendaEntryModel {
   String get dedupeKey => '${kind.name}:$resourceId';
 
   bool get canEdit => task != null || event != null || reminder != null;
+
+  String? get planningSurfaceLabel => _nonEmpty(planningSurface);
+
+  String? get ownerLabel => _nonEmpty(ownerKind);
+
+  String? get deliveryModeLabel => _nonEmpty(deliveryMode);
 }
 
 class PlanningAgendaDataset {
@@ -103,6 +115,7 @@ class PlanningAgendaDataset {
     };
     final entries = <PlanningAgendaEntryModel>[];
     final hiddenReminders = <ReminderModel>[];
+    final hiddenReminderIds = <String>{};
     final seen = <String>{};
     final useTimeline =
         state.planningTimelineStatus == FeatureStatus.ready ||
@@ -114,6 +127,12 @@ class PlanningAgendaDataset {
       }
       if (seen.add(entry.dedupeKey)) {
         entries.add(entry);
+      }
+    }
+
+    void addHiddenReminder(ReminderModel reminder) {
+      if (hiddenReminderIds.add(reminder.id)) {
+        hiddenReminders.add(reminder);
       }
     }
 
@@ -144,9 +163,13 @@ class PlanningAgendaDataset {
       )) {
         continue;
       }
+      if (!reminder.belongsToAgenda) {
+        addHiddenReminder(reminder);
+        continue;
+      }
       final entry = _fromReminder(reminder, fromPlanningTimeline: false);
       if (entry == null) {
-        hiddenReminders.add(reminder);
+        addHiddenReminder(reminder);
         continue;
       }
       addEntry(entry);
@@ -179,6 +202,9 @@ PlanningAgendaEntryModel? _fromTimelineItem(
     _ => null,
   };
   if (kind == null) {
+    return null;
+  }
+  if (!item.belongsToAgenda) {
     return null;
   }
 
@@ -238,6 +264,21 @@ PlanningAgendaEntryModel? _fromTimelineItem(
     location: event?.location,
     repeat: reminder?.repeat,
     status: item.status ?? reminder?.status,
+    planningSurface:
+        item.planningSurfaceLabel ??
+        event?.planningSurfaceLabel ??
+        task?.planningSurfaceLabel ??
+        reminder?.planningSurfaceLabel,
+    ownerKind:
+        item.ownerLabel ??
+        event?.ownerLabel ??
+        task?.ownerLabel ??
+        reminder?.ownerLabel,
+    deliveryMode:
+        item.deliveryModeLabel ??
+        event?.deliveryModeLabel ??
+        task?.deliveryModeLabel ??
+        reminder?.deliveryModeLabel,
     completed: item.completed || (task?.completed ?? false),
     overdue: item.overdue,
     allDay: item.allDay,
@@ -252,6 +293,9 @@ PlanningAgendaEntryModel? _fromEvent(
   EventModel event, {
   required bool fromPlanningTimeline,
 }) {
+  if (!event.belongsToAgenda) {
+    return null;
+  }
   final scheduledAt = event.startDateTime;
   if (scheduledAt == null) {
     return null;
@@ -268,6 +312,9 @@ PlanningAgendaEntryModel? _fromEvent(
     createdVia: event.createdVia,
     sourceChannel: event.sourceChannel,
     location: event.location,
+    planningSurface: event.planningSurfaceLabel,
+    ownerKind: event.ownerLabel,
+    deliveryMode: event.deliveryModeLabel,
     fromPlanningTimeline: fromPlanningTimeline,
     event: event,
   );
@@ -277,6 +324,9 @@ PlanningAgendaEntryModel? _fromTask(
   TaskModel task, {
   required bool fromPlanningTimeline,
 }) {
+  if (!task.belongsToAgenda) {
+    return null;
+  }
   final scheduledAt = task.dueDateTime;
   if (scheduledAt == null) {
     return null;
@@ -292,6 +342,9 @@ PlanningAgendaEntryModel? _fromTask(
     createdVia: task.createdVia,
     sourceChannel: task.sourceChannel,
     priority: task.priority,
+    planningSurface: task.planningSurfaceLabel,
+    ownerKind: task.ownerLabel,
+    deliveryMode: task.deliveryModeLabel,
     completed: task.completed,
     overdue: !task.completed && scheduledAt.isBefore(DateTime.now()),
     fromPlanningTimeline: fromPlanningTimeline,
@@ -303,6 +356,9 @@ PlanningAgendaEntryModel? _fromReminder(
   ReminderModel reminder, {
   required bool fromPlanningTimeline,
 }) {
+  if (!reminder.belongsToAgenda) {
+    return null;
+  }
   final scheduledAt = reminder.nextTriggerDateTime;
   if (scheduledAt == null) {
     return null;
@@ -319,6 +375,9 @@ PlanningAgendaEntryModel? _fromReminder(
     sourceChannel: reminder.sourceChannel,
     repeat: reminder.repeat,
     status: reminder.status,
+    planningSurface: reminder.planningSurfaceLabel,
+    ownerKind: reminder.ownerLabel,
+    deliveryMode: reminder.deliveryModeLabel,
     fromPlanningTimeline: fromPlanningTimeline,
     reminder: reminder,
   );
@@ -350,4 +409,12 @@ bool _isSameDay(DateTime left, DateTime right) {
   return left.year == right.year &&
       left.month == right.month &&
       left.day == right.day;
+}
+
+String? _nonEmpty(String? value) {
+  final cleaned = value?.trim();
+  if (cleaned == null || cleaned.isEmpty) {
+    return null;
+  }
+  return cleaned;
 }

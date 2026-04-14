@@ -73,11 +73,17 @@ class PlanningTool(Tool):
     )
     _SUPPORTED_PRIORITIES = {"high", "medium", "low"}
     _SUPPORTED_REPEATS = {"daily", "once", "weekdays", "weekends"}
+    _SUPPORTED_PLANNING_SURFACES = {"agenda", "tasks", "hidden"}
+    _SUPPORTED_OWNER_KINDS = {"user", "assistant"}
+    _SUPPORTED_DELIVERY_MODES = {"none", "device_voice", "device_voice_and_notification"}
     _REQUEST_METADATA_KEYS = (
         "source",
         "interaction_surface",
         "capture_source",
         "voice_path",
+        "planning_surface",
+        "owner_kind",
+        "delivery_mode",
         "reply_language",
         "emotion",
         "app_session_id",
@@ -155,7 +161,13 @@ class PlanningTool(Tool):
     def description(self) -> str:
         return (
             "Manage lightweight planning data. Actions: create_task, create_event, "
-            "create_reminder, complete_task, snooze_reminder, list_today."
+            "create_reminder, complete_task, snooze_reminder, list_today. "
+            "Use create_event for calendar items like trips, appointments, and "
+            "scheduled outings. For 'remind me' or 'wake me at' requests, prefer "
+            "a task with owner_kind=assistant plus a reminder with "
+            "planning_surface=hidden instead of an agenda event. When the user "
+            "asks what is due today, tomorrow, or on a "
+            "specific date, call list_today before answering."
         )
 
     @property
@@ -166,7 +178,11 @@ class PlanningTool(Tool):
                 "action": {
                     "type": "string",
                     "enum": list(self._SUPPORTED_ACTIONS),
-                    "description": "Planning action to execute.",
+                    "description": (
+                        "Planning action to execute. Use create_event for itinerary/calendar "
+                        "items. Use create_task plus create_reminder for reminder-style "
+                        "requests. Use list_today for today/tomorrow/date queries."
+                    ),
                 },
                 "title": {"type": "string", "description": "Resource title."},
                 "description": {"type": "string", "description": "Optional task/event description."},
@@ -210,12 +226,34 @@ class PlanningTool(Tool):
                 },
                 "date": {
                     "type": "string",
-                    "description": "Target day for list_today, formatted as YYYY-MM-DD.",
+                    "description": (
+                        "Target day for list_today. Accepts YYYY-MM-DD, today, or tomorrow. "
+                        "Use it whenever the user asks about tomorrow or a specific date."
+                    ),
                 },
                 "created_via": {"type": "string", "description": "Optional origin label."},
                 "source_channel": {"type": "string", "description": "Optional source channel."},
                 "source_message_id": {"type": "string", "description": "Optional source message id."},
                 "source_session_id": {"type": "string", "description": "Optional source session id."},
+                "planning_surface": {
+                    "type": "string",
+                    "enum": sorted(self._SUPPORTED_PLANNING_SURFACES),
+                    "description": (
+                        "Optional planning surface. Use agenda, tasks, or hidden."
+                    ),
+                },
+                "owner_kind": {
+                    "type": "string",
+                    "enum": sorted(self._SUPPORTED_OWNER_KINDS),
+                    "description": "Optional ownership hint. Use user or assistant.",
+                },
+                "delivery_mode": {
+                    "type": "string",
+                    "enum": sorted(self._SUPPORTED_DELIVERY_MODES),
+                    "description": (
+                        "Optional delivery mode. Use none, device_voice, or device_voice_and_notification."
+                    ),
+                },
                 "linked_task_id": {"type": "string", "description": "Optional linked task id."},
                 "linked_event_id": {"type": "string", "description": "Optional linked event id."},
                 "linked_reminder_id": {"type": "string", "description": "Optional linked reminder id."},
@@ -302,6 +340,9 @@ class PlanningTool(Tool):
         interaction_surface: str | None = None,
         capture_source: str | None = None,
         voice_path: str | None = None,
+        planning_surface: str | None = None,
+        owner_kind: str | None = None,
+        delivery_mode: str | None = None,
         scene_mode: str | None = None,
         persona_profile_id: str | None = None,
         persona_voice_style: str | None = None,
@@ -323,6 +364,9 @@ class PlanningTool(Tool):
             interaction_surface=interaction_surface,
             capture_source=capture_source,
             voice_path=voice_path,
+            planning_surface=planning_surface,
+            owner_kind=owner_kind,
+            delivery_mode=delivery_mode,
             scene_mode=scene_mode,
             persona_profile_id=persona_profile_id,
             persona_voice_style=persona_voice_style,
@@ -377,6 +421,9 @@ class PlanningTool(Tool):
         interaction_surface: str | None = None,
         capture_source: str | None = None,
         voice_path: str | None = None,
+        planning_surface: str | None = None,
+        owner_kind: str | None = None,
+        delivery_mode: str | None = None,
         scene_mode: str | None = None,
         persona_profile_id: str | None = None,
         persona_voice_style: str | None = None,
@@ -404,6 +451,9 @@ class PlanningTool(Tool):
             interaction_surface=interaction_surface,
             capture_source=capture_source,
             voice_path=voice_path,
+            planning_surface=planning_surface,
+            owner_kind=owner_kind,
+            delivery_mode=delivery_mode,
             scene_mode=scene_mode,
             persona_profile_id=persona_profile_id,
             persona_voice_style=persona_voice_style,
@@ -463,6 +513,9 @@ class PlanningTool(Tool):
         interaction_surface: str | None = None,
         capture_source: str | None = None,
         voice_path: str | None = None,
+        planning_surface: str | None = None,
+        owner_kind: str | None = None,
+        delivery_mode: str | None = None,
         scene_mode: str | None = None,
         persona_profile_id: str | None = None,
         persona_voice_style: str | None = None,
@@ -484,6 +537,9 @@ class PlanningTool(Tool):
             interaction_surface=interaction_surface,
             capture_source=capture_source,
             voice_path=voice_path,
+            planning_surface=planning_surface,
+            owner_kind=owner_kind,
+            delivery_mode=delivery_mode,
             scene_mode=scene_mode,
             persona_profile_id=persona_profile_id,
             persona_voice_style=persona_voice_style,
@@ -592,10 +648,20 @@ class PlanningTool(Tool):
         tasks = [
             task for task in tasks_result.get("items", [])
             if self._matches_day(task.get("due_at"), target_day)
+            and self._planning_surface_matches(
+                task,
+                resource_type="task",
+                allowed_surfaces={"tasks"},
+            )
         ]
         events = [
             event for event in events_result.get("items", [])
             if self._event_matches_day(event, target_day)
+            and self._planning_surface_matches(
+                event,
+                resource_type="event",
+                allowed_surfaces={"agenda"},
+            )
         ]
         reminders = [
             reminder for reminder in reminders_result.get("items", [])
@@ -698,6 +764,9 @@ class PlanningTool(Tool):
             "interaction_surface": request_metadata.get("interaction_surface"),
             "capture_source": request_metadata.get("capture_source"),
             "voice_path": request_metadata.get("voice_path"),
+            "planning_surface": request_metadata.get("planning_surface"),
+            "owner_kind": request_metadata.get("owner_kind"),
+            "delivery_mode": request_metadata.get("delivery_mode"),
         }
         optional_source_fields = {
             "source_message_id": request_metadata.get("source_message_id"),
@@ -723,6 +792,9 @@ class PlanningTool(Tool):
         interaction_surface: str | None = None,
         capture_source: str | None = None,
         voice_path: str | None = None,
+        planning_surface: str | None = None,
+        owner_kind: str | None = None,
+        delivery_mode: str | None = None,
         scene_mode: str | None = None,
         persona_profile_id: str | None = None,
         persona_voice_style: str | None = None,
@@ -756,6 +828,9 @@ class PlanningTool(Tool):
             "interaction_surface": interaction_surface,
             "capture_source": capture_source,
             "voice_path": voice_path,
+            "planning_surface": planning_surface,
+            "owner_kind": owner_kind,
+            "delivery_mode": delivery_mode,
             "scene_mode": scene_mode,
             "persona_profile_id": persona_profile_id,
             "persona_voice_style": persona_voice_style,
@@ -769,6 +844,24 @@ class PlanningTool(Tool):
                 raw_value = runtime_metadata.get(key)
             cleaned = self._clean_optional_text(raw_value)
             if cleaned is not None:
+                if key == "planning_surface":
+                    cleaned = self._normalize_optional_enum(
+                        cleaned,
+                        "planning_surface",
+                        self._SUPPORTED_PLANNING_SURFACES,
+                    )
+                elif key == "owner_kind":
+                    cleaned = self._normalize_optional_enum(
+                        cleaned,
+                        "owner_kind",
+                        self._SUPPORTED_OWNER_KINDS,
+                    )
+                elif key == "delivery_mode":
+                    cleaned = self._normalize_optional_enum(
+                        cleaned,
+                        "delivery_mode",
+                        self._SUPPORTED_DELIVERY_MODES,
+                    )
                 request_metadata[key] = cleaned
         return request_metadata
 
@@ -859,6 +952,18 @@ class PlanningTool(Tool):
         return clean
 
     @staticmethod
+    def _normalize_optional_enum(
+        value: str,
+        field: str,
+        supported: set[str],
+    ) -> str:
+        clean = value.strip().lower()
+        if clean not in supported:
+            allowed = ", ".join(sorted(supported))
+            raise ValueError(f"{field} must be one of: {allowed}")
+        return clean
+
+    @staticmethod
     def _normalize_datetime(value: Any, field: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"{field} is required")
@@ -904,10 +1009,15 @@ class PlanningTool(Tool):
     def _normalize_date(value: str | None) -> date:
         if value is None:
             return datetime.now().astimezone().date()
+        clean = value.strip().lower()
+        if clean == "today":
+            return datetime.now().astimezone().date()
+        if clean == "tomorrow":
+            return datetime.now().astimezone().date() + timedelta(days=1)
         try:
             return date.fromisoformat(value)
         except ValueError as exc:
-            raise ValueError("date must be YYYY-MM-DD") from exc
+            raise ValueError("date must be YYYY-MM-DD, today, or tomorrow") from exc
 
     @staticmethod
     def _matches_day(value: Any, target_day: date) -> bool:
@@ -954,3 +1064,20 @@ class PlanningTool(Tool):
         if repeat == "weekends":
             return target_day.weekday() >= 5
         return True
+
+    @staticmethod
+    def _planning_surface_matches(
+        item: dict[str, Any],
+        *,
+        resource_type: str,
+        allowed_surfaces: set[str],
+    ) -> bool:
+        explicit = str(item.get("planning_surface") or "").strip().lower()
+        if explicit:
+            return explicit in allowed_surfaces
+        fallback = {
+            "event": "agenda",
+            "task": "tasks",
+            "reminder": "agenda",
+        }.get(resource_type, "agenda")
+        return fallback in allowed_surfaces

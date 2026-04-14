@@ -4,6 +4,19 @@ from datetime import date, datetime
 from typing import Any, Callable
 
 
+DEFAULT_PLANNING_SURFACES = {
+    "event": "agenda",
+    "task": "tasks",
+    "reminder": "agenda",
+}
+HIDDEN_PLANNING_SURFACE = "hidden"
+CANONICAL_PLANNING_SURFACES = {
+    "agenda",
+    "tasks",
+    HIDDEN_PLANNING_SURFACE,
+}
+
+
 class PlanningProjectionService:
     """Builds workbench projections from tasks, events, and reminders."""
 
@@ -55,8 +68,11 @@ class PlanningProjectionService:
         events: list[dict[str, Any]],
         reminders: list[dict[str, Any]],
         target_date: date | str | None = None,
+        surface: str | list[str] | tuple[str, ...] | set[str] | None = None,
+        planning_surface: str | list[str] | tuple[str, ...] | set[str] | None = None,
     ) -> list[dict[str, Any]]:
         now = self.now_provider()
+        effective_surface = planning_surface if planning_surface is not None else surface
         items = [
             *[self._project_task(item, now=now) for item in tasks],
             *[self._project_event(item) for item in events],
@@ -69,6 +85,11 @@ class PlanningProjectionService:
                 for item in items
                 if self._timeline_matches_date(item, resolved_target_date)
             ]
+        items = [
+            item
+            for item in items
+            if self._matches_planning_surface(item, planning_surface=effective_surface)
+        ]
         items.sort(key=self._timeline_sort_key)
         return items
 
@@ -76,14 +97,22 @@ class PlanningProjectionService:
         self,
         timeline: list[dict[str, Any]],
         target_date: date | str,
+        surface: str | list[str] | tuple[str, ...] | set[str] | None = None,
+        planning_surface: str | list[str] | tuple[str, ...] | set[str] | None = None,
     ) -> list[dict[str, Any]]:
         resolved_target_date = self._resolve_target_date(target_date)
-        if resolved_target_date is None:
-            return list(timeline)
+        effective_surface = planning_surface if planning_surface is not None else surface
+        filtered = list(timeline)
+        if resolved_target_date is not None:
+            filtered = [
+                item
+                for item in filtered
+                if self._timeline_matches_date(item, resolved_target_date)
+            ]
         return [
             item
-            for item in timeline
-            if self._timeline_matches_date(item, resolved_target_date)
+            for item in filtered
+            if self._matches_planning_surface(item, planning_surface=effective_surface)
         ]
 
     def build_conflicts(
@@ -102,6 +131,7 @@ class PlanningProjectionService:
                 self._parse_dt(item.get("end_at")),
             )
             for item in events
+            if self._is_visible_on_default_surface(item, resource_type="event")
         ]
         parsed_reminders = [
             (
@@ -112,11 +142,13 @@ class PlanningProjectionService:
             if bool(item.get("enabled", True))
             and item.get("completed_at") is None
             and str(item.get("status") or "").strip().lower() != "completed"
+            and self._is_visible_on_default_surface(item, resource_type="reminder")
         ]
         parsed_tasks = [
             (item, self._parse_dt(item.get("due_at")))
             for item in tasks
             if not bool(item.get("completed", False))
+            and self._is_visible_on_default_surface(item, resource_type="task")
         ]
 
         for index, (left, left_start, left_end) in enumerate(parsed_events):
@@ -201,7 +233,12 @@ class PlanningProjectionService:
         conflicts = self.build_conflicts(tasks=tasks, events=events, reminders=reminders)
         now = self.now_provider()
 
-        pending_tasks = [item for item in tasks if not bool(item.get("completed", False))]
+        pending_tasks = [
+            item
+            for item in tasks
+            if not bool(item.get("completed", False))
+            and self._is_visible_on_default_surface(item, resource_type="task")
+        ]
         overdue_tasks = [
             item
             for item in pending_tasks
@@ -212,11 +249,13 @@ class PlanningProjectionService:
             for item in events
             if (start := self._parse_dt(item.get("start_at"))) is not None
             and start.astimezone(now.tzinfo).date() == now.date()
+            and self._is_visible_on_default_surface(item, resource_type="event")
         ]
         active_reminders = [
             item
             for item in reminders
             if bool(item.get("enabled", True)) and item.get("completed_at") is None
+            and self._is_visible_on_default_surface(item, resource_type="reminder")
         ]
         unread_notifications = sum(
             1 for item in (notifications or []) if not bool(item.get("read", False))
@@ -253,6 +292,7 @@ class PlanningProjectionService:
 
     def _project_task(self, item: dict[str, Any], *, now: datetime) -> dict[str, Any]:
         due_at = self._parse_dt(item.get("due_at"))
+        planning_surface = self._resolved_planning_surface(item, resource_type="task")
         is_overdue = (
             due_at is not None
             and due_at < now
@@ -281,6 +321,9 @@ class PlanningProjectionService:
             "enabled": True,
             "priority": item.get("priority"),
             "time_kind": "due" if due_at else "backlog",
+            "planning_surface": planning_surface,
+            "owner_kind": self._clean_optional_text(item.get("owner_kind")),
+            "delivery_mode": self._clean_optional_text(item.get("delivery_mode")),
             "created_via": item.get("created_via"),
             "source_channel": item.get("source_channel"),
             "source_message_id": item.get("source_message_id"),
@@ -293,6 +336,7 @@ class PlanningProjectionService:
     def _project_event(self, item: dict[str, Any]) -> dict[str, Any]:
         start_at = self._parse_dt(item.get("start_at"))
         end_at = self._parse_dt(item.get("end_at"))
+        planning_surface = self._resolved_planning_surface(item, resource_type="event")
         return {
             "item_type": "event",
             "item_id": item.get("event_id"),
@@ -316,6 +360,9 @@ class PlanningProjectionService:
             "enabled": True,
             "priority": item.get("priority"),
             "time_kind": "window",
+            "planning_surface": planning_surface,
+            "owner_kind": self._clean_optional_text(item.get("owner_kind")),
+            "delivery_mode": self._clean_optional_text(item.get("delivery_mode")),
             "created_via": item.get("created_via"),
             "source_channel": item.get("source_channel"),
             "source_message_id": item.get("source_message_id"),
@@ -330,6 +377,7 @@ class PlanningProjectionService:
         trigger_at = self._parse_dt(
             item.get("next_trigger_at") or item.get("snoozed_until") or item.get("time")
         )
+        planning_surface = self._resolved_planning_surface(item, resource_type="reminder")
         status = item.get("status") or ("scheduled" if bool(item.get("enabled", True)) else "disabled")
         normalized_status = str(status).strip().lower()
         is_overdue = normalized_status == "overdue" or (
@@ -361,6 +409,9 @@ class PlanningProjectionService:
             "enabled": bool(item.get("enabled", True)),
             "priority": item.get("priority"),
             "time_kind": "trigger",
+            "planning_surface": planning_surface,
+            "owner_kind": self._clean_optional_text(item.get("owner_kind")),
+            "delivery_mode": self._clean_optional_text(item.get("delivery_mode")),
             "created_via": item.get("created_via"),
             "source_channel": item.get("source_channel"),
             "source_message_id": item.get("source_message_id"),
@@ -446,6 +497,8 @@ class PlanningProjectionService:
     def _next_event(self, events: list[dict[str, Any]], *, now: datetime) -> dict[str, str | None]:
         upcoming = []
         for item in events:
+            if not self._is_visible_on_default_surface(item, resource_type="event"):
+                continue
             start = self._parse_dt(item.get("start_at"))
             if start is None or start < now:
                 continue
@@ -461,7 +514,11 @@ class PlanningProjectionService:
     def _next_reminder(self, reminders: list[dict[str, Any]], *, now: datetime) -> dict[str, str | None]:
         upcoming = []
         for item in reminders:
-            if not bool(item.get("enabled", True)) or item.get("completed_at") is not None:
+            if (
+                not bool(item.get("enabled", True))
+                or item.get("completed_at") is not None
+                or not self._is_visible_on_default_surface(item, resource_type="reminder")
+            ):
                 continue
             trigger_at = self._parse_dt(
                 item.get("next_trigger_at") or item.get("snoozed_until") or item.get("time")
@@ -556,6 +613,72 @@ class PlanningProjectionService:
         if start_at is not None and end_at is not None:
             return start_at.date() <= target_date <= end_at.date()
         return False
+
+    @classmethod
+    def _matches_planning_surface(
+        cls,
+        item: dict[str, Any],
+        *,
+        planning_surface: str | list[str] | tuple[str, ...] | set[str] | None,
+    ) -> bool:
+        resolved_surface = cls._resolved_planning_surface(item)
+        allowed_surfaces = cls._normalize_planning_surface_filter(planning_surface)
+        if allowed_surfaces is None:
+            return resolved_surface != HIDDEN_PLANNING_SURFACE
+        return resolved_surface in allowed_surfaces
+
+    @classmethod
+    def _is_visible_on_default_surface(cls, item: dict[str, Any], *, resource_type: str) -> bool:
+        return cls._resolved_planning_surface(item, resource_type=resource_type) != HIDDEN_PLANNING_SURFACE
+
+    @classmethod
+    def _resolved_planning_surface(
+        cls,
+        item: dict[str, Any],
+        *,
+        resource_type: str | None = None,
+    ) -> str:
+        explicit_surface = cls._clean_optional_text(item.get("planning_surface"))
+        if explicit_surface is not None:
+            normalized_surface = explicit_surface.lower()
+            if normalized_surface in {"agenda", "tasks", HIDDEN_PLANNING_SURFACE}:
+                return normalized_surface
+        resolved_type = resource_type or cls._planning_resource_type(item)
+        return DEFAULT_PLANNING_SURFACES.get(resolved_type, "agenda")
+
+    @classmethod
+    def _planning_resource_type(cls, item: dict[str, Any]) -> str:
+        resource_type = cls._clean_optional_text(item.get("resource_type") or item.get("item_type"))
+        if resource_type is not None:
+            return resource_type.lower()
+        return cls._item_type_for(item)
+
+    @classmethod
+    def _normalize_planning_surface_filter(
+        cls,
+        planning_surface: str | list[str] | tuple[str, ...] | set[str] | None,
+    ) -> set[str] | None:
+        if planning_surface is None:
+            return None
+        raw_values = (
+            [planning_surface]
+            if isinstance(planning_surface, str)
+            else list(planning_surface)
+        )
+        normalized = {
+            value.lower()
+            for raw in raw_values
+            if (value := cls._clean_optional_text(raw)) is not None
+            and value.lower() in CANONICAL_PLANNING_SURFACES
+        }
+        return normalized or None
+
+    @staticmethod
+    def _clean_optional_text(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
     @staticmethod
     def _is_high_priority(item: dict[str, Any]) -> bool:

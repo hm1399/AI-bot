@@ -45,7 +45,7 @@ class PlanningDaySchedule extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Events, reminders, and due tasks for the selected day.',
+            'Agenda-facing events and reminder slots for the selected day.',
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
@@ -69,7 +69,7 @@ class PlanningDaySchedule extends StatelessWidget {
             const SizedBox(height: LinearSpacing.md),
             _AgendaBanner(
               message:
-                  '${hiddenReminders.length} reminder(s) are omitted from the calendar because no reliable day could be resolved from next trigger data.',
+                  '${hiddenReminders.length} reminder(s) stay out of Agenda because they are hidden delivery reminders or do not have a reliable next trigger day yet.',
               tone: _AgendaBannerTone.neutral,
             ),
           ],
@@ -146,6 +146,12 @@ class _AgendaEntryCard extends StatelessWidget {
                 _ScheduleTag(label: label),
               if (_statusLabel(entry) case final String status)
                 _ScheduleTag(label: status),
+              if (entry.planningSurfaceLabel case final String surface)
+                _ScheduleTag(label: surface),
+              if (entry.ownerLabel case final String owner)
+                _ScheduleTag(label: owner),
+              if (entry.deliveryModeLabel case final String delivery)
+                _ScheduleTag(label: delivery),
               if (_sourceLabel(entry) case final String source)
                 _ScheduleTag(label: source),
               if (entry.bundleId?.isNotEmpty == true)

@@ -19,6 +19,9 @@ class EventModel {
     this.normalizedTime,
     this.normalizedTimes = const <String, dynamic>{},
     this.conflictSummaries = const <String>[],
+    this.planningSurface,
+    this.ownerKind,
+    this.deliveryMode,
     this.planningMetadata = const <String, dynamic>{},
   });
 
@@ -41,6 +44,9 @@ class EventModel {
   final String? normalizedTime;
   final Map<String, dynamic> normalizedTimes;
   final List<String> conflictSummaries;
+  final String? planningSurface;
+  final String? ownerKind;
+  final String? deliveryMode;
   final Map<String, dynamic> planningMetadata;
 
   DateTime? get startDateTime => _tryParseDateTime(startAt);
@@ -48,6 +54,26 @@ class EventModel {
   DateTime? get endDateTime => _tryParseDateTime(endAt);
 
   DateTime? get updatedDateTime => _tryParseDateTime(updatedAt ?? createdAt);
+
+  String get effectivePlanningSurface =>
+      _normalizePlanningSurface(planningSurface) ?? 'agenda';
+
+  String get effectiveOwnerKind =>
+      _normalizeOwnerKind(ownerKind) ?? _inferOwnerKind(createdVia) ?? 'user';
+
+  String get effectiveDeliveryMode =>
+      _normalizeDeliveryMode(deliveryMode) ?? 'none';
+
+  bool get belongsToAgenda => effectivePlanningSurface == 'agenda';
+
+  bool get isAssistantOwned => effectiveOwnerKind == 'assistant';
+
+  String get planningSurfaceLabel =>
+      _humanizePlanningSurface(effectivePlanningSurface);
+
+  String get ownerLabel => _humanizeOwnerKind(effectiveOwnerKind);
+
+  String? get deliveryModeLabel => _humanizeDeliveryMode(effectiveDeliveryMode);
 
   EventModel copyWith({
     String? title,
@@ -76,6 +102,9 @@ class EventModel {
       normalizedTime: normalizedTime,
       normalizedTimes: normalizedTimes,
       conflictSummaries: conflictSummaries,
+      planningSurface: planningSurface,
+      ownerKind: ownerKind,
+      deliveryMode: deliveryMode,
       planningMetadata: planningMetadata,
     );
   }
@@ -127,6 +156,24 @@ class EventModel {
       ]),
       normalizedTimes: _asMap(planningMetadata['normalized_times']),
       conflictSummaries: _readConflictSummaries(planningMetadata),
+      planningSurface: _normalizePlanningSurface(
+        _readNullableString(planningMetadata, const <String>[
+          'planning_surface',
+          'planningSurface',
+        ]),
+      ),
+      ownerKind: _normalizeOwnerKind(
+        _readNullableString(planningMetadata, const <String>[
+          'owner_kind',
+          'ownerKind',
+        ]),
+      ),
+      deliveryMode: _normalizeDeliveryMode(
+        _readNullableString(planningMetadata, const <String>[
+          'delivery_mode',
+          'deliveryMode',
+        ]),
+      ),
       planningMetadata: planningMetadata,
     );
   }
@@ -148,6 +195,9 @@ class EventModel {
       if (linkedReminderId != null) 'linked_reminder_id': linkedReminderId,
       if (normalizedTime != null) 'normalized_time': normalizedTime,
       if (normalizedTimes.isNotEmpty) 'normalized_times': normalizedTimes,
+      if (planningSurface != null) 'planning_surface': planningSurface,
+      if (ownerKind != null) 'owner_kind': ownerKind,
+      if (deliveryMode != null) 'delivery_mode': deliveryMode,
     };
   }
 
@@ -178,6 +228,9 @@ Map<String, dynamic> _extractPlanningMetadata(Map<String, dynamic> json) {
     'normalized_times',
     'conflict_summary',
     'conflict_summaries',
+    'planning_surface',
+    'owner_kind',
+    'delivery_mode',
   ]) {
     if (!metadata.containsKey(key) && json.containsKey(key)) {
       metadata[key] = json[key];
@@ -227,4 +280,84 @@ DateTime? _tryParseDateTime(String? value) {
     return null;
   }
   return DateTime.tryParse(value);
+}
+
+String? _normalizePlanningSurface(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'agenda':
+    case 'tasks':
+    case 'hidden':
+      return value!.trim().toLowerCase();
+  }
+  return null;
+}
+
+String? _normalizeOwnerKind(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'assistant':
+    case 'user':
+      return value!.trim().toLowerCase();
+  }
+  return null;
+}
+
+String? _inferOwnerKind(String? createdVia) {
+  final normalized = createdVia?.trim().toLowerCase();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  if (<String>{'agent', 'assistant', 'ai'}.contains(normalized) ||
+      normalized.contains('agent')) {
+    return 'assistant';
+  }
+  return 'user';
+}
+
+String? _normalizeDeliveryMode(String? value) {
+  final normalized = value?.trim().toLowerCase().replaceAll(
+    RegExp(r'[\s\-]+'),
+    '_',
+  );
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  return normalized;
+}
+
+String _humanizePlanningSurface(String value) {
+  return switch (value) {
+    'agenda' => 'Agenda surface',
+    'tasks' => 'Tasks surface',
+    'hidden' => 'Hidden surface',
+    _ => _humanizeToken(value),
+  };
+}
+
+String _humanizeOwnerKind(String value) {
+  return switch (value) {
+    'assistant' => 'Assistant-owned',
+    'user' => 'User-owned',
+    _ => _humanizeToken(value),
+  };
+}
+
+String? _humanizeDeliveryMode(String value) {
+  return switch (value) {
+    'none' => null,
+    'device_voice' => 'Device voice',
+    'device_voice_and_notification' => 'Device voice + notification',
+    _ => _humanizeToken(value),
+  };
+}
+
+String _humanizeToken(String value) {
+  final words = value
+      .split(RegExp(r'[_\-\s]+'))
+      .where((String item) => item.isNotEmpty)
+      .map(
+        (String item) =>
+            '${item[0].toUpperCase()}${item.substring(1).toLowerCase()}',
+      )
+      .toList();
+  return words.join(' ');
 }

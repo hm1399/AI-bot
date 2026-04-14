@@ -64,7 +64,7 @@ class _AgendaScreenState extends ConsumerState<AgendaScreen> {
           ),
           const SizedBox(height: LinearSpacing.sm),
           Text(
-            'Review the month at a glance, then drill into the selected day for events, reminders, and due tasks.',
+            'Review the month at a glance, then drill into the selected day for agenda-facing events and reminder slots without mixing in AI follow-up tasks.',
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: chrome.textTertiary),
@@ -129,6 +129,12 @@ class _AgendaScreenState extends ConsumerState<AgendaScreen> {
                           label: 'This Month',
                           value: '${_countMonthEntries(dataset)} scheduled',
                         ),
+                        if (dataset.hiddenReminders.isNotEmpty)
+                          _SummaryPill(
+                            label: 'Hidden Delivery',
+                            value:
+                                '${dataset.hiddenReminders.length} reminder(s)',
+                          ),
                         _SummaryPill(
                           label: 'Timeline',
                           value: dataset.planningReady

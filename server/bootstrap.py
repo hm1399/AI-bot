@@ -37,6 +37,22 @@ if TYPE_CHECKING:
 VERSION = "0.6.0"
 _CORS_ALLOW_HEADERS = "Authorization, Content-Type, X-App-Token"
 _CORS_ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+_PLANNING_PASSTHROUGH_FIELDS = (
+    "bundle_id",
+    "created_via",
+    "source_channel",
+    "source_message_id",
+    "source_session_id",
+    "interaction_surface",
+    "capture_source",
+    "voice_path",
+    "planning_surface",
+    "owner_kind",
+    "delivery_mode",
+    "linked_task_id",
+    "linked_event_id",
+    "linked_reminder_id",
+)
 
 
 class ConfigValidationError(Exception):
@@ -78,6 +94,20 @@ class AppPlanningBackend:
         self.reminder_scheduler = reminder_scheduler
         self.runtime_service = runtime_service
 
+    @staticmethod
+    def _merge_passthrough_fields(
+        resource: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        merged = dict(resource)
+        for field in _PLANNING_PASSTHROUGH_FIELDS:
+            incoming = payload.get(field)
+            if incoming is None:
+                continue
+            if merged.get(field) in {None, ""}:
+                merged[field] = incoming
+        return merged
+
     async def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
         if self.runtime_service is None:
             return
@@ -97,7 +127,7 @@ class AppPlanningBackend:
         return self.resources.list_tasks(completed=completed, limit=limit)
 
     async def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
-        task = self.resources.create_task(payload)
+        task = self._merge_passthrough_fields(self.resources.create_task(payload), payload)
         await self._emit("task.created", {"task": task})
         return task
 
@@ -110,7 +140,7 @@ class AppPlanningBackend:
         return self.resources.list_events(limit=limit)
 
     async def create_event(self, payload: dict[str, Any]) -> dict[str, Any]:
-        event = self.resources.create_event(payload)
+        event = self._merge_passthrough_fields(self.resources.create_event(payload), payload)
         await self._emit("event.created", {"event": event})
         return event
 
@@ -120,11 +150,15 @@ class AppPlanningBackend:
         return event
 
     async def create_reminder(self, payload: dict[str, Any]) -> dict[str, Any]:
-        reminder = self.resources.create_reminder(payload)
+        reminder = self._merge_passthrough_fields(self.resources.create_reminder(payload), payload)
         if self.reminder_scheduler is None:
             await self._emit("reminder.created", {"reminder": reminder})
             return reminder
-        reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
+        reminder = (
+            await self.reminder_scheduler.sync_reminder(reminder["reminder_id"])
+            or reminder
+        )
+        reminder = self._merge_passthrough_fields(reminder, payload)
         await self._emit("reminder.created", {"reminder": reminder})
         return reminder
 

@@ -86,7 +86,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           ),
           const SizedBox(height: LinearSpacing.sm),
           Text(
-            'Keep task and event maintenance in one place, while surfacing today focus, timeline movement, reminders, and conflicts.',
+            'Keep AI follow-up tasks editable here, while the calendar lane stays focused on agenda-facing events and reminder movement.',
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: chrome.textTertiary),
@@ -743,6 +743,20 @@ class _TaskWorkbenchPanel extends StatelessWidget {
               context,
             ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
           ),
+          if (tasks.any((TaskModel task) => task.isAssistantOwned)) ...<Widget>[
+            const SizedBox(height: LinearSpacing.md),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                _MetaTag(
+                  label:
+                      '${tasks.where((TaskModel task) => task.isAssistantOwned).length} AI task(s)',
+                ),
+                const _MetaTag(label: 'Assistant-owned items stay in Tasks'),
+              ],
+            ),
+          ],
           const SizedBox(height: LinearSpacing.md),
           _TaskList(
             status: status,
@@ -791,7 +805,7 @@ class _TimelinePanel extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Events stay editable here, while task due times and reminder slots appear beside them in a single ordered agenda.',
+            'This lane stays focused on agenda-facing events and visible reminder slots instead of every assistant follow-up task.',
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
@@ -979,7 +993,7 @@ class _RemindersAndConflictsPanel extends StatelessWidget {
               title: 'Reminder Visibility',
               status: FeatureStatus.notReady,
               message: hiddenReminderCount > 0
-                  ? '$hiddenReminderCount reminder(s) do not have a safe calendar day yet, so they stay out of the agenda until next trigger data arrives.'
+                  ? '$hiddenReminderCount reminder(s) stay out of Agenda because they are hidden delivery reminders or still lack a reliable next trigger day.'
                   : 'Planning timeline is degraded. Reminder slots may be incomplete.',
             ),
           ],
@@ -1250,6 +1264,10 @@ class _TaskRow extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
               ),
+              if (task.isAssistantOwned) ...<Widget>[
+                const SizedBox(width: 8),
+                const Chip(label: Text('AI Task')),
+              ],
               Chip(label: Text(task.priority)),
               const SizedBox(width: 8),
               IconButton(
@@ -1290,6 +1308,10 @@ class _TaskRow extends StatelessWidget {
               _MetaTag(label: task.completed ? 'Completed' : 'Open'),
               if (task.dueAt?.isNotEmpty == true)
                 _MetaTag(label: 'Due ${_formatDateTime(task.dueDateTime)}'),
+              _MetaTag(label: task.ownerLabel),
+              _MetaTag(label: task.planningSurfaceLabel),
+              if (task.deliveryModeLabel != null)
+                _MetaTag(label: task.deliveryModeLabel!),
               if (_planningSourceLabel(
                     createdVia: task.createdVia,
                     sourceChannel: task.sourceChannel,

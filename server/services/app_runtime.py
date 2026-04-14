@@ -711,7 +711,119 @@ class AppRuntimeService:
             },
             scope="global",
         )
+        await self._maybe_deliver_reminder_device_voice(
+            reminder=reminder,
+            notification=notification,
+        )
         await self.refresh_planning_state()
+
+    async def _maybe_deliver_reminder_device_voice(
+        self,
+        *,
+        reminder: dict[str, Any],
+        notification: dict[str, Any],
+    ) -> None:
+        if not self._should_deliver_device_voice(reminder, notification):
+            return
+        if not self._device_available_for_reminder_voice():
+            return
+
+        deliver = getattr(self.device_channel, "deliver_external_text_response", None)
+        if not callable(deliver):
+            logger.warning("Device channel missing reminder voice delivery helper")
+            return
+
+        try:
+            await deliver(self._reminder_voice_text(reminder, notification))
+        except Exception:
+            logger.exception(
+                "Failed to deliver reminder voice for {}",
+                reminder.get("reminder_id"),
+            )
+
+    def _reminder_delivery_modes(
+        self,
+        reminder: dict[str, Any],
+        notification: dict[str, Any],
+    ) -> set[str]:
+        reminder_mode = reminder.get("delivery_mode")
+        if reminder_mode is not None:
+            return self._normalize_delivery_modes(reminder_mode)
+        metadata = notification.get("metadata")
+        if isinstance(metadata, dict):
+            return self._normalize_delivery_modes(metadata.get("delivery_mode"))
+        return set()
+
+    def _should_deliver_device_voice(
+        self,
+        reminder: dict[str, Any],
+        notification: dict[str, Any],
+    ) -> bool:
+        modes = self._reminder_delivery_modes(reminder, notification)
+        return bool(
+            modes.intersection({"device_voice", "device_voice_and_notification"})
+        )
+
+    @staticmethod
+    def _normalize_delivery_modes(value: Any) -> set[str]:
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                return set()
+            normalized = cleaned.lower()
+            if normalized in {
+                "none",
+                "device_voice",
+                "device_voice_and_notification",
+            }:
+                return {normalized}
+            separators = {",", "|", ";", "\n", "\t"}
+            for separator in separators:
+                normalized = normalized.replace(separator, " ")
+            values = {
+                part.strip()
+                for part in normalized.split(" ")
+                if part.strip()
+            }
+            if "device_voice_and_notification" in values:
+                values.add("device_voice")
+            return values
+        if isinstance(value, (list, tuple, set)):
+            values = {
+                str(part).strip().lower()
+                for part in value
+                if str(part).strip()
+            }
+            if "device_voice_and_notification" in values:
+                values.add("device_voice")
+            return values
+        return set()
+
+    def _device_available_for_reminder_voice(self) -> bool:
+        snapshot_getter = getattr(self.device_channel, "get_snapshot", None)
+        if callable(snapshot_getter):
+            try:
+                snapshot = snapshot_getter() or {}
+            except Exception:
+                logger.exception("Failed to read device snapshot for reminder voice delivery")
+            else:
+                if bool(snapshot.get("connected")):
+                    return True
+        return bool(getattr(self.device_channel, "connected", False))
+
+    @staticmethod
+    def _reminder_voice_text(
+        reminder: dict[str, Any],
+        notification: dict[str, Any],
+    ) -> str:
+        title = (
+            str(reminder.get("title") or notification.get("title") or "").strip()
+            or "Reminder"
+        )
+        message = str(
+            reminder.get("message") or notification.get("message") or ""
+        ).strip()
+        return message or title
 
     async def handle_bootstrap(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -1538,6 +1650,9 @@ class AppRuntimeService:
             source_message_id=str(payload.get("source_message_id") or "").strip() or None,
             source_session_id=str(payload.get("source_session_id") or "").strip() or None,
             interaction_surface=str(payload.get("interaction_surface") or "").strip() or None,
+            planning_surface=str(payload.get("planning_surface") or "").strip() or None,
+            owner_kind=str(payload.get("owner_kind") or "").strip() or None,
+            delivery_mode=str(payload.get("delivery_mode") or "").strip() or None,
             capture_source=str(payload.get("capture_source") or "").strip() or None,
             voice_path=str(payload.get("voice_path") or "").strip() or None,
             scene_mode=str(payload.get("scene_mode") or "").strip() or None,
@@ -1598,7 +1713,13 @@ class AppRuntimeService:
                 date.fromisoformat(target_date)
             except ValueError:
                 return self._error("INVALID_ARGUMENT", "date must use YYYY-MM-DD", status=400)
-        return self._ok({"items": self.get_planning_timeline(date=target_date)})
+        surface = self._normalize_planning_surface(request.query.get("surface"))
+        return self._ok({
+            "items": self.get_planning_timeline(
+                date=target_date,
+                surface=surface,
+            )
+        })
 
     async def handle_planning_conflicts(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -1911,8 +2032,13 @@ class AppRuntimeService:
         planning = self._planning_snapshot()
         return dict(planning["overview"])
 
-    def get_planning_timeline(self, *, date: str | None = None) -> list[dict[str, Any]]:
-        planning = self._planning_snapshot(date=date)
+    def get_planning_timeline(
+        self,
+        *,
+        date: str | None = None,
+        surface: str | None = None,
+    ) -> list[dict[str, Any]]:
+        planning = self._planning_snapshot(date=date, surface=surface)
         return [dict(item) for item in planning["timeline"]]
 
     def get_planning_conflicts(self) -> list[dict[str, Any]]:
@@ -2554,14 +2680,20 @@ class AppRuntimeService:
             "notifications": self.resources.notification_store.list_items(),
         }
 
-    def _planning_snapshot(self, *, date: str | None = None) -> dict[str, Any]:
+    def _planning_snapshot(
+        self,
+        *,
+        date: str | None = None,
+        surface: str | None = None,
+    ) -> dict[str, Any]:
         inputs = self._planning_inputs()
         overview = self.planning_projection_service.build_overview(**inputs)
-        timeline = self.planning_projection_service.build_timeline(
+        timeline = self._build_planning_timeline_projection(
             tasks=inputs["tasks"],
             events=inputs["events"],
             reminders=inputs["reminders"],
             target_date=date,
+            surface=surface,
         )
         conflicts = self.planning_projection_service.build_conflicts(
             tasks=inputs["tasks"],
@@ -2573,6 +2705,60 @@ class AppRuntimeService:
             "timeline": timeline,
             "conflicts": conflicts,
         }
+
+    def _build_planning_timeline_projection(
+        self,
+        *,
+        tasks: list[dict[str, Any]],
+        events: list[dict[str, Any]],
+        reminders: list[dict[str, Any]],
+        target_date: str | None = None,
+        surface: str | None = None,
+    ) -> list[dict[str, Any]]:
+        build_timeline = self.planning_projection_service.build_timeline
+        kwargs: dict[str, Any] = {
+            "tasks": tasks,
+            "events": events,
+            "reminders": reminders,
+        }
+
+        parameter_names: set[str] | None = None
+        try:
+            parameter_names = set(inspect.signature(build_timeline).parameters)
+        except (TypeError, ValueError):
+            parameter_names = None
+
+        if target_date is not None:
+            if parameter_names is not None and "date" in parameter_names and "target_date" not in parameter_names:
+                kwargs["date"] = target_date
+            else:
+                kwargs["target_date"] = target_date
+        if surface is not None:
+            if parameter_names is None or "surface" in parameter_names:
+                kwargs["surface"] = surface
+            elif "interaction_surface" in parameter_names:
+                kwargs["interaction_surface"] = surface
+
+        try:
+            return build_timeline(**kwargs)
+        except TypeError:
+            fallback_kwargs = {
+                "tasks": tasks,
+                "events": events,
+                "reminders": reminders,
+            }
+            if target_date is not None:
+                fallback_kwargs["target_date"] = target_date
+            return build_timeline(**fallback_kwargs)
+
+    @staticmethod
+    def _normalize_planning_surface(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip().lower()
+        if cleaned in {"agenda", "tasks", "hidden"}:
+            return cleaned
+        return None
 
     async def _refresh_summary_files_from_resources(self) -> list[tuple[str, dict[str, Any]]]:
         inputs = self._planning_inputs()

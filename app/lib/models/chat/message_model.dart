@@ -153,6 +153,7 @@ class PlanningMessageMetadata {
     required this.summaryMessage,
     required this.primaryTitle,
     required this.resourceType,
+    required this.createdVia,
     required this.resourceIds,
     required this.rawBundleId,
     required this.normalizedTime,
@@ -162,12 +163,16 @@ class PlanningMessageMetadata {
     required this.taskCount,
     required this.eventCount,
     required this.reminderCount,
+    required this.planningSurface,
+    required this.ownerKind,
+    required this.deliveryMode,
   });
 
   final String? action;
   final String? summaryMessage;
   final String? primaryTitle;
   final String? resourceType;
+  final String? createdVia;
   final List<String> resourceIds;
   final String? rawBundleId;
   final String? normalizedTime;
@@ -177,12 +182,44 @@ class PlanningMessageMetadata {
   final int taskCount;
   final int eventCount;
   final int reminderCount;
+  final String? planningSurface;
+  final String? ownerKind;
+  final String? deliveryMode;
 
-  String? get bundleId => null;
+  String? get bundleId => rawBundleId;
 
   int get resourceCount => resourceIds.length;
 
   int get totalResourceCount => taskCount + eventCount + reminderCount;
+
+  bool get hasPlanningContext =>
+      action != null ||
+      resourceType != null ||
+      totalResourceCount > 0 ||
+      bundleId != null;
+
+  String get effectivePlanningSurface =>
+      _normalizePlanningSurface(planningSurface) ??
+      _defaultPlanningSurfaceFor(resourceType);
+
+  String get effectiveOwnerKind =>
+      _normalizeOwnerKind(ownerKind) ?? _inferOwnerKind(createdVia) ?? 'user';
+
+  String get effectiveDeliveryMode =>
+      _normalizeDeliveryMode(deliveryMode) ?? 'none';
+
+  String? get planningSurfaceLabel =>
+      planningSurface != null || hasPlanningContext
+      ? _humanizePlanningSurface(effectivePlanningSurface)
+      : null;
+
+  String? get ownerLabel => ownerKind != null || createdVia != null
+      ? _humanizeOwnerKind(effectiveOwnerKind)
+      : null;
+
+  String? get deliveryModeLabel => deliveryMode != null
+      ? _humanizeDeliveryMode(effectiveDeliveryMode)
+      : null;
 
   String get summaryHeading {
     if (summaryMessage?.isNotEmpty == true) {
@@ -258,6 +295,9 @@ class PlanningMessageMetadata {
       (actionLabel?.isNotEmpty ?? false) ||
       (resourceLabel?.isNotEmpty ?? false) ||
       (normalizedTime?.isNotEmpty ?? false) ||
+      (planningSurfaceLabel?.isNotEmpty ?? false) ||
+      (ownerLabel?.isNotEmpty ?? false) ||
+      (deliveryModeLabel?.isNotEmpty ?? false) ||
       conflicts.isNotEmpty ||
       requiresUserConfirmation ||
       (confirmationSummary?.isNotEmpty ?? false);
@@ -315,6 +355,10 @@ class PlanningMessageMetadata {
         _firstNonEmptyString(scopes, <String>['title']),
       ),
       resourceType: _humanizeResourceType(resourceType),
+      createdVia: _firstNonEmptyString(scopes, <String>[
+        'created_via',
+        'createdVia',
+      ]),
       resourceIds: resourceIds,
       rawBundleId: _firstNonEmptyString(scopes, <String>[
         'bundle_id',
@@ -359,6 +403,18 @@ class PlanningMessageMetadata {
         'reminder_ids',
         'reminder_id',
       ]).length,
+      planningSurface: _normalizePlanningSurface(
+        _firstNonEmptyString(scopes, <String>[
+          'planning_surface',
+          'planningSurface',
+        ]),
+      ),
+      ownerKind: _normalizeOwnerKind(
+        _firstNonEmptyString(scopes, <String>['owner_kind', 'ownerKind']),
+      ),
+      deliveryMode: _normalizeDeliveryMode(
+        _firstNonEmptyString(scopes, <String>['delivery_mode', 'deliveryMode']),
+      ),
     );
   }
 }
@@ -379,10 +435,13 @@ List<Map<String, dynamic>> _collectMetadataScopes(
     scopes.add(scope);
     for (final key in <String>[
       'planning',
+      'planning_metadata',
+      'planningMetadata',
       'planning_result',
       'planningResult',
       'structured_result',
       'structuredResult',
+      'metadata',
       'result',
       'payload',
       'bundle',
@@ -569,6 +628,108 @@ String? _inferResourceType(List<Map<String, dynamic>> scopes) {
     }
   }
   return null;
+}
+
+String? _normalizePlanningSurface(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'agenda':
+    case 'tasks':
+    case 'hidden':
+      return value!.trim().toLowerCase();
+  }
+  return null;
+}
+
+String _defaultPlanningSurfaceFor(String? resourceType) {
+  switch (resourceType?.trim().toLowerCase()) {
+    case 'task':
+    case 'tasks':
+      return 'tasks';
+    case 'event':
+    case 'events':
+    case 'reminder':
+    case 'reminders':
+      return 'agenda';
+  }
+  return 'agenda';
+}
+
+String? _normalizeOwnerKind(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'assistant':
+    case 'user':
+      return value!.trim().toLowerCase();
+  }
+  return null;
+}
+
+String? _inferOwnerKind(String? createdVia) {
+  final normalized = createdVia?.trim().toLowerCase();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  if (<String>{'agent', 'assistant', 'ai'}.contains(normalized) ||
+      normalized.contains('agent')) {
+    return 'assistant';
+  }
+  return 'user';
+}
+
+String? _normalizeDeliveryMode(String? value) {
+  final normalized = value?.trim().toLowerCase().replaceAll(
+    RegExp(r'[\s\-]+'),
+    '_',
+  );
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  return normalized;
+}
+
+String _humanizePlanningSurface(String value) {
+  switch (value) {
+    case 'agenda':
+      return 'Agenda surface';
+    case 'tasks':
+      return 'Tasks surface';
+    case 'hidden':
+      return 'Hidden surface';
+  }
+  return _humanizeToken(value);
+}
+
+String _humanizeOwnerKind(String value) {
+  switch (value) {
+    case 'assistant':
+      return 'Assistant-owned';
+    case 'user':
+      return 'User-owned';
+  }
+  return _humanizeToken(value);
+}
+
+String? _humanizeDeliveryMode(String value) {
+  switch (value) {
+    case 'none':
+      return null;
+    case 'device_voice':
+      return 'Device voice';
+    case 'device_voice_and_notification':
+      return 'Device voice + notification';
+  }
+  return _humanizeToken(value);
+}
+
+String _humanizeToken(String value) {
+  final words = value
+      .split(RegExp(r'[_\s-]+'))
+      .where((String item) => item.isNotEmpty)
+      .map(
+        (String item) =>
+            '${item[0].toUpperCase()}${item.substring(1).toLowerCase()}',
+      )
+      .toList();
+  return words.join(' ');
 }
 
 String? _stringify(Object? value) {

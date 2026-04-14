@@ -200,6 +200,9 @@ class ReminderScheduler:
                 },
             },
         }
+        delivery_mode = reminder.get("delivery_mode")
+        if delivery_mode is not None:
+            notification_payload["metadata"]["delivery_mode"] = delivery_mode
 
         patch = {
             "last_triggered_at": self._format_dt(now),

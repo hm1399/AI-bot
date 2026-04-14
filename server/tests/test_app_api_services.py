@@ -147,6 +147,64 @@ class ResourceServiceTests(unittest.TestCase):
                     self.assertEqual(updated["status"], "completed")
                     self.assertEqual(updated["completed_at"], "2026-04-10T09:15:00+08:00")
 
+    def test_resources_apply_canonical_planning_defaults_and_validation(self) -> None:
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    service = AppResourceService(Path(tmpdir), storage_mode=mode)
+
+                    task = service.create_task(
+                        {
+                            "title": "Review proposal",
+                            "priority": "high",
+                            "created_via": "agent",
+                        }
+                    )
+                    event = service.create_event(
+                        {
+                            "title": "Team review",
+                            "start_at": "2026-04-10T09:00:00+08:00",
+                            "end_at": "2026-04-10T10:00:00+08:00",
+                        }
+                    )
+                    reminder = service.create_reminder(
+                        {
+                            "title": "Join call",
+                            "time": "2026-04-10T08:50:00+08:00",
+                            "repeat": "once",
+                        }
+                    )
+
+                    self.assertEqual(task["planning_surface"], "tasks")
+                    self.assertEqual(task["owner_kind"], "assistant")
+                    self.assertEqual(task["delivery_mode"], "none")
+                    self.assertEqual(event["planning_surface"], "agenda")
+                    self.assertEqual(event["owner_kind"], "user")
+                    self.assertEqual(event["delivery_mode"], "none")
+                    self.assertEqual(reminder["planning_surface"], "agenda")
+                    self.assertEqual(reminder["owner_kind"], "user")
+                    self.assertEqual(reminder["delivery_mode"], "none")
+
+                    with self.assertRaisesRegex(ValueError, "planning_surface must be one of"):
+                        service.create_task(
+                            {
+                                "title": "Bad surface",
+                                "priority": "medium",
+                                "planning_surface": "calendar",
+                            }
+                        )
+                    with self.assertRaisesRegex(ValueError, "delivery_mode must be one of"):
+                        service.create_notification(
+                            {
+                                "type": "reminder_due",
+                                "priority": "high",
+                                "title": "Join call",
+                                "message": "Call starts now",
+                                "delivery_mode": "voice_only",
+                                "metadata": {},
+                            }
+                        )
+
     def test_notification_normalization_preserves_metadata_and_origin_links(self) -> None:
         for mode in self._RESOURCE_MODES:
             with self.subTest(storage_mode=mode):
@@ -169,6 +227,9 @@ class ResourceServiceTests(unittest.TestCase):
                             "source_channel": "app",
                             "source_message_id": "msg_001",
                             "source_session_id": "session_001",
+                            "planning_surface": "hidden",
+                            "owner_kind": "assistant",
+                            "delivery_mode": "device_voice_and_notification",
                             "linked_task_id": "task_001",
                             "linked_event_id": "event_001",
                             "linked_reminder_id": "rem_001",
@@ -182,6 +243,12 @@ class ResourceServiceTests(unittest.TestCase):
                     self.assertEqual(notification["metadata"]["source_channel"], "app")
                     self.assertEqual(notification["metadata"]["source_message_id"], "msg_001")
                     self.assertEqual(notification["metadata"]["source_session_id"], "session_001")
+                    self.assertEqual(notification["metadata"]["planning_surface"], "hidden")
+                    self.assertEqual(notification["metadata"]["owner_kind"], "assistant")
+                    self.assertEqual(
+                        notification["metadata"]["delivery_mode"],
+                        "device_voice_and_notification",
+                    )
                     self.assertEqual(notification["metadata"]["linked_task_id"], "task_001")
                     self.assertEqual(notification["metadata"]["linked_event_id"], "event_001")
                     self.assertEqual(notification["metadata"]["linked_reminder_id"], "rem_001")

@@ -63,6 +63,7 @@ class DummyDeviceChannel:
         self.command_history: list[dict[str, Any]] = []
         self.weather_config: dict[str, Any] | None = None
         self.active_app_session_resolver = None
+        self.delivered_voice_texts: list[str] = []
 
     def get_snapshot(self) -> dict[str, Any]:
         return dict(self._snapshot)
@@ -78,6 +79,9 @@ class DummyDeviceChannel:
 
     async def send_outbound(self, out_msg: OutboundMessage) -> None:
         self.last_outbound = out_msg
+
+    async def deliver_external_text_response(self, text: str) -> None:
+        self.delivered_voice_texts.append(text)
 
     async def execute_app_command(
         self,
@@ -1219,6 +1223,9 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
                 "source_channel": "app",
                 "source_message_id": "msg_local_001",
                 "source_session_id": "app:main",
+                "planning_surface": "tasks",
+                "owner_kind": "assistant",
+                "delivery_mode": "device_voice_and_notification",
                 "tasks": [
                     {
                         "title": "Prepare agenda",
@@ -1246,6 +1253,15 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(created.text)["data"]
         self.assertEqual(payload["counts"], {"tasks": 1, "events": 1, "reminders": 1, "notifications": 0})
         self.assertEqual(payload["tasks"][0]["created_via"], "manual")
+        self.assertEqual(payload["tasks"][0]["planning_surface"], "tasks")
+        self.assertEqual(payload["tasks"][0]["owner_kind"], "assistant")
+        self.assertEqual(payload["tasks"][0]["delivery_mode"], "device_voice_and_notification")
+        self.assertEqual(payload["events"][0]["planning_surface"], "tasks")
+        self.assertEqual(payload["events"][0]["owner_kind"], "assistant")
+        self.assertEqual(payload["events"][0]["delivery_mode"], "device_voice_and_notification")
+        self.assertEqual(payload["reminders"][0]["planning_surface"], "tasks")
+        self.assertEqual(payload["reminders"][0]["owner_kind"], "assistant")
+        self.assertEqual(payload["reminders"][0]["delivery_mode"], "device_voice_and_notification")
         self.assertEqual(payload["events"][0]["linked_task_id"], payload["tasks"][0]["task_id"])
         self.assertEqual(payload["reminders"][0]["linked_event_id"], payload["events"][0]["event_id"])
         self.assertEqual(payload["reminders"][0]["status"], "scheduled")
@@ -1289,6 +1305,148 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [item["title"] for item in items],
             ["Overnight shift", "Today reminder", "Today task"],
+        )
+
+    async def test_planning_timeline_invalid_surface_query_falls_back_to_default_visibility(self) -> None:
+        self.service.resources.create_task({
+            "title": "AI follow-up",
+            "priority": "medium",
+            "due_at": "2026-04-09T18:00:00+08:00",
+            "planning_surface": "tasks",
+        })
+        reminder = self.service.resources.create_reminder({
+            "title": "Hidden delivery",
+            "time": "2026-04-09T17:00:00+08:00",
+            "repeat": "once",
+            "planning_surface": "hidden",
+            "enabled": True,
+        })
+        await self.service.reminder_scheduler.sync_reminder(reminder["reminder_id"])
+        await self.service.refresh_planning_state()
+
+        response = await self.service.handle_planning_timeline(FakeRequest(
+            headers=self.headers,
+            query={"surface": "not-a-surface"},
+        ))
+
+        self.assertEqual(response.status, 200)
+        items = json.loads(response.text)["data"]["items"]
+        self.assertEqual([item["title"] for item in items], ["AI follow-up"])
+
+    async def test_planning_timeline_passes_surface_to_projection_when_supported(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_build_timeline(
+            *,
+            tasks: list[dict[str, Any]],
+            events: list[dict[str, Any]],
+            reminders: list[dict[str, Any]],
+            target_date: str | None = None,
+            surface: str | None = None,
+        ) -> list[dict[str, Any]]:
+            captured["target_date"] = target_date
+            captured["surface"] = surface
+            return [
+                {"title": "Agenda lane", "surface": "agenda"},
+                {"title": "Task lane", "surface": "tasks"},
+            ] if surface is None else [
+                item
+                for item in [
+                    {"title": "Agenda lane", "surface": "agenda"},
+                    {"title": "Task lane", "surface": "tasks"},
+                ]
+                if item["surface"] == surface
+            ]
+
+        self.service.planning_projection_service.build_timeline = fake_build_timeline
+
+        response = await self.service.handle_planning_timeline(FakeRequest(
+            headers=self.headers,
+            query={"date": "2026-04-09", "surface": "agenda"},
+        ))
+
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)["data"]["items"]
+        self.assertEqual([item["title"] for item in payload], ["Agenda lane"])
+        self.assertEqual(captured, {"target_date": "2026-04-09", "surface": "agenda"})
+
+    async def test_planning_timeline_surface_query_falls_back_for_legacy_projection(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_build_timeline(
+            *,
+            tasks: list[dict[str, Any]],
+            events: list[dict[str, Any]],
+            reminders: list[dict[str, Any]],
+            target_date: str | None = None,
+        ) -> list[dict[str, Any]]:
+            captured["target_date"] = target_date
+            return [{"title": "Legacy timeline"}]
+
+        self.service.planning_projection_service.build_timeline = fake_build_timeline
+
+        response = await self.service.handle_planning_timeline(FakeRequest(
+            headers=self.headers,
+            query={"date": "2026-04-09", "surface": "agenda"},
+        ))
+
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.text)["data"]["items"]
+        self.assertEqual(payload, [{"title": "Legacy timeline"}])
+        self.assertEqual(captured, {"target_date": "2026-04-09"})
+
+    async def test_reminder_triggered_delivers_device_voice_when_requested(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+        self.device.connected = True
+        self.device._snapshot["connected"] = True
+
+        await self.service.on_reminder_triggered(
+            reminder={
+                "reminder_id": "rem_001",
+                "title": "Stand up",
+                "message": "",
+                "delivery_mode": "device_voice_and_notification",
+            },
+            notification={
+                "notification_id": "notif_001",
+                "title": "Stand up",
+                "message": "Stand up",
+                "metadata": {"reminder_id": "rem_001"},
+            },
+        )
+
+        self.assertEqual(self.device.delivered_voice_texts, ["Stand up"])
+        self.assertEqual(
+            [event["event_type"] for event in ws.sent[:3]],
+            ["reminder.updated", "notification.created", "reminder.triggered"],
+        )
+
+    async def test_reminder_triggered_skips_device_voice_when_device_offline(self) -> None:
+        ws = FakeWebSocket()
+        self.service._ws_clients.add(ws)
+
+        await self.service.on_reminder_triggered(
+            reminder={
+                "reminder_id": "rem_002",
+                "title": "Drink water",
+                "message": "Drink water now",
+            },
+            notification={
+                "notification_id": "notif_002",
+                "title": "Drink water",
+                "message": "Drink water now",
+                "metadata": {
+                    "reminder_id": "rem_002",
+                    "delivery_mode": "device_voice",
+                },
+            },
+        )
+
+        self.assertEqual(self.device.delivered_voice_texts, [])
+        self.assertEqual(
+            [event["event_type"] for event in ws.sent[:3]],
+            ["reminder.updated", "notification.created", "reminder.triggered"],
         )
 
     async def test_device_pairing_bundle_requires_auth(self) -> None:

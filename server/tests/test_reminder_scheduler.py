@@ -28,6 +28,31 @@ class _Observer:
         self.events.append(("on_reminder_triggered", reminder, notification))
 
 
+class _FakeReminderResources:
+    def __init__(self) -> None:
+        self.notifications: list[dict] = []
+        self.reminder_patches: list[dict] = []
+
+    def create_notification_and_update_reminder(
+        self,
+        *,
+        reminder_id: str,
+        notification_payload: dict[str, object],
+        reminder_patch: dict[str, object],
+    ) -> tuple[dict, dict]:
+        notification = {
+            "notification_id": f"notif_{len(self.notifications) + 1:03d}",
+            **notification_payload,
+        }
+        updated = {
+            "reminder_id": reminder_id,
+            **reminder_patch,
+        }
+        self.notifications.append(notification)
+        self.reminder_patches.append(reminder_patch)
+        return notification, updated
+
+
 class ReminderSchedulerTests(unittest.IsolatedAsyncioTestCase):
     _RESOURCE_MODES = ("json", "dual", "sqlite")
 
@@ -146,6 +171,7 @@ class ReminderSchedulerTests(unittest.IsolatedAsyncioTestCase):
 
                     await scheduler.sync_all()
                     await scheduler._process_due_reminders()
+                    await scheduler._process_due_reminders()
 
                     updated = resources.get_reminder(reminder["reminder_id"])
                     notifications = resources.list_notification_items()
@@ -160,9 +186,46 @@ class ReminderSchedulerTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(len(notifications), 1)
                     self.assertEqual(notifications[0]["metadata"]["reminder_id"], reminder["reminder_id"])
                     self.assertEqual(notifications[0]["metadata"]["bundle_id"], "bundle_plan_001")
+                    self.assertEqual(
+                        notifications[0]["metadata"].get("delivery_mode"),
+                        "none",
+                    )
                     self.assertEqual(len(observer.events), 1)
                 finally:
                     tmpdir.cleanup()
+
+    async def test_deliver_due_reminder_includes_delivery_mode_in_notification_metadata(self) -> None:
+        now = datetime(2026, 4, 9, 9, 0, tzinfo=timezone.utc)
+        resources = _FakeReminderResources()
+        observer = _Observer()
+        scheduler = ReminderScheduler(
+            resources,
+            event_observer=observer,
+            now_provider=lambda: now,
+        )
+        reminder = {
+            "reminder_id": "rem_voice_001",
+            "title": "Hydrate",
+            "message": "Drink water now",
+            "time": (now - timedelta(minutes=1)).isoformat(),
+            "repeat": "once",
+            "enabled": True,
+            "delivery_mode": "device_voice_and_notification",
+            "next_trigger_at": (now - timedelta(minutes=1)).isoformat(),
+        }
+
+        await scheduler._deliver_due_reminder_unlocked(reminder, now=now)
+
+        self.assertEqual(len(resources.notifications), 1)
+        self.assertEqual(
+            resources.notifications[0]["metadata"]["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(
+            resources.notifications[0]["message"],
+            "Drink water now",
+        )
+        self.assertEqual(len(observer.events), 1)
 
     async def test_due_repeating_reminder_reschedules_and_returns_to_scheduled(self) -> None:
         for mode in self._RESOURCE_MODES:

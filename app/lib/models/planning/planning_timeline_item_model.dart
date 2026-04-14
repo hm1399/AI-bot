@@ -24,6 +24,9 @@ class PlanningTimelineItemModel {
     this.linkedEventId,
     this.linkedReminderId,
     this.conflictSummaries = const <String>[],
+    this.planningSurface,
+    this.ownerKind,
+    this.deliveryMode,
     this.resource = const <String, dynamic>{},
     this.metadata = const <String, dynamic>{},
   });
@@ -52,6 +55,9 @@ class PlanningTimelineItemModel {
   final String? linkedEventId;
   final String? linkedReminderId;
   final List<String> conflictSummaries;
+  final String? planningSurface;
+  final String? ownerKind;
+  final String? deliveryMode;
   final Map<String, dynamic> resource;
   final Map<String, dynamic> metadata;
 
@@ -64,6 +70,27 @@ class PlanningTimelineItemModel {
   DateTime? get dueAtDateTime => _tryParseDateTime(dueAt);
 
   DateTime? get nextTriggerDateTime => _tryParseDateTime(nextTriggerAt);
+
+  String get effectivePlanningSurface =>
+      _normalizePlanningSurface(planningSurface) ??
+      _defaultPlanningSurfaceFor(resourceType);
+
+  String get effectiveOwnerKind =>
+      _normalizeOwnerKind(ownerKind) ?? _inferOwnerKind(createdVia) ?? 'user';
+
+  String get effectiveDeliveryMode =>
+      _normalizeDeliveryMode(deliveryMode) ?? 'none';
+
+  bool get belongsToAgenda => effectivePlanningSurface == 'agenda';
+
+  bool get isAssistantOwned => effectiveOwnerKind == 'assistant';
+
+  String get planningSurfaceLabel =>
+      _humanizePlanningSurface(effectivePlanningSurface);
+
+  String get ownerLabel => _humanizeOwnerKind(effectiveOwnerKind);
+
+  String? get deliveryModeLabel => _humanizeDeliveryMode(effectiveDeliveryMode);
 
   factory PlanningTimelineItemModel.fromJson(Map<String, dynamic> json) {
     final source = _firstMap(<dynamic>[json['item'], json]);
@@ -189,6 +216,24 @@ class PlanningTimelineItemModel {
         const <String>['linked_reminder_id'],
       ),
       conflictSummaries: _readConflictSummaries(source, planningMetadata),
+      planningSurface: _normalizePlanningSurface(
+        _readStringAny(
+          <Map<String, dynamic>>[planningMetadata, source, effectiveResource],
+          const <String>['planning_surface', 'planningSurface'],
+        ),
+      ),
+      ownerKind: _normalizeOwnerKind(
+        _readStringAny(
+          <Map<String, dynamic>>[planningMetadata, source, effectiveResource],
+          const <String>['owner_kind', 'ownerKind'],
+        ),
+      ),
+      deliveryMode: _normalizeDeliveryMode(
+        _readStringAny(
+          <Map<String, dynamic>>[planningMetadata, source, effectiveResource],
+          const <String>['delivery_mode', 'deliveryMode'],
+        ),
+      ),
       resource: effectiveResource,
       metadata: source,
     );
@@ -223,6 +268,9 @@ Map<String, dynamic> _extractPlanningMetadata(
     'normalized_times',
     'conflict_summary',
     'conflict_summaries',
+    'planning_surface',
+    'owner_kind',
+    'delivery_mode',
   ]) {
     if (!metadata.containsKey(key) && resource.containsKey(key)) {
       metadata[key] = resource[key];
@@ -293,6 +341,95 @@ DateTime? _tryParseDateTime(String? value) {
     return null;
   }
   return DateTime.tryParse(value);
+}
+
+String? _normalizePlanningSurface(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'agenda':
+    case 'tasks':
+    case 'hidden':
+      return value!.trim().toLowerCase();
+  }
+  return null;
+}
+
+String _defaultPlanningSurfaceFor(String resourceType) {
+  return switch (resourceType.trim().toLowerCase()) {
+    'task' => 'tasks',
+    'event' => 'agenda',
+    'reminder' => 'agenda',
+    _ => 'agenda',
+  };
+}
+
+String? _normalizeOwnerKind(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'assistant':
+    case 'user':
+      return value!.trim().toLowerCase();
+  }
+  return null;
+}
+
+String? _inferOwnerKind(String? createdVia) {
+  final normalized = createdVia?.trim().toLowerCase();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  if (<String>{'agent', 'assistant', 'ai'}.contains(normalized) ||
+      normalized.contains('agent')) {
+    return 'assistant';
+  }
+  return 'user';
+}
+
+String? _normalizeDeliveryMode(String? value) {
+  final normalized = value?.trim().toLowerCase().replaceAll(
+    RegExp(r'[\s\-]+'),
+    '_',
+  );
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  return normalized;
+}
+
+String _humanizePlanningSurface(String value) {
+  return switch (value) {
+    'agenda' => 'Agenda surface',
+    'tasks' => 'Tasks surface',
+    'hidden' => 'Hidden surface',
+    _ => _humanizeToken(value),
+  };
+}
+
+String _humanizeOwnerKind(String value) {
+  return switch (value) {
+    'assistant' => 'Assistant-owned',
+    'user' => 'User-owned',
+    _ => _humanizeToken(value),
+  };
+}
+
+String? _humanizeDeliveryMode(String value) {
+  return switch (value) {
+    'none' => null,
+    'device_voice' => 'Device voice',
+    'device_voice_and_notification' => 'Device voice + notification',
+    _ => _humanizeToken(value),
+  };
+}
+
+String _humanizeToken(String value) {
+  final words = value
+      .split(RegExp(r'[_\-\s]+'))
+      .where((String item) => item.isNotEmpty)
+      .map(
+        (String item) =>
+            '${item[0].toUpperCase()}${item.substring(1).toLowerCase()}',
+      )
+      .toList();
+  return words.join(' ');
 }
 
 List<String> _readConflictSummaries(

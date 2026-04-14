@@ -9,6 +9,7 @@ import time
 import types
 import unittest
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import MethodType
 from unittest.mock import patch
@@ -51,6 +52,9 @@ class CapturingProvider(SequencedProvider):
 
 class FakePlanningBackend:
     def __init__(self) -> None:
+        self.create_task_payloads: list[dict[str, object]] = []
+        self.create_event_payloads: list[dict[str, object]] = []
+        self.create_reminder_payloads: list[dict[str, object]] = []
         self.tasks = [
             {
                 "task_id": "task_today",
@@ -128,6 +132,7 @@ class FakePlanningBackend:
         return {"items": items}
 
     async def create_task(self, payload: dict[str, object]) -> dict[str, object]:
+        self.create_task_payloads.append(deepcopy(payload))
         task = {
             "task_id": "task_created",
             "title": payload["title"],
@@ -143,6 +148,9 @@ class FakePlanningBackend:
             "interaction_surface": payload.get("interaction_surface"),
             "capture_source": payload.get("capture_source"),
             "voice_path": payload.get("voice_path"),
+            "planning_surface": payload.get("planning_surface"),
+            "owner_kind": payload.get("owner_kind"),
+            "delivery_mode": payload.get("delivery_mode"),
             "linked_task_id": payload.get("linked_task_id"),
             "linked_event_id": payload.get("linked_event_id"),
             "linked_reminder_id": payload.get("linked_reminder_id"),
@@ -174,6 +182,7 @@ class FakePlanningBackend:
         return {"items": items}
 
     async def create_event(self, payload: dict[str, object]) -> dict[str, object]:
+        self.create_event_payloads.append(deepcopy(payload))
         event = {
             "event_id": "event_created",
             "title": payload["title"],
@@ -189,6 +198,9 @@ class FakePlanningBackend:
             "interaction_surface": payload.get("interaction_surface"),
             "capture_source": payload.get("capture_source"),
             "voice_path": payload.get("voice_path"),
+            "planning_surface": payload.get("planning_surface"),
+            "owner_kind": payload.get("owner_kind"),
+            "delivery_mode": payload.get("delivery_mode"),
             "linked_task_id": payload.get("linked_task_id"),
             "linked_event_id": payload.get("linked_event_id"),
             "linked_reminder_id": payload.get("linked_reminder_id"),
@@ -198,6 +210,7 @@ class FakePlanningBackend:
         return event
 
     async def create_reminder(self, payload: dict[str, object]) -> dict[str, object]:
+        self.create_reminder_payloads.append(deepcopy(payload))
         reminder = {
             "reminder_id": "rem_created",
             "title": payload["title"],
@@ -214,6 +227,9 @@ class FakePlanningBackend:
             "interaction_surface": payload.get("interaction_surface"),
             "capture_source": payload.get("capture_source"),
             "voice_path": payload.get("voice_path"),
+            "planning_surface": payload.get("planning_surface"),
+            "owner_kind": payload.get("owner_kind"),
+            "delivery_mode": payload.get("delivery_mode"),
             "linked_task_id": payload.get("linked_task_id"),
             "linked_event_id": payload.get("linked_event_id"),
             "linked_reminder_id": payload.get("linked_reminder_id"),
@@ -441,6 +457,38 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["resource_ids"]["event_id"], "event_created")
         self.assertEqual(payload["conflicts"][0]["event_id"], "event_existing")
 
+    async def test_planning_tool_create_event_passes_extended_metadata(self) -> None:
+        result = await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_event",
+                "title": "Airport transfer",
+                "start_at": "2026-04-10T07:30:00+08:00",
+                "end_at": "2026-04-10T08:30:00+08:00",
+                "source_channel": "app",
+                "source_message_id": "msg_trip",
+                "source_session_id": "app:main",
+                "planning_surface": "agenda",
+                "owner_kind": "user",
+                "delivery_mode": "none",
+            },
+        )
+
+        payload = json.loads(result)
+        event = payload["result"]["event"]
+        self.assertEqual(payload["request_metadata"]["source_message_id"], "msg_trip")
+        self.assertEqual(payload["request_metadata"]["planning_surface"], "agenda")
+        self.assertEqual(payload["request_metadata"]["owner_kind"], "user")
+        self.assertEqual(payload["request_metadata"]["delivery_mode"], "none")
+        self.assertEqual(event["source_session_id"], "app:main")
+        self.assertEqual(event["planning_surface"], "agenda")
+        self.assertEqual(event["owner_kind"], "user")
+        self.assertEqual(event["delivery_mode"], "none")
+        self.assertEqual(
+            self.backend.create_event_payloads[-1]["source_message_id"],
+            "msg_trip",
+        )
+
     async def test_planning_tool_create_reminder_returns_normalized_time(self) -> None:
         result = await self.agent.tools.execute(
             "planning",
@@ -461,6 +509,64 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(payload["result"]["reminder"]["bundle_id"], payload["bundle_id"])
         self.assertEqual(payload["result"]["reminder"]["created_via"], "agent")
+
+    async def test_planning_tool_reminder_style_task_and_hidden_reminder_pass_metadata(self) -> None:
+        planning_tool = self.agent.tools.get("planning")
+        assert planning_tool is not None
+        planning_tool.start_turn()
+
+        task_payload = json.loads(await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_task",
+                "title": "Remind me to stretch",
+                "source_channel": "app",
+                "source_message_id": "msg_reminder",
+                "source_session_id": "app:main",
+                "planning_surface": "tasks",
+                "owner_kind": "assistant",
+                "delivery_mode": "none",
+            },
+        ))
+        reminder_payload = json.loads(await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_reminder",
+                "title": "Stretch prompt",
+                "time": "2026-04-09T14:00:00+08:00",
+                "repeat": "once",
+                "source_channel": "app",
+                "source_message_id": "msg_reminder",
+                "source_session_id": "app:main",
+                "planning_surface": "hidden",
+                "owner_kind": "assistant",
+                "delivery_mode": "device_voice_and_notification",
+            },
+        ))
+
+        task = task_payload["result"]["task"]
+        reminder = reminder_payload["result"]["reminder"]
+        self.assertEqual(task["bundle_id"], reminder["bundle_id"])
+        self.assertEqual(task_payload["request_metadata"]["owner_kind"], "assistant")
+        self.assertEqual(task["planning_surface"], "tasks")
+        self.assertEqual(task["delivery_mode"], "none")
+        self.assertEqual(reminder_payload["request_metadata"]["planning_surface"], "hidden")
+        self.assertEqual(
+            reminder_payload["request_metadata"]["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(reminder["owner_kind"], "assistant")
+        self.assertEqual(reminder["planning_surface"], "hidden")
+        self.assertEqual(
+            reminder["delivery_mode"],
+            "device_voice_and_notification",
+        )
+        self.assertEqual(reminder["linked_task_id"], task["task_id"])
+        self.assertEqual(self.backend.tasks[-1]["linked_reminder_id"], reminder["reminder_id"])
+        self.assertEqual(
+            self.backend.create_reminder_payloads[-1]["source_session_id"],
+            "app:main",
+        )
 
     async def test_planning_tool_complete_task_returns_updated_task_id(self) -> None:
         result = await self.agent.tools.execute(
@@ -561,6 +667,28 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["resource_ids"]["event_ids"], ["event_existing"])
         self.assertEqual(payload["resource_ids"]["reminder_ids"], ["rem_today"])
 
+    async def test_planning_tool_list_today_supports_tomorrow_keyword(self) -> None:
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = cls(2026, 4, 9, 8, 0, 0, tzinfo=timezone(timedelta(hours=8)))
+                return current if tz is None else current.astimezone(tz)
+
+        with patch("nanobot.agent.tools.planning.datetime", FrozenDateTime):
+            result = await self.agent.tools.execute(
+                "planning",
+                {
+                    "action": "list_today",
+                    "date": "tomorrow",
+                },
+            )
+
+        payload = json.loads(result)
+        self.assertEqual(payload["normalized_times"]["date"], "2026-04-10")
+        self.assertEqual(payload["resource_ids"]["task_ids"], ["task_other_day"])
+        self.assertEqual(payload["resource_ids"]["event_ids"], ["event_other_day"])
+        self.assertEqual(payload["resource_ids"]["reminder_ids"], ["rem_other_day"])
+
     async def test_planning_tool_result_is_preserved_in_response_metadata_and_session(self) -> None:
         provider = SequencedProvider(
             [
@@ -574,6 +702,9 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
                                 "action": "create_task",
                                 "title": "Renew passport",
                                 "due_at": "2026-04-09T17:00:00+08:00",
+                                "planning_surface": "tasks",
+                                "owner_kind": "assistant",
+                                "delivery_mode": "device_voice_and_notification",
                             },
                         )
                     ],
@@ -622,9 +753,15 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(planning_results[0]["request_metadata"]["interaction_kind"], "shake_event")
         self.assertEqual(planning_results[0]["request_metadata"]["interaction_mode"], "physical")
         self.assertEqual(planning_results[0]["request_metadata"]["approval_source"], "device_tap")
+        self.assertEqual(planning_results[0]["request_metadata"]["planning_surface"], "tasks")
+        self.assertEqual(planning_results[0]["request_metadata"]["owner_kind"], "assistant")
+        self.assertEqual(planning_results[0]["request_metadata"]["delivery_mode"], "device_voice_and_notification")
         self.assertEqual(planning_results[0]["result"]["task"]["interaction_surface"], "device_shake")
         self.assertEqual(planning_results[0]["result"]["task"]["capture_source"], "imu_sensor")
         self.assertEqual(planning_results[0]["result"]["task"]["voice_path"], "desktop_mic")
+        self.assertEqual(planning_results[0]["result"]["task"]["planning_surface"], "tasks")
+        self.assertEqual(planning_results[0]["result"]["task"]["owner_kind"], "assistant")
+        self.assertEqual(planning_results[0]["result"]["task"]["delivery_mode"], "device_voice_and_notification")
 
         session = agent.sessions.get_or_create("app:main")
         persisted = [

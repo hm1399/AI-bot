@@ -23,6 +23,9 @@ class NotificationModel {
     this.normalizedTime,
     this.normalizedTimes = const <String, dynamic>{},
     this.conflictSummaries = const <String>[],
+    this.planningSurface,
+    this.ownerKind,
+    this.deliveryMode,
     this.planningMetadata = const <String, dynamic>{},
   });
 
@@ -47,6 +50,9 @@ class NotificationModel {
   final String? normalizedTime;
   final Map<String, dynamic> normalizedTimes;
   final List<String> conflictSummaries;
+  final String? planningSurface;
+  final String? ownerKind;
+  final String? deliveryMode;
   final Map<String, dynamic> planningMetadata;
 
   SourceContextModel get sourceContext => SourceContextModel.fromMetadata(
@@ -57,6 +63,15 @@ class NotificationModel {
   );
 
   String get sourceLabel => sourceContext.label;
+
+  String? get normalizedPlanningSurface =>
+      _normalizePlanningSurface(planningSurface);
+
+  String get effectiveOwnerKind =>
+      _normalizeOwnerKind(ownerKind) ?? _inferOwnerKind(createdVia) ?? 'user';
+
+  String get effectiveDeliveryMode =>
+      _normalizeDeliveryMode(deliveryMode) ?? 'none';
 
   NotificationModel copyWith({bool? read}) {
     return NotificationModel(
@@ -81,6 +96,9 @@ class NotificationModel {
       normalizedTime: normalizedTime,
       normalizedTimes: normalizedTimes,
       conflictSummaries: conflictSummaries,
+      planningSurface: planningSurface,
+      ownerKind: ownerKind,
+      deliveryMode: deliveryMode,
       planningMetadata: planningMetadata,
     );
   }
@@ -133,6 +151,24 @@ class NotificationModel {
       ]),
       normalizedTimes: _asMap(planningMetadata['normalized_times']),
       conflictSummaries: _readConflictSummaries(planningMetadata),
+      planningSurface: _normalizePlanningSurface(
+        _readNullableString(planningMetadata, const <String>[
+          'planning_surface',
+          'planningSurface',
+        ]),
+      ),
+      ownerKind: _normalizeOwnerKind(
+        _readNullableString(planningMetadata, const <String>[
+          'owner_kind',
+          'ownerKind',
+        ]),
+      ),
+      deliveryMode: _normalizeDeliveryMode(
+        _readNullableString(planningMetadata, const <String>[
+          'delivery_mode',
+          'deliveryMode',
+        ]),
+      ),
       planningMetadata: planningMetadata,
     );
   }
@@ -179,6 +215,9 @@ Map<String, dynamic> _extractPlanningMetadata(
     'normalized_times',
     'conflict_summary',
     'conflict_summaries',
+    'planning_surface',
+    'owner_kind',
+    'delivery_mode',
   ]) {
     if (!planning.containsKey(key) && json.containsKey(key)) {
       planning[key] = json[key];
@@ -232,4 +271,46 @@ List<String> _readConflictSummaries(Map<String, dynamic> json) {
     }
   }
   return summaries.toSet().toList();
+}
+
+String? _normalizePlanningSurface(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'agenda':
+    case 'tasks':
+    case 'hidden':
+      return value!.trim().toLowerCase();
+  }
+  return null;
+}
+
+String? _normalizeOwnerKind(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'assistant':
+    case 'user':
+      return value!.trim().toLowerCase();
+  }
+  return null;
+}
+
+String? _inferOwnerKind(String? createdVia) {
+  final normalized = createdVia?.trim().toLowerCase();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  if (<String>{'agent', 'assistant', 'ai'}.contains(normalized) ||
+      normalized.contains('agent')) {
+    return 'assistant';
+  }
+  return 'user';
+}
+
+String? _normalizeDeliveryMode(String? value) {
+  final normalized = value?.trim().toLowerCase().replaceAll(
+    RegExp(r'[\s\-]+'),
+    '_',
+  );
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  return normalized;
 }

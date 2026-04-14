@@ -22,6 +22,9 @@ PLANNING_METADATA_FIELDS = (
     "source_message_id",
     "source_session_id",
     "interaction_surface",
+    "planning_surface",
+    "owner_kind",
+    "delivery_mode",
     "capture_source",
     "voice_path",
     "linked_task_id",
@@ -47,6 +50,25 @@ REMINDER_STATUS_FIELDS = {
     "overdue",
     "scheduled",
     "snoozed",
+}
+CANONICAL_PLANNING_SURFACES = {
+    "agenda",
+    "tasks",
+    "hidden",
+}
+CANONICAL_OWNER_KINDS = {
+    "user",
+    "assistant",
+}
+CANONICAL_DELIVERY_MODES = {
+    "none",
+    "device_voice",
+    "device_voice_and_notification",
+}
+DEFAULT_PLANNING_SURFACES = {
+    "tasks": "tasks",
+    "events": "agenda",
+    "reminders": "agenda",
 }
 NOTIFICATION_ORIGIN_ALIASES = {
     "linked_task_id": "task_id",
@@ -441,6 +463,10 @@ class AppResourceService:
         elif not partial:
             normalized["due_at"] = None
         normalized.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
+        if not partial:
+            normalized.setdefault("planning_surface", DEFAULT_PLANNING_SURFACES["tasks"])
+            normalized.setdefault("owner_kind", self._default_owner_kind(normalized))
+            normalized.setdefault("delivery_mode", "none")
         return normalized
 
     def _normalize_event_payload(self, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
@@ -460,6 +486,10 @@ class AppResourceService:
         elif not partial:
             normalized["location"] = None
         normalized.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
+        if not partial:
+            normalized.setdefault("planning_surface", DEFAULT_PLANNING_SURFACES["events"])
+            normalized.setdefault("owner_kind", self._default_owner_kind(normalized))
+            normalized.setdefault("delivery_mode", "none")
         return normalized
 
     def _normalize_notification_payload(self, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
@@ -506,6 +536,10 @@ class AppResourceService:
         elif not partial:
             normalized["enabled"] = True
         normalized.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
+        if not partial:
+            normalized.setdefault("planning_surface", DEFAULT_PLANNING_SURFACES["reminders"])
+            normalized.setdefault("owner_kind", self._default_owner_kind(normalized))
+            normalized.setdefault("delivery_mode", "none")
         normalized.update(self._normalize_reminder_runtime_fields(payload))
         return normalized
 
@@ -545,6 +579,49 @@ class AppResourceService:
             normalized.setdefault("priority", "medium")
             normalized.setdefault("completed", False)
             normalized.setdefault("due_at", None)
+            normalized["planning_surface"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("planning_surface"),
+                    CANONICAL_PLANNING_SURFACES,
+                )
+                or DEFAULT_PLANNING_SURFACES["tasks"]
+            )
+            normalized["owner_kind"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("owner_kind"),
+                    CANONICAL_OWNER_KINDS,
+                )
+                or AppResourceService._default_owner_kind(normalized)
+            )
+            normalized["delivery_mode"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("delivery_mode"),
+                    CANONICAL_DELIVERY_MODES,
+                )
+                or "none"
+            )
+        elif domain == "events":
+            normalized["planning_surface"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("planning_surface"),
+                    CANONICAL_PLANNING_SURFACES,
+                )
+                or DEFAULT_PLANNING_SURFACES["events"]
+            )
+            normalized["owner_kind"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("owner_kind"),
+                    CANONICAL_OWNER_KINDS,
+                )
+                or AppResourceService._default_owner_kind(normalized)
+            )
+            normalized["delivery_mode"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("delivery_mode"),
+                    CANONICAL_DELIVERY_MODES,
+                )
+                or "none"
+            )
         elif domain == "notifications":
             metadata = normalized.get("metadata")
             normalized["metadata"] = deepcopy(metadata) if isinstance(metadata, dict) else {}
@@ -555,6 +632,27 @@ class AppResourceService:
             normalized.setdefault("enabled", True)
             for field in REMINDER_RUNTIME_FIELDS:
                 normalized.setdefault(field, None)
+            normalized["planning_surface"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("planning_surface"),
+                    CANONICAL_PLANNING_SURFACES,
+                )
+                or DEFAULT_PLANNING_SURFACES["reminders"]
+            )
+            normalized["owner_kind"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("owner_kind"),
+                    CANONICAL_OWNER_KINDS,
+                )
+                or AppResourceService._default_owner_kind(normalized)
+            )
+            normalized["delivery_mode"] = (
+                AppResourceService._coerce_optional_enum(
+                    normalized.get("delivery_mode"),
+                    CANONICAL_DELIVERY_MODES,
+                )
+                or "none"
+            )
         return normalized
 
     @staticmethod
@@ -591,7 +689,26 @@ class AppResourceService:
         normalized: dict[str, str | None] = {}
         for field in fields:
             if field in payload:
-                normalized[field] = cls._optional_string(payload.get(field), field)
+                if field == "planning_surface":
+                    normalized[field] = cls._optional_enum_string(
+                        payload.get(field),
+                        field,
+                        CANONICAL_PLANNING_SURFACES,
+                    )
+                elif field == "owner_kind":
+                    normalized[field] = cls._optional_enum_string(
+                        payload.get(field),
+                        field,
+                        CANONICAL_OWNER_KINDS,
+                    )
+                elif field == "delivery_mode":
+                    normalized[field] = cls._optional_enum_string(
+                        payload.get(field),
+                        field,
+                        CANONICAL_DELIVERY_MODES,
+                    )
+                else:
+                    normalized[field] = cls._optional_string(payload.get(field), field)
         return normalized
 
     @classmethod
@@ -608,9 +725,70 @@ class AppResourceService:
     @staticmethod
     def _enum_string(value: Any, field: str, allowed: set[str]) -> str:
         cleaned = AppResourceService._require_string(value, field)
-        if cleaned not in allowed:
+        normalized = cleaned.lower()
+        if normalized not in allowed:
             raise ResourceValidationError(f"{field} must be one of: {', '.join(sorted(allowed))}")
-        return cleaned
+        return normalized
+
+    @classmethod
+    def _optional_enum_string(
+        cls,
+        value: Any,
+        field: str,
+        allowed: set[str],
+    ) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ResourceValidationError(f"{field} must be a string or null")
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        normalized = cleaned.lower()
+        if normalized not in allowed:
+            raise ResourceValidationError(f"{field} must be one of: {', '.join(sorted(allowed))}")
+        return normalized
+
+    @staticmethod
+    def _coerce_optional_text(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @classmethod
+    def _coerce_optional_enum(
+        cls,
+        value: Any,
+        allowed: set[str],
+    ) -> str | None:
+        cleaned = cls._coerce_optional_text(value)
+        if cleaned is None:
+            return None
+        normalized = cleaned.lower()
+        if normalized not in allowed:
+            return None
+        return normalized
+
+    @classmethod
+    def _default_owner_kind(cls, payload: dict[str, Any]) -> str:
+        explicit = cls._coerce_optional_enum(
+            payload.get("owner_kind"),
+            CANONICAL_OWNER_KINDS,
+        )
+        if explicit is not None:
+            return explicit
+
+        for field in ("created_via", "source_channel"):
+            cleaned = cls._coerce_optional_text(payload.get(field))
+            if cleaned is None:
+                continue
+            normalized = cleaned.lower()
+            if normalized in {"agent", "assistant", "ai"}:
+                return "assistant"
+            if "agent" in normalized or "assistant" in normalized:
+                return "assistant"
+        return "user"
 
     @staticmethod
     def _default_sqlite_path(runtime_dir: Path) -> Path:

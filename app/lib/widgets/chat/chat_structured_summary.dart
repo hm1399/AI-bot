@@ -67,6 +67,24 @@ class ChatStructuredSummary extends StatelessWidget {
                       textColor: chrome.textSecondary,
                       backgroundColor: chrome.panel,
                     ),
+                  if (metadata.planningSurfaceLabel != null)
+                    _SummaryPill(
+                      label: metadata.planningSurfaceLabel!,
+                      textColor: chrome.textSecondary,
+                      backgroundColor: chrome.panel,
+                    ),
+                  if (metadata.ownerLabel != null)
+                    _SummaryPill(
+                      label: metadata.ownerLabel!,
+                      textColor: chrome.textSecondary,
+                      backgroundColor: chrome.panel,
+                    ),
+                  if (metadata.deliveryModeLabel != null)
+                    _SummaryPill(
+                      label: metadata.deliveryModeLabel!,
+                      textColor: chrome.textSecondary,
+                      backgroundColor: chrome.panel,
+                    ),
                   if (metadata.normalizedTime != null)
                     _SummaryPill(
                       label: metadata.normalizedTime!,
@@ -121,6 +139,9 @@ class ChatStructuredSummary extends StatelessWidget {
 
   bool get _hasMetadataTags =>
       metadata.resourceLabel != null ||
+      metadata.planningSurfaceLabel != null ||
+      metadata.ownerLabel != null ||
+      metadata.deliveryModeLabel != null ||
       metadata.normalizedTime != null ||
       metadata.conflictSummary != null;
 }
