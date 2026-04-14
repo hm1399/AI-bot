@@ -2,58 +2,188 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把当前 `session/messages` 与 `task/event/reminder/notification` 这些高频 JSON / JSONL 持久化热路径迁到 SQLite，在不改前端 UI/UX 和不改现有 API 口径的前提下，解决“整份重写、全量读取、提醒全表扫、列表每次重算”的性能与一致性问题。
+**Goal:** 把当前后端仍然落在 JSON / JSONL 的高频源数据与关键运行态对象分层迁到 SQLite，在不改前端 UI/UX、不改现有 HTTP / WebSocket 契约的前提下，解决“整份重写、全量扫描、派生摘要反复重算、运行态对象写入互相覆盖”的性能与一致性问题。
 
-**Architecture:** 继续保持现有 `aiohttp + AgentLoop + AppRuntimeService` 单进程主干，不上 Redis、不上 PostgreSQL、不上微服务，也不引入 SQLAlchemy/Alembic 这类大框架。存储层新增一个轻量 SQLite 基础设施，先用“双写 + 影子校验 + 分阶段切读”完成平滑迁移；对外 API、事件流、会话行为、提醒语义保持不变。
+**Architecture:** 不上 Redis / PostgreSQL / ORM，大体仍保持 `aiohttp + SessionManager + AppRuntimeService + ExperienceService + ComputerControlService + ReminderScheduler` 这一套本地单进程结构。存储层新增轻量 SQLite 基础设施，并按“源数据表 + 运行态文档表 + 双写影子校验 + 分域切读”的方式推进；派生摘要和设置文件先不激进迁库，但其上游输入、事件流和回退门禁必须纳入计划。
 
-**Tech Stack:** Python 3.9 `sqlite3` 标准库，SQLite 3.43.2，WAL 模式，`STRICT` tables，`PRAGMA user_version` 版本管理，现有 `aiohttp` / `SessionManager` / `AppResourceService` / `ReminderScheduler` / `AppRuntimeService`。
+**Tech Stack:** Python 3.9 `sqlite3` 标准库，SQLite 3.43.2，WAL 模式，`STRICT` tables，`PRAGMA user_version` 版本管理，现有 `aiohttp` / `SessionManager` / `AppResourceService` / `ReminderScheduler` / `ExperienceService` / `ComputerControlService` / Flutter App runtime/event-stream。
 
 ---
 
+## 本次计划更新
+
+- [x] 2026-04-14：重新调研前后端，补齐 `experience_state.json`、`computer_control_actions.json`、`app_settings.json` / `app_secrets.json`、`todo_summary.json` / `calendar_summary.json`、`planning.changed` / `todo.summary.changed` / `calendar.summary.changed` 以及 Flutter `Agenda / Tasks / Home / Control Center / Chat / Settings` 依赖面。
+
 ## 范围与约束
 
-- 本轮只迁热路径：
-  - `workspace/sessions/*.jsonl`
-  - `workspace/runtime/tasks.json`
-  - `workspace/runtime/events.json`
-  - `workspace/runtime/notifications.json`
-  - `workspace/runtime/reminders.json`
-- 本轮不迁冷路径：
-  - `app_settings.json`
-  - `app_secrets.json`
-  - `todo_summary.json`
-  - `calendar_summary.json`
-  - `MEMORY.md`
-  - `HISTORY.md`
+### 本计划的分层范围
+
+- **Layer A: 主线热路径，必须迁库**
+  - `server/workspace/sessions/*.jsonl`
+  - `server/workspace/runtime/tasks.json`
+  - `server/workspace/runtime/events.json`
+  - `server/workspace/runtime/reminders.json`
+  - `server/workspace/runtime/notifications.json`
+  - reminder 当前混在 reminder payload 里的 runtime 字段：`next_trigger_at / last_triggered_at / last_error / snoozed_until / completed_at / status`
+
+- **Layer B: 关键运行态对象，纳入同一轮计划，不再遗漏**
+  - `server/workspace/runtime/experience_state.json`
+  - `server/workspace/runtime/computer_control_actions.json`
+
+- **Layer C: 派生缓存与配置，不作为第一批 source-of-truth 迁移目标，但必须纳入兼容设计**
+  - `server/workspace/runtime/todo_summary.json`
+  - `server/workspace/runtime/calendar_summary.json`
+  - `server/workspace/runtime/app_settings.json`
+  - `server/workspace/runtime/app_secrets.json`
+
+- **Layer D: 明确保留文件形态，不在本计划内迁库**
+  - `server/workspace/memory/MEMORY.md`
+  - `server/workspace/memory/HISTORY.md`
+
+### 关键约束
+
 - 不改变前端页面结构，不顺手改 UI 风格。
-- 不改变现有 HTTP / WebSocket 契约，不让 Flutter 端因为换库而跟着改接口。
-- 不在第一阶段上搜索、统计、全文检索等“顺手增强”能力，先把读写和迁移稳定做完。
-- 执行阶段按仓库规则推进：先汇报改动文件，等你确认后再跑测试、git 提交、关闭 subagent。
+- 不改变现有 HTTP / WebSocket payload 口径，不让 Flutter 端为了换存储而被迫改接口。
+- 不把所有 JSON 一次性灭掉，而是按数据域拆分切换节奏。
+- `todo_summary.json` / `calendar_summary.json` 第一阶段继续作为派生缓存存在，但其上游输入必须改成走 SQLite 读取链路。
+- `app_settings.json` / `app_secrets.json` 第一阶段继续保持 JSON object store，原因是这两者不属于当前最热写路径，且 `app_secrets` 需要单独安全策略评审。
+- 执行阶段按仓库规则推进：先汇报修改文件，等你确认后再跑测试、再 git。
 
 ## 调研结论摘要
 
-### 本地代码侧结论
+### 后端现状
 
-- `SessionManager.save()` 现在每次会把 metadata 和全量消息重新写回一个 `.jsonl` 文件，消息越多，单次保存越重。
-- `AppRuntimeService` 会反复从 JSON 集合文件全量读 `tasks / events / reminders / notifications`，再在 Python 里排序、过滤、汇总。
-- `ReminderScheduler` 现在是固定间隔轮询，再把 reminders 全量扫一遍。
-- `AppRuntimeService._list_app_sessions()` 现在会先枚举 session，再把每个 session 整个读进来重算 `summary / last_message_at / message_count`。
-- `AgentLoop`、`AppRuntimeService`、`MemoryStore` 都依赖当前 session 的 append-only 语义、`last_consolidated` 语义和消息 metadata 完整透传。
+- `server/nanobot/session/manager.py`
+  - `SessionManager.save()` 每次都重写 metadata + 全量消息到单个 `.jsonl`。
+  - `list_sessions()` / `get()` / `_load()` 仍是文件级读写模型。
 
-### Web research 结论
+- `server/services/app_api/json_store.py`
+  - `JsonCollectionStore` / `JsonObjectStore` 都是“整份读 -> 内存改 -> 整份写回”。
+  - `tasks / events / notifications / reminders / app_settings / app_secrets / experience_state` 全都复用了这套模式。
 
-- SQLite 官方建议本地并发读写场景优先用 WAL；WAL 模式下读写互相阻塞更少。
-- `STRICT` tables 能更早发现脏数据类型，适合替换现在大量“静默吞错”的 JSON 读写。
-- `PRAGMA user_version` 适合做轻量 schema migration 门禁，不需要一开始就上 Alembic。
-- `PRAGMA quick_check`、`PRAGMA foreign_key_check` 适合放进导入校验门禁。
-- Python 标准库 `sqlite3` 已自带 `backup()`，够用来做 cutover 前快照和回滚备份。
+- `server/services/app_api/resource_service.py`
+  - `tasks / events / notifications / reminders` 目前还是 JSON collection store。
+  - reminder runtime 字段直接混在 reminder 主记录里。
+  - `notifications.metadata` 仍以 JSON 对象嵌套保存，linked id / source 字段只是写入 metadata，没有实体化索引。
+
+- `server/services/reminder_scheduler.py`
+  - `sync_all()` 和 `_process_due_reminders()` 都会把 `reminder_store.list_items()` 整份读出来再逐条判断。
+  - reminder 触发后要同时写 notification 和 reminder 状态，但当前没有真正的数据库事务边界。
+
+- `server/services/app_runtime.py`
+  - `_planning_inputs()` 直接读 `self.resources.task_store / event_store / reminder_store / notification_store` 的底层实现。
+  - `refresh_planning_state()` 会基于全量输入重算 overview / timeline / conflicts，再把 `todo_summary.json` 和 `calendar_summary.json` 整份重写。
+  - 运行态事件流依赖这些数据源持续广播：
+    - `task.*`
+    - `event.*`
+    - `notification.*`
+    - `reminder.*`
+    - `planning.changed`
+    - `todo.summary.changed`
+    - `calendar.summary.changed`
+
+- `server/services/experience/store.py`
+  - `experience_state.json` 是一个整对象存储。
+  - 包含 `runtime_override`、`last_interaction_result`、`interaction_history`、`interaction_throttle`、`daily_shake_state`。
+  - 这条链虽然不是海量数据，但每次交互、节流触发、shake 状态更新都可能整对象写回。
+
+- `server/services/computer_control/store.py`
+  - `computer_control_actions.json` 是一个整集合存储。
+  - `save()`、`list_recent()`、`list_pending()` 都依赖全量加载和排序。
+  - `trim` 逻辑还要求保留 pending action，不能只按时间粗暴截断。
+
+- `server/services/app_api/settings_service.py`
+  - `app_settings.json` 与 `app_secrets.json` 仍是 JsonObjectStore。
+  - 这条链会影响 bootstrap / settings 页面，但不属于当前最高频写路径。
+
+- `server/nanobot/agent/memory.py`
+  - 长期记忆仍写 `MEMORY.md` / `HISTORY.md`。
+  - 这条链不适合和本轮热路径迁库混做。
+
+### 当前磁盘实际情况
+
+- `server/workspace/runtime/` 当前已存在：
+  - `app_settings.json`
+  - `calendar_summary.json`
+  - `computer_control_actions.json`
+  - `events.json`
+  - `experience_state.json`
+  - `tasks.json`
+  - `todo_summary.json`
+- `notifications.json` 和 `reminders.json` 当前目录里没看到，但 `AppResourceService` 仍定义了这两个 store。
+- 结论：这两类文件是“逻辑上存在、运行时按需创建”的 lazy file，不应因为当前文件不存在就被计划漏掉。
+
+### 前端依赖面
+
+- `app/lib/models/connect/bootstrap_model.dart`
+  - bootstrap 已经解析 `planning`、`desktop_voice`、`computer_control`、`computer_actions`、`experience` 等能力位。
+
+- `app/lib/models/home/runtime_state_model.dart`
+  - runtime state 已经解析：
+    - 当前任务与任务队列
+    - 设备状态与语音 runtime
+    - `experience`
+    - `todo_summary`
+    - `calendar_summary`
+    - reminders runtime 视图
+
+- `app/lib/providers/app_providers.dart`
+  - 通过 WebSocket 消费并增量合并：
+    - `runtime.task.*`
+    - `task.*`
+    - `event.*`
+    - `notification.*`
+    - `reminder.*`
+    - `planning.changed`
+    - `todo.summary.changed`
+    - `calendar.summary.changed`
+    - `runtime.experience.updated`
+    - `computer.action.*`
+  - 也就是说，后端不只是要“存进去”，还要保证实时事件与 payload 形状稳定。
+
+- `app/lib/models/planning/planning_agenda_entry_model.dart`
+  - Agenda 不是单独一套后端存储，而是前端把 `tasks / events / reminders / planningTimeline` 再拼成 `PlanningAgendaDataset`。
+  - 只要 `task/event/reminder` 的字段或时序错了，`Agenda` 页面就会直接失真。
+
+- 直接受影响的前端页面：
+  - `app/lib/screens/agenda/agenda_screen.dart`
+  - `app/lib/screens/tasks/tasks_screen.dart`
+  - `app/lib/screens/home/home_screen.dart`
+  - `app/lib/screens/control_center/control_center_screen.dart`
+  - `app/lib/screens/chat/chat_screen.dart`
+  - `app/lib/services/settings/settings_service.dart`
+
+## 迁移目标与成功判据
+
+- 后端对外接口保持兼容：
+  - `GET/POST/PATCH/DELETE /api/app/v1/tasks`
+  - `GET/POST/PATCH/DELETE /api/app/v1/events`
+  - `GET/PATCH/DELETE /api/app/v1/notifications`
+  - `GET/POST/PATCH/DELETE /api/app/v1/reminders`
+  - `GET /api/app/v1/runtime/state`
+  - `GET /api/app/v1/bootstrap`
+  - WebSocket `event_type` 与 payload 结构
+
+- 热路径切到 SQLite 后，下面这些行为不能退化：
+  - session list 不再整会话重读，但 `summary / last_message_at / message_count` 结果与当前一致。
+  - reminder 不重复触发、不漏触发，`snoozed_until / completed_at / overdue` 语义保持不变。
+  - `todo_summary` / `calendar_summary` 仍然会随着 task / event / reminder 变化实时刷新。
+  - Control Center 的 recent / pending computer actions 保持排序与 pending 保留语义。
+  - Experience runtime state 的 `runtime_override / last_interaction_result / interaction_history / daily_shake_state` 不丢字段。
+
+- 切库上线门禁：
+  - 导入计数一致。
+  - `PRAGMA quick_check` 通过。
+  - `PRAGMA foreign_key_check` 通过。
+  - dual 模式 shadow diff 为 0。
+  - 关键 API 响应与关键事件流 payload 对比通过。
 
 ## 存储设计
 
-### 数据库文件与基础策略
+### SQLite 文件与基础策略
 
 - 主库路径：`server/workspace/state.sqlite3`
-- 保留 SQLite sidecar：`state.sqlite3-wal`、`state.sqlite3-shm`
+- sidecar：`state.sqlite3-wal`、`state.sqlite3-shm`
 - 连接初始化统一执行：
   - `PRAGMA journal_mode=WAL;`
   - `PRAGMA foreign_keys=ON;`
@@ -63,11 +193,11 @@
 - schema 版本由 `PRAGMA user_version` 管理。
 - cutover 前用 `sqlite3.backup()` 生成 `state.sqlite3.bak`。
 
-### Session 数据拆分
+### 表设计总览
 
 #### `sessions`
 
-- 作用：只放会话级元数据和列表页热字段，避免“列会话列表时再翻整本聊天记录”。
+- 作用：会话列表热字段。
 - 推荐字段：
   - `session_id TEXT PRIMARY KEY`
   - `channel TEXT NOT NULL`
@@ -85,7 +215,7 @@
 
 #### `session_messages`
 
-- 作用：保存真实消息流，按 session 内顺序查询，不再整份读写。
+- 作用：真实消息流，不再整份重写。
 - 推荐字段：
   - `id INTEGER PRIMARY KEY AUTOINCREMENT`
   - `session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE`
@@ -106,15 +236,6 @@
   - `UNIQUE(session_id, message_seq)`
   - `INDEX(session_id, created_at DESC)`
   - `INDEX(session_id, message_id)`
-
-#### Session 设计要点
-
-- `raw_json` 保留完整消息，避免丢 `tool_calls`、`tool_call_id`、`tool_results`、`name` 这类 AgentLoop 真实依赖字段。
-- 同时把列表页和分页热字段单独拉平，避免每次反序列化整条消息 JSON。
-- `last_consolidated` 不再只靠 Python list index，内部改成 `last_consolidated_seq`；对旧 `Session` 接口继续兼容当前语义。
-- `summary_preview`、`last_message_at`、`message_count` 在写入事务里同步更新，列表页不再重扫。
-
-### Runtime 资源拆分
 
 #### `tasks`
 
@@ -144,14 +265,23 @@
 
 #### `events`
 
-- 保留当前公开字段与 planning metadata。
+- 保留当前公开字段与 planning metadata：
+  - `event_id`
+  - `title`
+  - `start_at`
+  - `end_at`
+  - `description`
+  - `location`
+  - 同一套 planning metadata
+  - `created_at`
+  - `updated_at`
 - 索引：
   - `(start_at, end_at)`
   - `(updated_at DESC)`
 
 #### `notifications`
 
-- 保留显式字段：
+- 推荐字段：
   - `notification_id`
   - `type`
   - `priority`
@@ -168,16 +298,16 @@
   - `interaction_surface`
   - `capture_source`
   - `voice_path`
+  - `metadata_json`
   - `created_at`
   - `updated_at`
-  - `metadata_json`
-- 索引：
-  - `(read, updated_at DESC)`
-  - `(reminder_id)`
+- 设计要点：
+  - 继续兼容 `metadata` 返回格式。
+  - 但 linked id / source 字段必须实体化列，避免每次都解整个 metadata JSON。
 
 #### `reminders`
 
-- 放相对静态字段：
+- 放静态字段：
   - `reminder_id`
   - `title`
   - `message`
@@ -203,84 +333,126 @@
   - `(status, next_trigger_at)`
   - `(snoozed_until)`
 
-#### Runtime 设计要点
+#### `computer_actions`
 
-- `task / event / notification / reminder` 继续维持现有 payload 口径，不让 `AppResourceService` 的 public API 大改。
-- `notifications.metadata` 仍保留 JSON 文本，但 linked id 和 source 字段必须拉平成列，避免每次读都解 JSON。
-- reminder 拆成“静态定义”和“运行状态”两张表，避免每次触发/贪睡都重写整条 reminder。
+- 作用：承接 `computer_control_actions.json` 的 recent / pending 查询。
+- 推荐字段：
+  - `action_id TEXT PRIMARY KEY`
+  - `kind TEXT NOT NULL`
+  - `status TEXT NOT NULL`
+  - `risk_level TEXT NOT NULL`
+  - `requires_confirmation INTEGER NOT NULL`
+  - `requested_via TEXT NOT NULL`
+  - `source_session_id TEXT`
+  - `summary TEXT`
+  - `confirmed_at TEXT`
+  - `created_at TEXT NOT NULL`
+  - `updated_at TEXT NOT NULL`
+  - `payload_json TEXT NOT NULL`
+- 索引：
+  - `(status, updated_at DESC)`
+  - `(updated_at DESC)`
 
-### 第一阶段继续保留 JSON 的内容
+#### `runtime_documents`
 
-- `app_settings.json`
-- `app_secrets.json`
-- `todo_summary.json`
-- `calendar_summary.json`
-- `MEMORY.md`
-- `HISTORY.md`
+- 作用：承接对象型运行态，不强行过度表结构化。
+- 推荐字段：
+  - `namespace TEXT PRIMARY KEY`
+  - `payload_json TEXT NOT NULL`
+  - `updated_at TEXT NOT NULL`
+- 第一批 namespace：
+  - `experience_state`
+- 预留但第一阶段不启用的 namespace：
+  - `todo_summary`
+  - `calendar_summary`
+  - `app_settings_overlay`
+  - `app_secrets`
 
-原因：
+#### `import_manifest`
 
-- 这些不是当前最热的写路径。
-- 先把最重的会话和 planning 资源迁完，收益最大，风险也最容易控。
-- summary 文件目前继续作为派生缓存保留，先不在本轮把所有派生逻辑 SQL 化。
+- 记录：
+  - `schema_version`
+  - `domain`
+  - `source_path`
+  - `source_mtime`
+  - `source_checksum`
+  - `source_count`
+  - `imported_count`
+  - `imported_at`
+
+### 服务边界调整
+
+- `SessionManager` 保持 public API 不变，但内部改为 `json | dual | sqlite` 可切换 backend。
+- `AppResourceService` 不能再让 `AppRuntimeService` 直接摸 `task_store / event_store / reminder_store / notification_store` 这种具体实现。
+  - 需要新增明确的 store-agnostic 读取接口，例如：
+    - `list_task_items()`
+    - `list_event_items()`
+    - `list_reminder_items()`
+    - `list_notification_items()`
+    - 或 `planning_inputs()`
+- `ExperienceStore` 保持现有方法签名，后端实现从 JsonObjectStore 切成 SQLite document store。
+- `ComputerActionStore` 保持 `save / get / list_recent / list_pending` 语义不变，底层切到 SQLite。
+- `todo_summary.json` / `calendar_summary.json` 第一阶段仍由 `AppRuntimeService` 写文件，但输入源统一改成新的 store-agnostic 接口。
 
 ## 迁移策略
 
-### 总体切换策略
+### 分域切换，而不是一个总开关
 
-- 默认先加双配置，而不是“一步到位切主”：
-  - `session_storage_mode = json | dual | sqlite`
-  - `resource_storage_mode = json | dual | sqlite`
+- `session_storage_mode = json | dual | sqlite`
+- `planning_storage_mode = json | dual | sqlite`
+- `experience_storage_mode = json | dual | sqlite`
+- `computer_action_storage_mode = json | dual | sqlite`
+
+原因：
+
+- session 与 planning 是最高风险主线，必须先收敛。
+- experience / computer action 虽然也该纳入计划，但它们的切换节奏不应该和 session 完全绑死。
+- settings / secrets 暂不加入这一组切换开关。
+
+### 导入源
+
+- session：
+  - `server/workspace/sessions/*.jsonl`
+  - `~/.nanobot/sessions/*.jsonl`
+- planning resources：
+  - `server/workspace/runtime/tasks.json`
+  - `server/workspace/runtime/events.json`
+  - `server/workspace/runtime/reminders.json`
+  - `server/workspace/runtime/notifications.json`
+- operational runtime：
+  - `server/workspace/runtime/experience_state.json`
+  - `server/workspace/runtime/computer_control_actions.json`
+
+### 导入方式
+
+1. 建临时库 `state.sqlite3.tmp`
+2. 导入各 domain 数据
+3. 写 `import_manifest`
+4. 跑 `quick_check`、`foreign_key_check`、计数对账
+5. 校验通过后原子替换正式库
+
+### Dual 模式策略
+
 - 第一阶段：
   - 读继续走 JSON / JSONL
   - 写变成 `JSON primary + SQLite shadow`
 - 第二阶段：
-  - 切成 `SQLite primary + JSON shadow`
+  - 先切 `planning` / `session` 到 `SQLite primary + JSON shadow`
+  - `experience` / `computer_action` 单独按域切换
 - 第三阶段：
-  - 稳定后关掉 JSON shadow，只保留 SQLite
-
-### 导入策略
-
-- 会话导入源：
-  - `server/workspace/sessions/*.jsonl`
-  - `~/.nanobot/sessions/*.jsonl`
-- runtime 导入源：
-  - `server/workspace/runtime/tasks.json`
-  - `server/workspace/runtime/events.json`
-  - `server/workspace/runtime/notifications.json`
-  - `server/workspace/runtime/reminders.json`
-- 导入过程：
-  1. 先建临时库 `state.sqlite3.tmp`
-  2. 导入全部源数据
-  3. 写入 `import_manifest`
-  4. 运行计数校验、字段校验、`quick_check`、`foreign_key_check`
-  5. 全部通过后原子替换为正式库
-
-### 导入门禁
-
-- 不能只用 `list_sessions()` 做源扫描，因为它会跳过坏 JSONL。
-- 对坏源文件，本轮迁移门禁建议 fail-closed：
-  - 校验不过就不切读
-  - 不允许“静默吞掉坏数据后继续切库”
-- manifest 最少记录：
-  - schema 版本
-  - 源文件路径
-  - 文件计数
-  - mtime / checksum
-  - 导入时间
-  - 导入记录数
+  - shadow diff 稳定为 0 后关闭 JSON shadow
 
 ### 回退策略
 
-- 切到 `sqlite primary` 后，稳定期内继续保留 JSON shadow 写。
+- 切换期间保留 JSON shadow 写。
 - 回退只切配置，不重新导入。
-- cutover 前保留 `state.sqlite3.bak`。
-- 执行期遇到以下任一情况立即回退到 JSON primary：
-  - shadow diff 不为 0
-  - reminder 重复触发
-  - 会话分页 cursor 异常
-  - `last_consolidated` 偏移
+- 任一 domain 出现以下问题立即回退该 domain：
+  - shadow diff 非 0
+  - reminder 重复触发 / 漏触发
+  - session 分页 cursor 异常
   - session metadata 丢失
+  - `runtime.experience.updated` payload 丢字段
+  - computer action recent / pending 排序错乱
 
 ## 文件落点总览
 
@@ -288,13 +460,18 @@
 
 - `server/nanobot/storage/sqlite_db.py`
 - `server/nanobot/storage/migrations.py`
+- `server/nanobot/storage/sqlite_documents.py`
 - `server/nanobot/session/sqlite_backend.py`
 - `server/nanobot/session/jsonl_importer.py`
 - `server/services/app_api/sqlite_store.py`
 - `server/services/app_api/json_importer.py`
+- `server/services/computer_control/sqlite_store.py`
+- `server/services/experience/sqlite_store.py`
 - `server/tests/test_session_sqlite_backend.py`
 - `server/tests/test_runtime_sqlite_store.py`
 - `server/tests/test_storage_migration.py`
+- `server/tests/test_experience_store_sqlite.py`
+- `server/tests/test_computer_control_sqlite_store.py`
 
 ### 修改
 
@@ -304,12 +481,30 @@
 - `server/nanobot/agent/memory.py`
 - `server/services/app_runtime.py`
 - `server/services/app_api/resource_service.py`
+- `server/services/app_api/settings_service.py`
 - `server/services/reminder_scheduler.py`
+- `server/services/experience/store.py`
+- `server/services/experience/service.py`
+- `server/services/computer_control/store.py`
+- `server/services/computer_control/service.py`
 - `server/tests/test_session_manager_atomic.py`
 - `server/tests/test_app_api_services.py`
 - `server/tests/test_app_runtime.py`
 - `server/tests/test_reminder_scheduler.py`
-- `功能讨论区/TODO/todo.md`
+- `server/tests/test_experience_service.py`
+- `server/tests/test_computer_control_service.py`
+
+### 只做兼容验证，不预期修改
+
+- `app/lib/models/connect/bootstrap_model.dart`
+- `app/lib/models/home/runtime_state_model.dart`
+- `app/lib/models/planning/planning_agenda_entry_model.dart`
+- `app/lib/providers/app_providers.dart`
+- `app/lib/screens/agenda/agenda_screen.dart`
+- `app/lib/screens/tasks/tasks_screen.dart`
+- `app/lib/screens/control_center/control_center_screen.dart`
+- `app/lib/services/home/runtime_service.dart`
+- `app/lib/services/settings/settings_service.dart`
 
 ## Subagent 分工建议
 
@@ -319,54 +514,92 @@
   - `server/nanobot/storage/*`
   - `server/nanobot/session/*`
   - `server/tests/test_session_*`
+  - `server/tests/test_storage_migration.py`
 - 目标：
-  - 建库、schema、migrations、JSONL importer、Session SQLite backend、session 原子事务。
+  - 建库、schema、migration runner、JSONL importer、Session SQLite backend。
 
-### Worker B: Runtime Resource SQLite Store
+### Worker B: Planning Resource Store 与 Reminder Runtime
 
 - 负责文件：
   - `server/services/app_api/sqlite_store.py`
   - `server/services/app_api/json_importer.py`
   - `server/services/app_api/resource_service.py`
+  - `server/services/reminder_scheduler.py`
   - `server/tests/test_runtime_sqlite_store.py`
   - `server/tests/test_app_api_services.py`
-- 目标：
-  - 把 `tasks / events / notifications / reminders` 的 CRUD 换成 SQLite 后端，并保留 payload 口径。
-
-### Worker C: Reminder Scheduler 与事务语义
-
-- 负责文件：
-  - `server/services/reminder_scheduler.py`
   - `server/tests/test_reminder_scheduler.py`
 - 目标：
-  - 把 reminder runtime 独立成热表，改成索引查找到期项，保证提醒投递与状态更新在同一事务边界内。
+  - `tasks / events / notifications / reminders / reminder_runtime` 切库。
 
-### Main Thread: 集成与切读门禁
+### Worker C: Experience / Computer Control 运行态存储
+
+- 负责文件：
+  - `server/nanobot/storage/sqlite_documents.py`
+  - `server/services/experience/store.py`
+  - `server/services/experience/service.py`
+  - `server/services/experience/sqlite_store.py`
+  - `server/services/computer_control/store.py`
+  - `server/services/computer_control/service.py`
+  - `server/services/computer_control/sqlite_store.py`
+  - `server/tests/test_experience_service.py`
+  - `server/tests/test_experience_store_sqlite.py`
+  - `server/tests/test_computer_control_service.py`
+  - `server/tests/test_computer_control_sqlite_store.py`
+- 目标：
+  - 让 `experience_state` 与 `computer_control_actions` 也进入 SQLite 主线。
+
+### Main Thread: AppRuntime 集成、契约门禁与切读
 
 - 负责文件：
   - `server/bootstrap.py`
   - `server/services/app_runtime.py`
   - `server/nanobot/agent/loop.py`
   - `server/nanobot/agent/memory.py`
+  - `server/services/app_api/settings_service.py`
   - `server/tests/test_app_runtime.py`
   - `server/tests/test_storage_migration.py`
 - 目标：
-  - 接存储模式配置、双写逻辑、AppRuntime 集成、分页与 session list 切读、导入/回退门禁。
+  - 统一切换开关、AppRuntime 读路径、summary 刷新、事件流兼容、bootstrap/runtime 契约门禁。
+
+### 并行冲突控制
+
+- `server/services/app_runtime.py` 只允许 Main Thread 改，避免和 Worker B / Worker C 冲突。
+- `server/services/app_api/resource_service.py` 只允许 Worker B 改。
+- `server/services/experience/service.py` 与 `server/services/computer_control/service.py` 只允许 Worker C 改。
+- Subagent 不得互相回滚他人改动；发现冲突时只做兼容调整并汇报。
 
 ## 实施任务
 
-### Task 1: 搭 SQLite 基础设施与迁移门禁
+### Task 0: 补齐最新数据链路调研
+
+**Files:**
+- Verify: `server/nanobot/session/manager.py`
+- Verify: `server/services/app_api/resource_service.py`
+- Verify: `server/services/app_runtime.py`
+- Verify: `server/services/reminder_scheduler.py`
+- Verify: `server/services/experience/store.py`
+- Verify: `server/services/computer_control/store.py`
+- Verify: `server/services/app_api/settings_service.py`
+- Verify: `app/lib/models/home/runtime_state_model.dart`
+- Verify: `app/lib/models/connect/bootstrap_model.dart`
+- Verify: `app/lib/models/planning/planning_agenda_entry_model.dart`
+- Verify: `app/lib/providers/app_providers.dart`
+
+- [x] 确认旧计划遗漏了 `experience_state.json`、`computer_control_actions.json`、summary cache、settings object store 与前端 Agenda / runtime / bootstrap 依赖面。
+
+### Task 1: 搭 SQLite 基础设施与 schema migration 门禁
 
 **Files:**
 - Create: `server/nanobot/storage/sqlite_db.py`
 - Create: `server/nanobot/storage/migrations.py`
+- Create: `server/nanobot/storage/sqlite_documents.py`
 - Modify: `server/bootstrap.py`
 - Test: `server/tests/test_storage_migration.py`
 
-- [ ] 定义统一连接工厂，集中配置 WAL、`foreign_keys`、`busy_timeout`、`user_version`。
-- [ ] 建立 schema bootstrap 和 migration runner，不引入 ORM。
-- [ ] 新增存储模式配置，默认保持 `json`，不改变当前运行行为。
-- [ ] 新增 import manifest、数据库备份、校验 helper。
+- [x] 定义统一连接工厂，集中配置 WAL、`foreign_keys`、`busy_timeout`、`user_version`。
+- [x] 建立 schema bootstrap 和 migration runner，不引入 ORM。
+- [x] 新增 import manifest、数据库备份、shadow diff 统计与校验 helper。
+- [x] 配置层增加分域存储模式开关，默认仍保持 `json`，不改现有行为。
 
 ### Task 2: 实现 Session SQLite Backend 与 JSONL Importer
 
@@ -377,88 +610,128 @@
 - Test: `server/tests/test_session_sqlite_backend.py`
 - Test: `server/tests/test_session_manager_atomic.py`
 
-- [ ] 设计 `sessions`、`session_messages` 表和必要索引。
-- [ ] 实现从 metadata-first JSONL 与 legacy `~/.nanobot/sessions` 导入的逻辑。
-- [ ] 保留 `SessionManager` 公共接口不变，先接入 `json -> dual -> sqlite` 三种模式。
-- [ ] 保证 `raw_json`、`tool_results`、`message_id`、`last_consolidated` 语义不丢。
-- [ ] 补导入一致性、写失败回滚、legacy 路径兼容测试。
+- [x] 设计 `sessions`、`session_messages` 表与索引。
+- [x] 实现从 workspace + legacy `~/.nanobot/sessions` 导入。
+- [x] 保留 `SessionManager` 公共接口不变，先接 `json -> dual -> sqlite` 三种模式。
+- [x] 保证 `raw_json`、`tool_results`、`message_id`、`last_consolidated` 语义不丢。
+- [x] 补导入一致性、写失败回滚、legacy 路径兼容测试。
 
-### Task 3: 切 Session 写热路径，再切读热路径
-
-**Files:**
-- Modify: `server/nanobot/agent/loop.py`
-- Modify: `server/nanobot/agent/memory.py`
-- Modify: `server/services/app_runtime.py`
-- Modify: `server/nanobot/session/manager.py`
-- Test: `server/tests/test_app_runtime.py`
-- Test: `server/tests/test_agent_loop.py`
-
-- [ ] 把“每轮消息保存”改成事务化 append，而不是全量重写。
-- [ ] 写入事务里同步更新 `message_count`、`last_message_at`、`summary_preview`。
-- [ ] 用 SQL 支撑 session list、session get、message pagination，避免整会话重读。
-- [ ] 把 `last_consolidated` 内部改成更稳定的 seq 语义，同时对现有上层接口保持兼容。
-- [ ] 补分页、metadata 回读、memory consolidation off-by-one 回归测试。
-
-### Task 4: 实现 Runtime Resource SQLite Store
+### Task 3: 实现 Planning Resource SQLite Store，并切掉 AppRuntime 对底层 JSON store 的硬耦合
 
 **Files:**
 - Create: `server/services/app_api/sqlite_store.py`
 - Create: `server/services/app_api/json_importer.py`
 - Modify: `server/services/app_api/resource_service.py`
+- Modify: `server/services/app_runtime.py`
 - Test: `server/tests/test_runtime_sqlite_store.py`
 - Test: `server/tests/test_app_api_services.py`
+- Test: `server/tests/test_app_runtime.py`
 
-- [ ] 设计 `tasks`、`events`、`notifications`、`reminders`、`reminder_runtime` 表。
-- [ ] 保留 `AppResourceService` 现有 public API 与返回 payload。
-- [ ] 从旧 JSON payload 导入时兼容 `{\"items\": [...]}` 和裸数组两种格式。
-- [ ] 在 dual 模式下做 JSON primary + SQLite shadow，并记录 mismatch。
-- [ ] 补 CRUD、一致性、shadow failure、notification alias 保留测试。
+- [x] 设计 `tasks`、`events`、`notifications`、`reminders`、`reminder_runtime` 表。
+- [x] 保留 `AppResourceService` 现有 public API 与返回 payload。
+- [x] 增加 store-agnostic planning input 接口，禁止 `AppRuntimeService` 继续直摸 `task_store / event_store / reminder_store / notification_store`。
+- [x] 导入时兼容 `{\"items\": [...]}` 与裸数组两种 JSON 格式。
+- [x] dual 模式下做 `JSON primary + SQLite shadow` 并记录 mismatch。
 
-### Task 5: 重做 Reminder 热路径与调度查询
+### Task 4: 重做 Reminder 热路径、派生摘要输入与事务边界
 
 **Files:**
 - Modify: `server/services/reminder_scheduler.py`
+- Modify: `server/services/app_runtime.py`
 - Modify: `server/services/app_api/resource_service.py`
 - Test: `server/tests/test_reminder_scheduler.py`
-- Test: `server/tests/test_storage_migration.py`
-
-- [ ] 把 reminder 的静态定义与 runtime 状态拆开存。
-- [ ] 把“每轮全表扫描”改成“按索引查到期且启用的 reminder”。
-- [ ] 保证 `create_notification + reminder status update` 同事务完成。
-- [ ] 保持现有语义不变：`snoozed_until` 优先、`once` 触发后仍可回到 `overdue`、重复 reminder 正确重排期。
-- [ ] 补重启去重、snooze/completed 状态保留、重复触发保护测试。
-
-### Task 6: 集成 Planning 读取与切读门禁
-
-**Files:**
-- Modify: `server/services/app_runtime.py`
-- Modify: `server/bootstrap.py`
-- Modify: `server/services/app_api/resource_service.py`
 - Test: `server/tests/test_app_runtime.py`
 - Test: `server/tests/test_storage_migration.py`
 
-- [ ] 让 `planning overview / timeline / conflicts` 的输入改从 SQLite 读。
-- [ ] `todo_summary.json`、`calendar_summary.json` 暂时继续保留为派生缓存，不在本轮推翻。
-- [ ] 先上线 dual 模式，观察 shadow diff 为 0 后再切 `sqlite primary`。
-- [ ] 切库门禁至少覆盖：导入计数一致、`quick_check` 通过、`foreign_key_check` 通过、关键 API 对比通过。
-- [ ] 保留 JSON shadow 直到稳定期结束，确保一键回退。
+- [x] 把 reminder 的静态定义与 runtime 状态拆表。
+- [x] 把“每轮全表扫描 reminders.json”改成“按索引查到期 reminder_runtime”。
+- [x] 保证 `create_notification + reminder status update` 在同一事务边界内完成。
+- [x] `refresh_planning_state()` 的输入改走新的 planning store 接口。
+- [x] `todo_summary.json` / `calendar_summary.json` 第一阶段继续写文件，但上游数据改为从 SQLite 读取。
+- [x] 补 `snoozed_until / completed_at / overdue / repeat` 回归测试。
 
-### Task 7: 收尾、观测与清理
+### Task 5: 切 Session 读写热路径，并修正列表 / 分页 / consolidation 语义
+
+**Files:**
+- Modify: `server/nanobot/agent/loop.py`
+- Modify: `server/nanobot/agent/memory.py`
+- Modify: `server/nanobot/session/manager.py`
+- Modify: `server/services/app_runtime.py`
+- Test: `server/tests/test_app_runtime.py`
+- Test: `server/tests/test_session_sqlite_backend.py`
+
+- [x] 把“每轮消息保存”改成事务化 append，不再整份重写。
+- [x] 写入事务中同步维护 `message_count`、`last_message_at`、`summary_preview`。
+- [x] 用 SQL 支撑 session list、session get、message pagination，避免整会话重读。
+- [x] 把 `last_consolidated` 内部改成稳定的 seq 语义，并保持上层接口兼容。
+- [x] 补分页 cursor、metadata 回读、memory consolidation off-by-one 回归测试。
+
+### Task 6: 把 `computer_control_actions.json` 切到 SQLite
+
+**Files:**
+- Create: `server/services/computer_control/sqlite_store.py`
+- Modify: `server/services/computer_control/store.py`
+- Modify: `server/services/computer_control/service.py`
+- Test: `server/tests/test_computer_control_sqlite_store.py`
+- Test: `server/tests/test_computer_control_service.py`
+- Test: `server/tests/test_app_runtime.py`
+
+- [x] 用 `computer_actions` 表承接 recent / pending / get / trim 语义。
+- [x] 保持 `save / get / list_recent / list_pending` 方法签名不变。
+- [x] 保证 pending action 不会因为 trim 被误删。
+- [x] 保持 `computer.action.*` 事件 payload 不变。
+- [x] 补 recent 排序、pending 保留、awaiting confirmation 状态测试。
+
+### Task 7: 把 `experience_state.json` 切到 SQLite document store
+
+**Files:**
+- Create: `server/services/experience/sqlite_store.py`
+- Modify: `server/services/experience/store.py`
+- Modify: `server/services/experience/service.py`
+- Test: `server/tests/test_experience_store_sqlite.py`
+- Test: `server/tests/test_experience_service.py`
+- Test: `server/tests/test_app_runtime.py`
+
+- [x] 用 `runtime_documents(namespace='experience_state')` 承接 ExperienceStore 当前整对象语义。
+- [x] 保持 `runtime_override / last_interaction_result / interaction_history / interaction_throttle / daily_shake_state` 的现有读写接口。
+- [x] 不在这一轮强行把 experience 对象拆成很多张表，先保住兼容与原子性。
+- [x] 保持 `runtime.experience.updated` payload 结构不变。
+- [x] 补 interaction history 截断、节流时间戳、daily shake reset/record 测试。
+
+### Task 8: 切读门禁、前端契约校验与观测
 
 **Files:**
 - Modify: `server/bootstrap.py`
 - Modify: `server/services/app_runtime.py`
-- Modify: `功能讨论区/TODO/todo.md`
+- Modify: `server/services/app_api/settings_service.py`
+- Test: `server/tests/test_app_runtime.py`
+- Test: `server/tests/test_storage_migration.py`
+- Verify: `app/lib/models/connect/bootstrap_model.dart`
+- Verify: `app/lib/models/home/runtime_state_model.dart`
+- Verify: `app/lib/models/planning/planning_agenda_entry_model.dart`
+- Verify: `app/lib/providers/app_providers.dart`
 
-- [ ] 增加最小观测：当前存储模式、shadow failure 计数、mismatch 计数、导入时间、schema version。
-- [ ] 明确稳定期结束条件，再决定是否移除 JSON shadow。
-- [ ] 只在稳定后再考虑移除旧 JSON / JSONL 写路径，不在第一轮就删干净。
-- [ ] 把执行中确认完成的任务改成 `- [x]`。
+- [x] 让 bootstrap / runtime state / WebSocket 继续输出相同 payload。
+- [x] 增加最小观测：当前 schema version、各 domain storage mode、shadow failure 计数、mismatch 计数、最近导入时间。
+- [ ] 切库门禁至少覆盖：导入计数一致、`quick_check`、`foreign_key_check`、关键 API diff、关键事件 diff。
+- [ ] 明确 Agenda / Tasks / Home / Control Center 的手工验收清单。
+- [ ] 稳定期结束前保留 JSON shadow，确保一键回退。
+
+### Task 9: Settings / Secrets / Summary cache 的后续决策门
+
+**Files:**
+- Modify: `server/services/app_api/settings_service.py`
+- Modify: `server/services/app_runtime.py`
+- Modify: `功能讨论区/TODO/2026-04-11-JSON与JSONL热路径迁移到SQLite实施计划.md`
+
+- [ ] P1 稳定后再决定是否把 `app_settings.json` 迁到 `runtime_documents`。
+- [ ] `app_secrets.json` 是否迁库，必须先出单独安全方案；未评审前不动。
+- [ ] `todo_summary.json` / `calendar_summary.json` 是否彻底去文件化，等 planning query 稳定后再决定。
 
 ## 验证策略
 
-- 当前这轮只写计划，不跑测试。
-- 真正执行时，先等你确认代码文件，再跑下面这些验证：
+- 当前这轮只更新计划，不跑测试。
+- 真正执行时，等你确认代码文件后再跑下面这些验证：
 
 ```bash
 cd /Users/mandy/Documents/GitHub/AI-bot/server
@@ -468,26 +741,36 @@ python3 -m unittest \
   tests.test_app_api_services \
   tests.test_runtime_sqlite_store \
   tests.test_reminder_scheduler \
+  tests.test_computer_control_service \
+  tests.test_computer_control_sqlite_store \
+  tests.test_experience_service \
+  tests.test_experience_store_sqlite \
   tests.test_app_runtime \
   tests.test_storage_migration
 ```
 
 - 手工验收重点：
-  - session list 的 `summary / last_message_at / message_count` 是否与旧行为一致
-  - `before / after` 分页是否稳定
-  - `tool_results`、`source_channel`、`capture_source`、`app_session_id` 是否完整保留
-  - reminder 是否会重复触发、漏触发、snooze 状态丢失
-  - `JSON primary + SQLite shadow` 和 `SQLite primary + JSON shadow` 两个阶段都能正常回退
+  - session list 的 `summary / last_message_at / message_count` 是否与旧行为一致。
+  - `before / after` 分页是否稳定。
+  - `tool_results`、`source_channel`、`capture_source`、`app_session_id` 是否完整保留。
+  - reminder 是否会重复触发、漏触发、snooze 状态丢失。
+  - `planning.changed`、`todo.summary.changed`、`calendar.summary.changed` 是否仍会驱动前端实时刷新。
+  - Agenda 页面是否仍能从 `tasks / events / reminders / planningTimeline` 拼出一致数据。
+  - Control Center 的 recent / pending computer actions 是否仍正确。
+  - experience runtime 的 `last_interaction_result` 与 `daily_shake_state` 是否仍正确。
 
 ## 风险清单
 
-- 最大风险不是“SQLite 不够快”，而是迁移过程把现有语义搞丢，尤其是：
+- 最大风险不是 SQLite 本身，而是迁移时把“前端依赖的现有语义”弄丢，重点包括：
   - `last_consolidated`
   - session 分页 cursor
-  - session metadata
-  - reminder 去重与重排期
-  - notification metadata alias
-- 所以这次计划刻意不追求“把所有 JSON 一次性灭掉”，而是先把热路径迁稳，再看冷路径值不值得继续迁。
+  - reminder 触发与重排期
+  - summary cache 刷新节奏
+  - `runtime.experience.updated` payload
+  - `computer.action.*` recent / pending 语义
+  - Agenda 对 `task / event / reminder` 时间字段的隐式依赖
+
+- 所以这次计划不再写成“只迁 tasks/events/reminders/notifications 就算完”，而是把 source-of-truth、运行态对象、派生缓存、事件流与前端依赖面一起收进迁移边界。
 
 ## 执行建议
 
@@ -499,10 +782,13 @@ python3 -m unittest \
   5. Task 5
   6. Task 6
   7. Task 7
+  8. Task 8
+  9. Task 9
+
 - 推荐并行方式：
-  - Worker A 与 Worker B 可以先并行做各自新 backend 和测试
-  - Main Thread 最后集中接 `app_runtime.py`、`bootstrap.py`、`loop.py`
-  - ReminderScheduler 等到 runtime store 落稳后再接，避免三方同时改调度语义
+  - Worker A 与 Worker B 先并行做基础设施和 planning store。
+  - Worker C 在 A 的 `sqlite_documents.py` 基础设施落地后再接 experience / computer control。
+  - Main Thread 最后集中接 `app_runtime.py`、`bootstrap.py`、切读门禁与回退逻辑。
 
 ## 参考资料
 

@@ -519,6 +519,9 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("physical_interaction", runtime["experience"])
 
     async def test_patch_session_updates_persisted_experience_overrides(self) -> None:
+        bootstrap = await self.service.handle_bootstrap(FakeRequest(headers=self.headers))
+        self.assertEqual(bootstrap.status, 200)
+
         patched = await self.service.handle_patch_session(
             FakeRequest(
                 headers=self.headers,

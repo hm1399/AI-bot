@@ -29,130 +29,172 @@ class _Observer:
 
 
 class ReminderSchedulerTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self) -> None:
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.resources = AppResourceService(Path(self.tmpdir.name))
-        self.now = datetime(2026, 4, 9, 9, 0, tzinfo=timezone.utc)
-        self.observer = _Observer()
-        self.scheduler = ReminderScheduler(
-            self.resources,
-            event_observer=self.observer,
-            poll_interval_s=3600,
-            now_provider=lambda: self.now,
-        )
+    _RESOURCE_MODES = ("json", "dual", "sqlite")
 
-    async def asyncTearDown(self) -> None:
-        self.tmpdir.cleanup()
+    def _make_scheduler(
+        self,
+        *,
+        storage_mode: str,
+        now: datetime,
+    ) -> tuple[tempfile.TemporaryDirectory, AppResourceService, _Observer, ReminderScheduler]:
+        tmpdir = tempfile.TemporaryDirectory()
+        resources = AppResourceService(Path(tmpdir.name), storage_mode=storage_mode)
+        observer = _Observer()
+        scheduler = ReminderScheduler(
+            resources,
+            event_observer=observer,
+            poll_interval_s=3600,
+            now_provider=lambda: now,
+        )
+        return tmpdir, resources, observer, scheduler
 
     async def test_sync_reminder_prefers_snoozed_until(self) -> None:
-        reminder = self.resources.reminder_store.create(
-            {
-                "title": "Follow up",
-                "time": "08:30",
-                "repeat": "daily",
-                "enabled": True,
-                "snoozed_until": (self.now + timedelta(minutes=20)).isoformat(),
-            }
-        )
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                now = datetime(2026, 4, 9, 9, 0, tzinfo=timezone.utc)
+                tmpdir, resources, observer, scheduler = self._make_scheduler(storage_mode=mode, now=now)
+                try:
+                    reminder = resources.create_reminder(
+                        {
+                            "title": "Follow up",
+                            "time": "08:30",
+                            "repeat": "daily",
+                            "enabled": True,
+                            "snoozed_until": (now + timedelta(minutes=20)).isoformat(),
+                        }
+                    )
 
-        synced = await self.scheduler.sync_reminder(reminder["reminder_id"])
+                    synced = await scheduler.sync_reminder(reminder["reminder_id"])
 
-        assert synced is not None
-        self.assertEqual(synced["status"], "snoozed")
-        self.assertEqual(
-            datetime.fromisoformat(synced["next_trigger_at"]).astimezone(timezone.utc),
-            datetime.fromisoformat(reminder["snoozed_until"]).astimezone(timezone.utc),
-        )
+                    assert synced is not None
+                    self.assertEqual(synced["status"], "snoozed")
+                    self.assertEqual(
+                        datetime.fromisoformat(synced["next_trigger_at"]).astimezone(timezone.utc),
+                        datetime.fromisoformat(reminder["snoozed_until"]).astimezone(timezone.utc),
+                    )
+                    self.assertEqual(observer.events, [])
+                finally:
+                    tmpdir.cleanup()
 
     async def test_complete_reminder_disables_future_triggers(self) -> None:
-        reminder = self.resources.reminder_store.create(
-            {
-                "title": "Archive inbox",
-                "time": "11:00",
-                "repeat": "daily",
-                "enabled": True,
-            }
-        )
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                now = datetime(2026, 4, 9, 9, 0, tzinfo=timezone.utc)
+                tmpdir, resources, _observer, scheduler = self._make_scheduler(storage_mode=mode, now=now)
+                try:
+                    reminder = resources.create_reminder(
+                        {
+                            "title": "Archive inbox",
+                            "time": "11:00",
+                            "repeat": "daily",
+                            "enabled": True,
+                        }
+                    )
 
-        completed = await self.scheduler.complete_reminder(reminder["reminder_id"])
+                    completed = await scheduler.complete_reminder(reminder["reminder_id"])
 
-        assert completed is not None
-        self.assertFalse(completed["enabled"])
-        self.assertEqual(completed["status"], "completed")
-        self.assertIsNone(completed["next_trigger_at"])
-        self.assertIsNotNone(completed["completed_at"])
+                    assert completed is not None
+                    self.assertFalse(completed["enabled"])
+                    self.assertEqual(completed["status"], "completed")
+                    self.assertIsNone(completed["next_trigger_at"])
+                    self.assertIsNotNone(completed["completed_at"])
+                finally:
+                    tmpdir.cleanup()
 
     async def test_due_once_reminder_syncs_to_overdue_state(self) -> None:
-        reminder = self.resources.reminder_store.create(
-            {
-                "title": "Pay rent",
-                "time": (self.now - timedelta(minutes=5)).isoformat(),
-                "repeat": "once",
-                "enabled": True,
-            }
-        )
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                now = datetime(2026, 4, 9, 9, 0, tzinfo=timezone.utc)
+                tmpdir, resources, _observer, scheduler = self._make_scheduler(storage_mode=mode, now=now)
+                try:
+                    reminder = resources.create_reminder(
+                        {
+                            "title": "Pay rent",
+                            "time": (now - timedelta(minutes=5)).isoformat(),
+                            "repeat": "once",
+                            "enabled": True,
+                        }
+                    )
 
-        synced = await self.scheduler.sync_reminder(reminder["reminder_id"])
+                    synced = await scheduler.sync_reminder(reminder["reminder_id"])
 
-        assert synced is not None
-        self.assertTrue(synced["enabled"])
-        self.assertEqual(synced["status"], "overdue")
-        self.assertEqual(
-            datetime.fromisoformat(synced["next_trigger_at"]).astimezone(timezone.utc),
-            datetime.fromisoformat(reminder["time"]).astimezone(timezone.utc),
-        )
+                    assert synced is not None
+                    self.assertTrue(synced["enabled"])
+                    self.assertEqual(synced["status"], "overdue")
+                    self.assertEqual(
+                        datetime.fromisoformat(synced["next_trigger_at"]).astimezone(timezone.utc),
+                        datetime.fromisoformat(reminder["time"]).astimezone(timezone.utc),
+                    )
+                finally:
+                    tmpdir.cleanup()
 
     async def test_due_once_reminder_creates_notification_and_stays_overdue(self) -> None:
-        reminder = self.resources.reminder_store.create(
-            {
-                "title": "Pay rent",
-                "time": (self.now - timedelta(minutes=5)).isoformat(),
-                "repeat": "once",
-                "enabled": True,
-                "bundle_id": "bundle_plan_001",
-            }
-        )
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                now = datetime(2026, 4, 9, 9, 0, tzinfo=timezone.utc)
+                tmpdir, resources, observer, scheduler = self._make_scheduler(storage_mode=mode, now=now)
+                try:
+                    reminder = resources.create_reminder(
+                        {
+                            "title": "Pay rent",
+                            "time": (now - timedelta(minutes=5)).isoformat(),
+                            "repeat": "once",
+                            "enabled": True,
+                            "bundle_id": "bundle_plan_001",
+                        }
+                    )
 
-        await self.scheduler._process_due_reminders()
+                    await scheduler.sync_all()
+                    await scheduler._process_due_reminders()
 
-        updated = self.resources.reminder_store.get(reminder["reminder_id"])
-        notifications = self.resources.notification_store.list_items()
+                    updated = resources.get_reminder(reminder["reminder_id"])
+                    notifications = resources.list_notification_items()
 
-        assert updated is not None
-        self.assertTrue(updated["enabled"])
-        self.assertEqual(updated["status"], "overdue")
-        self.assertEqual(
-            datetime.fromisoformat(updated["next_trigger_at"]).astimezone(timezone.utc),
-            datetime.fromisoformat(reminder["time"]).astimezone(timezone.utc),
-        )
-        self.assertEqual(len(notifications), 1)
-        self.assertEqual(notifications[0]["metadata"]["reminder_id"], reminder["reminder_id"])
-        self.assertEqual(notifications[0]["metadata"]["bundle_id"], "bundle_plan_001")
-        self.assertEqual(len(self.observer.events), 1)
+                    assert updated is not None
+                    self.assertTrue(updated["enabled"])
+                    self.assertEqual(updated["status"], "overdue")
+                    self.assertEqual(
+                        datetime.fromisoformat(updated["next_trigger_at"]).astimezone(timezone.utc),
+                        datetime.fromisoformat(reminder["time"]).astimezone(timezone.utc),
+                    )
+                    self.assertEqual(len(notifications), 1)
+                    self.assertEqual(notifications[0]["metadata"]["reminder_id"], reminder["reminder_id"])
+                    self.assertEqual(notifications[0]["metadata"]["bundle_id"], "bundle_plan_001")
+                    self.assertEqual(len(observer.events), 1)
+                finally:
+                    tmpdir.cleanup()
 
     async def test_due_repeating_reminder_reschedules_and_returns_to_scheduled(self) -> None:
-        reminder = self.resources.reminder_store.create(
-            {
-                "title": "Stand up",
-                "time": "08:55",
-                "repeat": "daily",
-                "enabled": True,
-                "snoozed_until": (self.now - timedelta(minutes=5)).isoformat(),
-            }
-        )
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                now = datetime(2026, 4, 9, 9, 0, tzinfo=timezone.utc)
+                tmpdir, resources, _observer, scheduler = self._make_scheduler(storage_mode=mode, now=now)
+                try:
+                    reminder = resources.create_reminder(
+                        {
+                            "title": "Stand up",
+                            "time": "08:55",
+                            "repeat": "daily",
+                            "enabled": True,
+                            "snoozed_until": (now - timedelta(minutes=5)).isoformat(),
+                        }
+                    )
 
-        await self.scheduler._process_due_reminders()
+                    await scheduler.sync_all()
+                    await scheduler._process_due_reminders()
 
-        updated = self.resources.reminder_store.get(reminder["reminder_id"])
+                    updated = resources.get_reminder(reminder["reminder_id"])
 
-        assert updated is not None
-        self.assertTrue(updated["enabled"])
-        self.assertEqual(updated["status"], "scheduled")
-        self.assertEqual(
-            datetime.fromisoformat(updated["next_trigger_at"]).astimezone(timezone.utc),
-            datetime(2026, 4, 10, 8, 55, tzinfo=timezone.utc),
-        )
-        self.assertEqual(
-            datetime.fromisoformat(updated["last_triggered_at"]).astimezone(timezone.utc),
-            self.now,
-        )
+                    assert updated is not None
+                    self.assertTrue(updated["enabled"])
+                    self.assertEqual(updated["status"], "scheduled")
+                    self.assertEqual(
+                        datetime.fromisoformat(updated["next_trigger_at"]).astimezone(timezone.utc),
+                        datetime(2026, 4, 10, 8, 55, tzinfo=timezone.utc),
+                    )
+                    self.assertEqual(
+                        datetime.fromisoformat(updated["last_triggered_at"]).astimezone(timezone.utc),
+                        now,
+                    )
+                finally:
+                    tmpdir.cleanup()

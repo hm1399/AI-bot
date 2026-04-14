@@ -2827,7 +2827,7 @@ class AppRuntimeService:
     def _storage_runtime_state(self) -> dict[str, Any]:
         sqlite_path = self._storage_config.get("sqlite_path")
         sqlite_path_value = str(sqlite_path).strip() if sqlite_path is not None else ""
-        return {
+        state = {
             "session_mode": str(
                 self._storage_config.get("session_storage_mode", "json")
             ).strip().lower() or "json",
@@ -2841,9 +2841,44 @@ class AppRuntimeService:
                 self._storage_config.get("computer_action_storage_mode", "json")
             ).strip().lower() or "json",
             "sqlite_path": sqlite_path_value or None,
+            "schema_version": 0,
+            "latest_imported_at": None,
             "shadow_failures": 0,
             "mismatch_count": 0,
         }
+        session_runtime_state = getattr(self.sessions, "storage_runtime_state", None)
+        if callable(session_runtime_state):
+            payload = session_runtime_state()
+            if isinstance(payload, dict):
+                state["session_mode"] = str(payload.get("mode") or state["session_mode"])
+                state["sqlite_path"] = payload.get("sqlite_path") or state["sqlite_path"]
+                state["schema_version"] = max(
+                    int(state["schema_version"] or 0),
+                    int(payload.get("schema_version", 0) or 0),
+                )
+                state["latest_imported_at"] = (
+                    payload.get("latest_imported_at") or state["latest_imported_at"]
+                )
+
+        planning_runtime_state = getattr(self.resources, "storage_runtime_state", None)
+        if callable(planning_runtime_state):
+            payload = planning_runtime_state()
+            if isinstance(payload, dict):
+                state["planning_mode"] = str(payload.get("mode") or state["planning_mode"])
+                state["sqlite_path"] = payload.get("sqlite_path") or state["sqlite_path"]
+                state["schema_version"] = max(
+                    int(state["schema_version"] or 0),
+                    int(payload.get("schema_version", 0) or 0),
+                )
+                state["latest_imported_at"] = (
+                    payload.get("latest_imported_at") or state["latest_imported_at"]
+                )
+                state["shadow_failures"] = int(payload.get("shadow_failures", 0) or 0)
+                state["mismatch_count"] = int(payload.get("mismatch_count", 0) or 0)
+                mismatch_domains = payload.get("mismatch_domains")
+                if isinstance(mismatch_domains, dict):
+                    state["mismatch_domains"] = dict(mismatch_domains)
+        return state
 
     def _computer_control_runtime_state(self) -> dict[str, Any]:
         return self.computer_control_service.get_state()

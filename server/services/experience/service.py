@@ -53,6 +53,7 @@ class ExperienceService:
         cancel_computer_action: ActionCallback | None = None,
         store: ExperienceStore | None = None,
         router: ExperienceInteractionRouter | None = None,
+        storage_config: Mapping[str, Any] | None = None,
     ) -> None:
         self.settings_service = settings_service
         self.sessions = sessions
@@ -63,7 +64,10 @@ class ExperienceService:
         self.notifications_provider = notifications_provider or (lambda: [])
         self.confirm_computer_action = confirm_computer_action or _noop_action
         self.cancel_computer_action = cancel_computer_action or _noop_action
-        self.store = store or ExperienceStore(runtime_dir)
+        self.store = store or ExperienceStore(
+            runtime_dir,
+            storage_config=storage_config,
+        )
         self.router = router or ExperienceInteractionRouter()
 
     def get_catalog(self) -> dict[str, Any]:

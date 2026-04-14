@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import uuid
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Mapping, Optional
 
 from .adapters.macos import MacOSComputerAdapter
 from .adapters.wechat import WeChatAdapter
@@ -29,15 +29,18 @@ class ComputerControlService:
         wechat_adapter: Any | None = None,
         store: ComputerActionStore | None = None,
         event_callback: EventCallback | None = None,
+        storage_config: Mapping[str, Any] | None = None,
     ) -> None:
         self.runtime_dir = runtime_dir
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self.storage_config = dict(storage_config or cfg.get("storage") or {})
         self.policy = ComputerControlPolicy(
             dict(cfg.get("computer_control") or {}),
             runtime_dir=self.runtime_dir,
         )
         self.store = store or ComputerActionStore(
-            self.runtime_dir / "computer_control_actions.json"
+            self.runtime_dir / "computer_control_actions.json",
+            storage_config=self.storage_config,
         )
         self.event_callback = event_callback
         self.adapter_error: ComputerControlError | None = None

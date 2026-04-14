@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from .json_importer import import_runtime_json_collections
 from .json_store import JsonCollectionStore
+from .sqlite_store import (
+    SQLiteCollectionAdapter,
+    SQLitePlanningStore,
+    SQLiteReminderStoreAdapter,
+)
 
 
 PLANNING_METADATA_FIELDS = (
@@ -55,21 +63,148 @@ class ResourceNotFoundError(KeyError):
     pass
 
 
+class _DualCollectionStore:
+    """JSON primary store with SQLite shadow mirror."""
+
+    def __init__(
+        self,
+        primary: JsonCollectionStore,
+        shadow: SQLiteCollectionAdapter,
+        *,
+        sync_shadow: Callable[[], None],
+    ) -> None:
+        self._primary = primary
+        self._shadow = shadow
+        self._sync_shadow = sync_shadow
+
+    def list_items(self) -> list[dict[str, Any]]:
+        return self._primary.list_items()
+
+    def get(self, item_id: str) -> dict[str, Any] | None:
+        return self._primary.get(item_id)
+
+    def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        item = self._primary.create(payload)
+        self._sync_shadow()
+        return item
+
+    def update(self, item_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        updated = self._primary.update(item_id, patch)
+        if updated is not None:
+            self._sync_shadow()
+        return updated
+
+    def delete(self, item_id: str) -> dict[str, Any] | None:
+        deleted = self._primary.delete(item_id)
+        if deleted is not None:
+            self._sync_shadow()
+        return deleted
+
+    def replace_all(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        replaced = self._primary.replace_all(items)
+        self._sync_shadow()
+        return replaced
+
+    def clear(self) -> None:
+        self._primary.clear()
+        self._sync_shadow()
+
+
 class AppResourceService:
-    def __init__(self, runtime_dir: Path) -> None:
+    def __init__(
+        self,
+        runtime_dir: Path,
+        *,
+        storage_mode: str = "json",
+        sqlite_path: Path | None = None,
+        storage_config: Mapping[str, Any] | None = None,
+    ) -> None:
         runtime_dir.mkdir(parents=True, exist_ok=True)
-        self.task_store = JsonCollectionStore(runtime_dir / "tasks.json", id_field="task_id", prefix="task")
-        self.event_store = JsonCollectionStore(runtime_dir / "events.json", id_field="event_id", prefix="event")
-        self.notification_store = JsonCollectionStore(
+        resolved_storage_mode, resolved_sqlite_path = self._resolve_storage_config(
+            runtime_dir,
+            storage_mode=storage_mode,
+            sqlite_path=sqlite_path,
+            storage_config=storage_config,
+        )
+        if resolved_storage_mode not in {"json", "dual", "sqlite"}:
+            raise ValueError("storage_mode must be one of: json, dual, sqlite")
+
+        self.runtime_dir = runtime_dir
+        self.storage_mode = resolved_storage_mode
+        self.sqlite_path = resolved_sqlite_path
+        self.last_imported_at: str | None = None
+        self.shadow_failure_count = 0
+        self.shadow_mismatch_count = 0
+        self.shadow_mismatch_domains: dict[str, int] = {}
+
+        json_task_store = JsonCollectionStore(runtime_dir / "tasks.json", id_field="task_id", prefix="task")
+        json_event_store = JsonCollectionStore(runtime_dir / "events.json", id_field="event_id", prefix="event")
+        json_notification_store = JsonCollectionStore(
             runtime_dir / "notifications.json",
             id_field="notification_id",
             prefix="notif",
         )
-        self.reminder_store = JsonCollectionStore(
+        json_reminder_store = JsonCollectionStore(
             runtime_dir / "reminders.json",
             id_field="reminder_id",
             prefix="rem",
         )
+        self._json_stores: dict[str, JsonCollectionStore] = {
+            "tasks": json_task_store,
+            "events": json_event_store,
+            "notifications": json_notification_store,
+            "reminders": json_reminder_store,
+        }
+
+        self._sqlite_store: SQLitePlanningStore | None = None
+        self._sqlite_adapters: dict[str, Any] = {}
+        if self.storage_mode in {"dual", "sqlite"}:
+            self._sqlite_store = SQLitePlanningStore(self.sqlite_path)
+            import_summary = import_runtime_json_collections(
+                runtime_dir,
+                self._sqlite_store,
+                overwrite=False,
+            )
+            if any(bool(item.get("imported")) for item in import_summary.values()):
+                self.last_imported_at = self._now_iso()
+            self._sqlite_adapters = {
+                "tasks": SQLiteCollectionAdapter(self._sqlite_store, "tasks"),
+                "events": SQLiteCollectionAdapter(self._sqlite_store, "events"),
+                "notifications": SQLiteCollectionAdapter(self._sqlite_store, "notifications"),
+                "reminders": SQLiteReminderStoreAdapter(self._sqlite_store),
+            }
+
+        if self.storage_mode == "sqlite":
+            self.task_store = self._sqlite_adapters["tasks"]
+            self.event_store = self._sqlite_adapters["events"]
+            self.notification_store = self._sqlite_adapters["notifications"]
+            self.reminder_store = self._sqlite_adapters["reminders"]
+        elif self.storage_mode == "dual":
+            self.task_store = _DualCollectionStore(
+                json_task_store,
+                self._sqlite_adapters["tasks"],
+                sync_shadow=lambda: self._sync_shadow_domain("tasks"),
+            )
+            self.event_store = _DualCollectionStore(
+                json_event_store,
+                self._sqlite_adapters["events"],
+                sync_shadow=lambda: self._sync_shadow_domain("events"),
+            )
+            self.notification_store = _DualCollectionStore(
+                json_notification_store,
+                self._sqlite_adapters["notifications"],
+                sync_shadow=lambda: self._sync_shadow_domain("notifications"),
+            )
+            self.reminder_store = _DualCollectionStore(
+                json_reminder_store,
+                self._sqlite_adapters["reminders"],
+                sync_shadow=lambda: self._sync_shadow_domain("reminders"),
+            )
+        else:
+            self.task_store = json_task_store
+            self.event_store = json_event_store
+            self.notification_store = json_notification_store
+            self.reminder_store = json_reminder_store
 
     def list_tasks(
         self,
@@ -80,7 +215,7 @@ class AppResourceService:
     ) -> dict[str, Any]:
         if priority is not None and priority not in {"high", "medium", "low"}:
             raise ResourceValidationError("priority must be one of: high, low, medium")
-        items = self.task_store.list_items()
+        items = self.list_task_items()
         if completed is not None:
             items = [item for item in items if bool(item.get("completed", False)) is completed]
         if priority is not None:
@@ -107,7 +242,7 @@ class AppResourceService:
         return deleted
 
     def list_events(self, *, limit: int | None = None) -> dict[str, Any]:
-        items = self._sort_by_updated_at(self.event_store.list_items())
+        items = self._sort_by_updated_at(self.list_event_items())
         if limit:
             items = items[:limit]
         return {"items": items}
@@ -129,7 +264,7 @@ class AppResourceService:
         return deleted
 
     def list_notifications(self) -> dict[str, Any]:
-        items = self._sort_by_updated_at(self.notification_store.list_items())
+        items = self._sort_by_updated_at(self.list_notification_items())
         unread_count = sum(1 for item in items if not item.get("read", False))
         return {"items": items, "unread_count": unread_count}
 
@@ -144,14 +279,11 @@ class AppResourceService:
         return updated
 
     def mark_all_notifications_read(self) -> dict[str, Any]:
-        items = self.notification_store.list_items()
+        items = self.list_notification_items()
         changed_items: list[dict[str, Any]] = []
         for item in items:
             if not item.get("read", False):
-                updated = self.notification_store.update(
-                    item["notification_id"],
-                    {"read": True},
-                )
+                updated = self.notification_store.update(item["notification_id"], {"read": True})
                 if updated is not None:
                     changed_items.append(updated)
         summary = self.list_notifications()
@@ -165,12 +297,12 @@ class AppResourceService:
         return deleted
 
     def clear_notifications(self) -> dict[str, Any]:
-        deleted_items = self.notification_store.list_items()
+        deleted_items = self.list_notification_items()
         self.notification_store.clear()
         return {"deleted_count": len(deleted_items), "deleted_items": deleted_items}
 
     def list_reminders(self, *, limit: int | None = None) -> dict[str, Any]:
-        items = self._sort_by_updated_at(self.reminder_store.list_items())
+        items = self._sort_by_updated_at(self.list_reminder_items())
         if limit:
             items = items[:limit]
         return {"items": items}
@@ -190,6 +322,103 @@ class AppResourceService:
         if deleted is None:
             raise ResourceNotFoundError("REMINDER_NOT_FOUND")
         return deleted
+
+    def list_task_items(self) -> list[dict[str, Any]]:
+        return self.task_store.list_items()
+
+    def list_event_items(self) -> list[dict[str, Any]]:
+        return self.event_store.list_items()
+
+    def list_notification_items(self) -> list[dict[str, Any]]:
+        return self.notification_store.list_items()
+
+    def list_reminder_items(self) -> list[dict[str, Any]]:
+        return self.reminder_store.list_items()
+
+    def get_reminder(self, reminder_id: str) -> dict[str, Any] | None:
+        return self.reminder_store.get(reminder_id)
+
+    def planning_inputs(self) -> dict[str, list[dict[str, Any]]]:
+        if self._sqlite_store is not None:
+            return {
+                "tasks": self._sqlite_adapters["tasks"].list_items(),
+                "events": self._sqlite_adapters["events"].list_items(),
+                "reminders": self._sqlite_adapters["reminders"].list_items(),
+                "notifications": self._sqlite_adapters["notifications"].list_items(),
+            }
+        return {
+            "tasks": self.list_task_items(),
+            "events": self.list_event_items(),
+            "reminders": self.list_reminder_items(),
+            "notifications": self.list_notification_items(),
+        }
+
+    def storage_runtime_state(self) -> dict[str, Any]:
+        sqlite_exists = bool(self._sqlite_store and self.sqlite_path.exists())
+        schema_version = self._sqlite_store.schema_version() if self._sqlite_store is not None else 0
+        return {
+            "mode": self.storage_mode,
+            "sqlite_path": str(self.sqlite_path),
+            "sqlite_ready": sqlite_exists,
+            "schema_version": schema_version,
+            "latest_imported_at": self.last_imported_at,
+            "shadow_failures": self.shadow_failure_count,
+            "mismatch_count": self.shadow_mismatch_count,
+            "mismatch_domains": dict(self.shadow_mismatch_domains),
+        }
+
+    def list_due_reminders(
+        self,
+        *,
+        due_before: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        if self._sqlite_store is not None:
+            return self._sqlite_store.list_due_reminders(due_before=due_before, limit=limit)
+
+        due_epoch = self._parse_epoch(due_before or self._now_iso())
+        if due_epoch is None:
+            return []
+
+        items = [
+            item
+            for item in self.list_reminder_items()
+            if bool(item.get("enabled", True))
+            and self._parse_epoch(item.get("next_trigger_at")) is not None
+            and self._parse_epoch(item.get("next_trigger_at")) <= due_epoch
+        ]
+        items.sort(
+            key=lambda item: (
+                self._parse_epoch(item.get("next_trigger_at")) or 0,
+                item.get("created_at", ""),
+            )
+        )
+        if isinstance(limit, int) and limit > 0:
+            return items[:limit]
+        return items
+
+    def create_notification_and_update_reminder(
+        self,
+        *,
+        reminder_id: str,
+        notification_payload: dict[str, Any],
+        reminder_patch: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        normalized_notification = self._normalize_notification_payload(notification_payload, partial=False)
+        normalized_reminder_patch = self._normalize_reminder_payload(reminder_patch, partial=True)
+
+        if self.storage_mode == "sqlite" and self._sqlite_store is not None:
+            return self._sqlite_store.create_notification_and_update_reminder(
+                reminder_id=reminder_id,
+                notification_payload=normalized_notification,
+                reminder_patch=normalized_reminder_patch,
+            )
+
+        if self.get_reminder(reminder_id) is None:
+            return None, None
+        notification = self.notification_store.create(normalized_notification)
+        updated_reminder = self.reminder_store.update(reminder_id, normalized_reminder_patch)
+        return notification, updated_reminder
 
     def _normalize_task_payload(self, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
         normalized: dict[str, Any] = {}
@@ -269,11 +498,7 @@ class AppResourceService:
         elif not partial:
             normalized["message"] = None
         if "repeat" in payload:
-            normalized["repeat"] = self._enum_string(
-                payload.get("repeat"),
-                "repeat",
-                REMINDER_REPEAT_FIELDS,
-            )
+            normalized["repeat"] = self._enum_string(payload.get("repeat"), "repeat", REMINDER_REPEAT_FIELDS)
         elif not partial:
             normalized["repeat"] = "daily"
         if "enabled" in payload:
@@ -282,6 +507,54 @@ class AppResourceService:
             normalized["enabled"] = True
         normalized.update(self._normalize_optional_fields(payload, PLANNING_METADATA_FIELDS))
         normalized.update(self._normalize_reminder_runtime_fields(payload))
+        return normalized
+
+    def _sync_shadow_domain(self, domain: str) -> None:
+        if self._sqlite_store is None:
+            return
+        try:
+            primary_items = self._json_stores[domain].list_items()
+            shadow_items = self._sqlite_adapters[domain].replace_all(primary_items)
+        except Exception:
+            self.shadow_failure_count += 1
+            return
+        id_field = {
+            "tasks": "task_id",
+            "events": "event_id",
+            "notifications": "notification_id",
+            "reminders": "reminder_id",
+        }[domain]
+        if self._canonical_items(domain, primary_items, id_field) != self._canonical_items(domain, shadow_items, id_field):
+            self.shadow_mismatch_count += 1
+            self.shadow_mismatch_domains[domain] = self.shadow_mismatch_domains.get(domain, 0) + 1
+
+    @staticmethod
+    def _canonical_items(domain: str, items: list[dict[str, Any]], id_field: str) -> list[dict[str, Any]]:
+        return sorted(
+            (AppResourceService._canonical_item(domain, item) for item in items),
+            key=lambda item: str(item.get(id_field) or ""),
+        )
+
+    @staticmethod
+    def _canonical_item(domain: str, item: dict[str, Any]) -> dict[str, Any]:
+        normalized = deepcopy(item)
+        for field in PLANNING_METADATA_FIELDS:
+            normalized.setdefault(field, None)
+        if domain == "tasks":
+            normalized.setdefault("description", None)
+            normalized.setdefault("priority", "medium")
+            normalized.setdefault("completed", False)
+            normalized.setdefault("due_at", None)
+        elif domain == "notifications":
+            metadata = normalized.get("metadata")
+            normalized["metadata"] = deepcopy(metadata) if isinstance(metadata, dict) else {}
+            normalized.setdefault("read", False)
+        elif domain == "reminders":
+            normalized.setdefault("message", None)
+            normalized.setdefault("repeat", "daily")
+            normalized.setdefault("enabled", True)
+            for field in REMINDER_RUNTIME_FIELDS:
+                normalized.setdefault(field, None)
         return normalized
 
     @staticmethod
@@ -329,11 +602,7 @@ class AppResourceService:
             if status is None:
                 normalized["status"] = None
             else:
-                normalized["status"] = cls._enum_string(
-                    status,
-                    "status",
-                    REMINDER_STATUS_FIELDS,
-                )
+                normalized["status"] = cls._enum_string(status, "status", REMINDER_STATUS_FIELDS)
         return normalized
 
     @staticmethod
@@ -342,3 +611,49 @@ class AppResourceService:
         if cleaned not in allowed:
             raise ResourceValidationError(f"{field} must be one of: {', '.join(sorted(allowed))}")
         return cleaned
+
+    @staticmethod
+    def _default_sqlite_path(runtime_dir: Path) -> Path:
+        if runtime_dir.name == "runtime":
+            return runtime_dir.parent / "state.sqlite3"
+        return runtime_dir / "state.sqlite3"
+
+    @classmethod
+    def _resolve_storage_config(
+        cls,
+        runtime_dir: Path,
+        *,
+        storage_mode: str,
+        sqlite_path: Path | None,
+        storage_config: Mapping[str, Any] | None,
+    ) -> tuple[str, Path]:
+        resolved_mode = str(storage_mode or "").strip().lower() or "json"
+        resolved_sqlite_path = sqlite_path or cls._default_sqlite_path(runtime_dir)
+        if storage_config is not None:
+            configured_mode = str(
+                storage_config.get("planning_storage_mode") or ""
+            ).strip().lower()
+            if configured_mode:
+                resolved_mode = configured_mode
+            configured_path = storage_config.get("sqlite_path")
+            if isinstance(configured_path, str) and configured_path.strip():
+                resolved_sqlite_path = Path(configured_path.strip())
+        return resolved_mode, resolved_sqlite_path
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+
+    @staticmethod
+    def _parse_epoch(value: Any) -> int | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            dt = datetime.fromisoformat(value.strip())
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.astimezone()
+        else:
+            dt = dt.astimezone()
+        return int(dt.timestamp())

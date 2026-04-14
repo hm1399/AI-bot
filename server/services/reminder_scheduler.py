@@ -72,13 +72,13 @@ class ReminderScheduler:
     async def sync_all(self) -> None:
         async with self._lock:
             now = self.now_provider()
-            items = self.resources.reminder_store.list_items()
+            items = self.resources.list_reminder_items()
             for item in items:
                 await self._sync_reminder_unlocked(item, now=now)
 
     async def sync_reminder(self, reminder_id: str) -> dict[str, Any] | None:
         async with self._lock:
-            item = self.resources.reminder_store.get(reminder_id)
+            item = self.resources.get_reminder(reminder_id)
             if item is None:
                 return None
             return await self._sync_reminder_unlocked(item, now=self.now_provider())
@@ -91,7 +91,7 @@ class ReminderScheduler:
         delay_minutes: int = 10,
     ) -> dict[str, Any] | None:
         async with self._lock:
-            item = self.resources.reminder_store.get(reminder_id)
+            item = self.resources.get_reminder(reminder_id)
             if item is None:
                 return None
             now = self.now_provider()
@@ -106,7 +106,7 @@ class ReminderScheduler:
                 if delay_minutes < 1:
                     raise ValueError("delay_minutes must be at least 1")
                 target = now + timedelta(minutes=delay_minutes)
-            updated = self.resources.reminder_store.update(
+            updated = self.resources.update_reminder(
                 reminder_id,
                 {
                     "enabled": True,
@@ -121,10 +121,10 @@ class ReminderScheduler:
 
     async def complete_reminder(self, reminder_id: str) -> dict[str, Any] | None:
         async with self._lock:
-            item = self.resources.reminder_store.get(reminder_id)
+            item = self.resources.get_reminder(reminder_id)
             if item is None:
                 return None
-            return self.resources.reminder_store.update(
+            return self.resources.update_reminder(
                 reminder_id,
                 {
                     "enabled": False,
@@ -149,7 +149,7 @@ class ReminderScheduler:
     async def _process_due_reminders(self) -> None:
         async with self._lock:
             now = self.now_provider()
-            items = self.resources.reminder_store.list_items()
+            items = self.resources.list_due_reminders(due_before=self._format_dt(now))
             for item in items:
                 updated = await self._sync_reminder_unlocked(item, now=now)
                 if not updated.get("enabled", False):
@@ -170,7 +170,7 @@ class ReminderScheduler:
         patch = self._build_schedule_patch(reminder, now=now)
         if not patch:
             return reminder
-        updated = self.resources.reminder_store.update(reminder["reminder_id"], patch)
+        updated = self.resources.update_reminder(reminder["reminder_id"], patch)
         return updated or reminder
 
     async def _deliver_due_reminder_unlocked(
@@ -184,24 +184,22 @@ class ReminderScheduler:
         message = str(reminder.get("message") or "").strip() or title
         scheduled_for = reminder.get("next_trigger_at")
 
-        notification = self.resources.create_notification(
-            {
-                "type": "reminder_due",
-                "priority": "high",
-                "title": title,
-                "message": message,
-                "metadata": {
-                    "reminder_id": reminder_id,
-                    "scheduled_for": scheduled_for,
-                    "repeat": reminder.get("repeat"),
-                    **{
-                        field: reminder.get(field)
-                        for field in PLANNING_METADATA_FIELDS
-                        if reminder.get(field) is not None
-                    },
+        notification_payload = {
+            "type": "reminder_due",
+            "priority": "high",
+            "title": title,
+            "message": message,
+            "metadata": {
+                "reminder_id": reminder_id,
+                "scheduled_for": scheduled_for,
+                "repeat": reminder.get("repeat"),
+                **{
+                    field: reminder.get(field)
+                    for field in PLANNING_METADATA_FIELDS
+                    if reminder.get(field) is not None
                 },
-            }
-        )
+            },
+        }
 
         patch = {
             "last_triggered_at": self._format_dt(now),
@@ -218,7 +216,16 @@ class ReminderScheduler:
             patch["next_trigger_at"] = self._format_dt(next_dt)
             patch["status"] = _STATUS_SCHEDULED
 
-        updated = self.resources.reminder_store.update(reminder_id, patch) or reminder
+        notification, updated = self.resources.create_notification_and_update_reminder(
+            reminder_id=reminder_id,
+            notification_payload=notification_payload,
+            reminder_patch=patch,
+        )
+
+        if notification is None:
+            return
+
+        updated = updated or reminder
         await self._notify_event_observer(
             "on_reminder_triggered",
             reminder=updated,

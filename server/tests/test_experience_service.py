@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from nanobot.storage.sqlite_documents import resolve_state_db_path
 from nanobot.session.manager import SessionManager
 from services.app_api.settings_service import SettingsService
 from services.experience.service import ExperienceService
@@ -232,6 +233,29 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(snapshot["physical_interaction"]["history"]), 1)
         self.assertEqual(daily_state["valid_shake_count"], 2)
         self.assertFalse(daily_state["fortune_available"])
+
+    async def test_default_service_persists_runtime_state_via_sqlite_store(self) -> None:
+        await self.service.handle_interaction(
+            "shake",
+            {"app_session_id": "app:main"},
+        )
+
+        reloaded = ExperienceService(
+            runtime_dir=Path(self.tmpdir.name) / "runtime",
+            settings_service=self.settings,
+            sessions=self.sessions,
+            active_session_id_resolver=lambda: self.active_session_id,
+            device_snapshot_provider=lambda: dict(self.device_snapshot),
+            desktop_voice_snapshot_provider=lambda: dict(self.desktop_snapshot),
+            computer_state_provider=lambda: dict(self.computer_state),
+            notifications_provider=lambda: list(self.notifications),
+            confirm_computer_action=self._confirm_action,
+            cancel_computer_action=self._cancel_action,
+        )
+        snapshot = reloaded.get_runtime_snapshot()
+
+        self.assertEqual(snapshot["daily_shake_state"]["valid_shake_count"], 1)
+        self.assertTrue(resolve_state_db_path(Path(self.tmpdir.name) / "runtime").exists())
 
 
 class SettingsServiceExperienceFieldsTests(unittest.TestCase):

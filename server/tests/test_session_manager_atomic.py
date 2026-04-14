@@ -99,7 +99,6 @@ class SessionManagerPersistenceTests(unittest.TestCase):
 
         path = self.manager._get_session_path(session.key)
         original_content = path.read_text(encoding="utf-8")
-
         session.add_message("assistant", "second", message_id="m2")
 
         real_dumps = json.dumps
@@ -143,10 +142,8 @@ class SessionManagerPersistenceTests(unittest.TestCase):
 
         cached = self.manager.get("app:main")
         self.assertIs(cached, session)
-        self.assertEqual(
-            [message["message_id"] for message in session.messages],
-            ["m1"],
-        )
+        self.assertEqual([message["message_id"] for message in session.messages], ["m1"])
+
     def test_list_sessions_skips_invalid_jsonl_files(self) -> None:
         session = self.manager.get_or_create("app:main")
         session.add_message("user", "hello", message_id="m1")
@@ -159,3 +156,109 @@ class SessionManagerPersistenceTests(unittest.TestCase):
 
         self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0]["key"], "app:main")
+
+
+class SessionManagerSQLiteModeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.tmpdir.name)
+
+    def tearDown(self) -> None:
+        self.tmpdir.cleanup()
+
+    def test_sqlite_mode_imports_legacy_session_when_database_is_empty(self) -> None:
+        legacy_dir = self.workspace / "legacy_sessions"
+        legacy_dir.mkdir(parents=True, exist_ok=True)
+        legacy_path = legacy_dir / "app_main.jsonl"
+        legacy_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "_type": "metadata",
+                            "key": "app:main",
+                            "created_at": "2026-04-14T09:00:00+08:00",
+                            "updated_at": "2026-04-14T09:01:00+08:00",
+                            "metadata": {"channel": "app", "title": "主对话"},
+                            "last_consolidated": 0,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        {
+                            "role": "assistant",
+                            "content": "from legacy",
+                            "timestamp": "2026-04-14T09:01:00+08:00",
+                            "message_id": "msg_1",
+                        },
+                        ensure_ascii=False,
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        manager = SessionManager(self.workspace, storage_mode="sqlite")
+        manager.legacy_sessions_dir = legacy_dir
+        assert manager._jsonl_importer is not None
+        manager._jsonl_importer.legacy_sessions_dir = legacy_dir
+
+        session = manager.get("app:main")
+
+        self.assertIsNotNone(session)
+        assert session is not None
+        self.assertEqual(session.messages[0]["content"], "from legacy")
+        assert manager._sqlite_backend is not None
+        self.assertTrue(manager._sqlite_backend.exists("app:main"))
+
+    def test_sqlite_mode_rolls_back_cached_session_when_backend_save_fails(self) -> None:
+        manager = SessionManager(self.workspace, storage_mode="sqlite")
+        session = manager.get_or_create("app:main")
+        session.add_message("user", "first", message_id="m1")
+        manager.save(session)
+        self.assertIs(manager.get("app:main"), session)
+
+        session.add_message("assistant", "second", message_id="m2")
+        assert manager._sqlite_backend is not None
+        with patch.object(manager._sqlite_backend, "save_incremental", side_effect=RuntimeError("boom")):
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                manager.save(session)
+
+        self.assertEqual([message["message_id"] for message in session.messages], ["m1"])
+
+    def test_sqlite_mode_uses_incremental_save_for_appended_messages(self) -> None:
+        manager = SessionManager(self.workspace, storage_mode="sqlite")
+        session = manager.get_or_create("app:main")
+        session.add_message("user", "first", message_id="m1")
+        manager.save(session)
+
+        assert manager._sqlite_backend is not None
+        real_save_incremental = manager._sqlite_backend.save_incremental
+        observed_previous_counts: list[int] = []
+
+        def recording_save_incremental(current_session, *, previous_message_count: int) -> None:
+            observed_previous_counts.append(previous_message_count)
+            real_save_incremental(
+                current_session,
+                previous_message_count=previous_message_count,
+            )
+
+        with patch.object(manager._sqlite_backend, "save_incremental", side_effect=recording_save_incremental):
+            session.add_message("assistant", "second", message_id="m2")
+            manager.save(session)
+
+        self.assertEqual(observed_previous_counts, [1])
+
+    def test_dual_mode_keeps_json_primary_when_sqlite_shadow_save_fails(self) -> None:
+        manager = SessionManager(self.workspace, storage_mode="dual")
+        session = manager.get_or_create("app:main")
+        session.add_message("user", "first", message_id="m1")
+
+        assert manager._sqlite_backend is not None
+        with patch.object(manager._sqlite_backend, "save", side_effect=RuntimeError("boom")):
+            manager.save(session)
+
+        path = manager._get_session_path("app:main")
+        self.assertTrue(path.exists())
+        self.assertIn('"message_id": "m1"', path.read_text(encoding="utf-8"))

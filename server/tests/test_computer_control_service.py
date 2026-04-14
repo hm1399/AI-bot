@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from nanobot.storage.sqlite_documents import resolve_state_db_path
 from services.computer_control import ComputerControlError, ComputerControlService
 
 
@@ -243,3 +244,4 @@ class ComputerControlServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(action["result"]["send_available"])
         self.assertGreaterEqual(len(action["result"]["manual_steps"]), 1)
         self.assertEqual(wechat_adapter.calls[0][0], "prepare_message")
+        self.assertTrue(resolve_state_db_path(self.runtime_dir).exists())

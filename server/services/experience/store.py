@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,26 +9,78 @@ from typing import Any
 
 from services.app_api.json_store import JsonObjectStore
 
+from .sqlite_store import SQLiteExperienceStateStore
+
+
+DEFAULT_EXPERIENCE_STATE = {
+    "runtime_override": {},
+    "last_interaction_result": None,
+    "interaction_history": [],
+    "interaction_throttle": {},
+    "daily_shake_state": {
+        "date": "",
+        "valid_shake_count": 0,
+        "first_result_mode": None,
+        "first_valid_shake_at": None,
+        "last_valid_shake_at": None,
+        "last_mode": None,
+    },
+}
+
+
+class _ExperienceStateBackend:
+    def __init__(
+        self,
+        runtime_dir: Path,
+        *,
+        storage_config: Mapping[str, Any] | None = None,
+    ) -> None:
+        self._defaults = deepcopy(DEFAULT_EXPERIENCE_STATE)
+        self._storage_mode = self._resolve_storage_mode(storage_config)
+        self._json_path = runtime_dir / "experience_state.json"
+        self._json_store = JsonObjectStore(self._json_path, defaults=self._defaults)
+        self._sqlite_store: SQLiteExperienceStateStore | None = None
+        if self._storage_mode in {"sqlite", "dual"}:
+            self._sqlite_store = SQLiteExperienceStateStore(runtime_dir, defaults=self._defaults)
+        if self._sqlite_store is not None and not self._sqlite_store.exists():
+            self._sqlite_store.bootstrap(self._json_store.load())
+
+    def load(self) -> dict[str, Any]:
+        if self._storage_mode == "json":
+            return self._json_store.load()
+        if self._sqlite_store is None:
+            return self._json_store.load()
+        return self._sqlite_store.load()
+
+    def save(self, payload: dict[str, Any]) -> dict[str, Any]:
+        data = deepcopy(payload)
+        if self._storage_mode in {"json", "dual"}:
+            self._json_store.save(data)
+        if self._sqlite_store is not None:
+            self._sqlite_store.save(data)
+        return deepcopy(data)
+
+    @staticmethod
+    def _resolve_storage_mode(storage_config: Mapping[str, Any] | None) -> str:
+        raw = ""
+        if storage_config is not None:
+            raw = str(storage_config.get("experience_storage_mode") or "").strip().lower()
+        if raw in {"json", "dual", "sqlite"}:
+            return raw
+        return "sqlite"
+
 
 class ExperienceStore:
-    def __init__(self, runtime_dir: Path) -> None:
+    def __init__(
+        self,
+        runtime_dir: Path,
+        *,
+        storage_config: Mapping[str, Any] | None = None,
+    ) -> None:
         runtime_dir.mkdir(parents=True, exist_ok=True)
-        self._store = JsonObjectStore(
-            runtime_dir / "experience_state.json",
-            defaults={
-                "runtime_override": {},
-                "last_interaction_result": None,
-                "interaction_history": [],
-                "interaction_throttle": {},
-                "daily_shake_state": {
-                    "date": "",
-                    "valid_shake_count": 0,
-                    "first_result_mode": None,
-                    "first_valid_shake_at": None,
-                    "last_valid_shake_at": None,
-                    "last_mode": None,
-                },
-            },
+        self._store = _ExperienceStateBackend(
+            runtime_dir,
+            storage_config=storage_config,
         )
 
     def load(self) -> dict[str, Any]:
