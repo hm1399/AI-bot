@@ -43,8 +43,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settings = _draft ?? savedSettings;
     final hasDraftChanges =
         _draft != null || _apiKeyController.text.trim().isNotEmpty;
-    final statusMessage =
-        state.settingsMessage ?? savedSettings?.applySummary;
+    final statusMessage = state.settingsMessage ?? savedSettings?.applySummary;
+    final connectionDiagnostics =
+        SettingsConnectionDiagnosticsModel.fromConnection(
+          state.connection,
+          connected: state.isConnected,
+          demoMode: state.isDemoMode,
+        );
 
     if (settings == null) {
       return ListView(
@@ -72,6 +77,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     return SettingsForm(
       settings: settings,
+      connectionDiagnostics: connectionDiagnostics,
       themeMode: state.themeMode,
       apiKeyController: _apiKeyController,
       statusMessage: statusMessage,

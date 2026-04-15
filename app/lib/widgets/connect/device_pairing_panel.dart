@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../models/device_pairing/device_pairing_draft_model.dart';
 import '../../models/device_pairing/device_pairing_state_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
@@ -95,17 +96,43 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
         pairing.availablePorts.contains(pairing.draft.trimmedPortName)
         ? pairing.draft.trimmedPortName
         : null;
+    final currentConnection = appState.connection;
     final endpointBundle = pairing.bundle?.server;
     final endpointHost =
         endpointBundle != null && endpointBundle.host.trim().isNotEmpty
         ? endpointBundle.host.trim()
         : pairing.draft.trimmedHost;
-    final endpointPort = endpointBundle?.port ?? pairing.draft.port;
+    final endpointPort = endpointBundle?.port ?? currentConnection.port;
     final endpointPath =
-        endpointBundle?.normalizedPath ?? pairing.draft.normalizedPath;
-    final endpointScheme = (endpointBundle?.secure ?? pairing.draft.secure)
+        endpointBundle?.normalizedPath ??
+        DevicePairingDraftModel.defaultServerPath;
+    final endpointScheme = (endpointBundle?.secure ?? currentConnection.secure)
         ? 'wss'
         : 'ws';
+    final canPreviewCurrentConnection =
+        backendReady && currentConnection.hasServer;
+    final showSocketAsEndpoint =
+        endpointBundle != null || canPreviewCurrentConnection;
+    final socketSummary = endpointBundle != null
+        ? endpointHost.isEmpty
+              ? '$endpointScheme://<lan-host>:$endpointPort$endpointPath'
+              : '$endpointScheme://$endpointHost:$endpointPort$endpointPath'
+        : appState.isDemoMode
+        ? 'Demo mode 不提供真实设备回连端点。'
+        : !canPreviewCurrentConnection
+        ? '请先完成 Step 1，连接 live backend 后再生成设备回连端点。'
+        : endpointHost.isEmpty
+        ? '$endpointScheme://<lan-host>:$endpointPort$endpointPath'
+        : '$endpointScheme://$endpointHost:$endpointPort$endpointPath';
+    final authSummary = pairing.bundle == null
+        ? appState.isDemoMode
+              ? 'Demo mode 不会请求真实 bundle'
+              : canPreviewCurrentConnection
+              ? '发送时会向当前 backend 请求最新 bundle'
+              : '连接 live backend 后会请求最新 bundle'
+        : pairing.bundle!.requiresDeviceToken
+        ? '发送时会带 device token'
+        : '当前无需 device token';
     final fieldsEnabled =
         usbReady &&
         !pairing.isBusy &&
@@ -422,19 +449,10 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
                     ),
                     _SummaryRow(
                       label: 'Socket',
-                      value: endpointHost.isEmpty
-                          ? '$endpointScheme://<lan-host>:$endpointPort$endpointPath'
-                          : '$endpointScheme://$endpointHost:$endpointPort$endpointPath',
-                      monospace: true,
+                      value: socketSummary,
+                      monospace: showSocketAsEndpoint,
                     ),
-                    _SummaryRow(
-                      label: 'Auth',
-                      value: pairing.bundle == null
-                          ? '还没向 backend 请求 bundle'
-                          : pairing.bundle!.requiresDeviceToken
-                          ? '发送时会带 device token'
-                          : '当前无需 device token',
-                    ),
+                    _SummaryRow(label: 'Auth', value: authSummary),
                   ],
                 ),
                 const SizedBox(height: LinearSpacing.md),

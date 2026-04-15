@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from copy import deepcopy
+from dataclasses import dataclass
 import hmac
 import inspect
 import ipaddress
@@ -96,6 +97,14 @@ _PERSONA_COMMAND_ALIASES: tuple[tuple[str, str, str], ...] = (
     ("平衡", "balanced", "平衡人格"),
     ("balanced", "balanced", "平衡人格"),
 )
+_ALLOWED_SCRIPTS_CONTRACT_VERSION = "object_map_v1"
+
+
+@dataclass(frozen=True)
+class _DevicePairingTransport:
+    port: int
+    secure: bool
+    source: str
 
 
 def _invoke_with_storage_support(factory: Any, *args: Any, storage_config: dict[str, Any] | None = None, **kwargs: Any) -> Any:
@@ -123,6 +132,7 @@ class AppRuntimeService:
         computer_control_service: ComputerControlService | None = None,
         version: str,
         start_time: float,
+        agent_runtime: Any | None = None,
     ) -> None:
         self.cfg = cfg
         self.bus = bus
@@ -131,6 +141,7 @@ class AppRuntimeService:
         self.desktop_voice_service = desktop_voice_service
         self.version = version
         self.start_time = start_time
+        self.agent_runtime = agent_runtime
         self.auth_token = cfg.get("app", {}).get("auth_token", "").strip()
         self.default_session_id = cfg.get("app", {}).get("default_session_id", "app:main")
         self._active_app_session_id = self.default_session_id
@@ -144,6 +155,7 @@ class AppRuntimeService:
         )
         self._lock = asyncio.Lock()
         self._ws_clients: set[web.WebSocketResponse] = set()
+        self._slow_client_drops = 0
         self._tasks: dict[str, dict[str, Any]] = {}
         self._task_order: list[str] = []
         self._event_history: deque[dict[str, Any]] = deque(maxlen=self.event_buffer_size)
@@ -833,6 +845,7 @@ class AppRuntimeService:
         return self._ok({
             "server_version": self.version,
             "capabilities": self._capabilities(),
+            "agent_runtime": self._agent_runtime_summary(),
             "experience": self.experience_service.get_catalog(),
             "planning": self._planning_bootstrap(),
             "runtime": await self.get_runtime_state(),
@@ -1882,7 +1895,7 @@ class AppRuntimeService:
 
         return self._ok({
             "transport": "serial",
-            "bundle": self._build_device_pairing_bundle(host),
+            "bundle": self._build_device_pairing_bundle(host, request=request),
         })
 
     async def handle_device_speak(self, request: web.Request) -> web.Response:
@@ -1990,7 +2003,7 @@ class AppRuntimeService:
                 and task_id != current_task_id
             ]
 
-        device_snapshot = self.device_channel.get_snapshot()
+        device_snapshot = self._device_runtime_state()
         desktop_voice = self._desktop_voice_runtime()
         voice_runtime = self._voice_runtime_state()
         computer_control = self._computer_control_runtime_state()
@@ -2000,11 +2013,13 @@ class AppRuntimeService:
             "chat": {
                 "active_session_id": self.get_active_app_session_id(),
             },
+            "agent_runtime": self._agent_runtime_summary(),
             "computer_control": computer_control,
             "device": device_snapshot,
             "desktop_voice": desktop_voice,
             "voice": voice_runtime,
             "storage": self._storage_runtime_state(),
+            "transport": self._transport_runtime_state(),
             "experience": await self._runtime_experience_state(
                 session_id=self.get_active_app_session_id(),
                 device_snapshot=device_snapshot,
@@ -2975,6 +2990,27 @@ class AppRuntimeService:
             }
         return self.desktop_voice_service.get_snapshot()
 
+    def _device_runtime_state(self) -> dict[str, Any]:
+        snapshot = dict(self.device_channel.get_snapshot())
+        capabilities = snapshot.get("display_capabilities")
+        if not isinstance(capabilities, dict):
+            battery = snapshot.get("battery")
+            battery_available = False
+            try:
+                battery_available = int(battery) >= 0
+            except (TypeError, ValueError):
+                battery_available = False
+            capabilities = {
+                "text_reply_available": True,
+                "display_update_hint_available": True,
+                "status_bar_available": False,
+                "weather_available": False,
+                "battery_telemetry_available": battery_available,
+                "charging_telemetry_available": battery_available,
+            }
+        snapshot["display_capabilities"] = dict(capabilities)
+        return snapshot
+
     def _voice_runtime_state(self) -> dict[str, Any]:
         settings = self.settings.get_public_settings()
         desktop = self._desktop_voice_runtime()
@@ -3066,8 +3102,24 @@ class AppRuntimeService:
                     state["mismatch_domains"] = dict(mismatch_domains)
         return state
 
+    def _transport_runtime_state(self) -> dict[str, Any]:
+        runtime_state = getattr(self.bus, "runtime_state", None)
+        state = runtime_state() if callable(runtime_state) else {}
+        if not isinstance(state, dict):
+            state = {}
+        state.setdefault("bus_inbound_depth", int(getattr(self.bus, "inbound_size", 0) or 0))
+        state.setdefault("bus_outbound_depth", int(getattr(self.bus, "outbound_size", 0) or 0))
+        state.setdefault("ws_client_count", len(self._ws_clients))
+        state.setdefault("slow_client_drops", self._slow_client_drops)
+        return state
+
     def _computer_control_runtime_state(self) -> dict[str, Any]:
-        return self.computer_control_service.get_state()
+        state = dict(self.computer_control_service.get_state())
+        state.setdefault(
+            "allowed_scripts_contract_version",
+            _ALLOWED_SCRIPTS_CONTRACT_VERSION,
+        )
+        return state
 
     async def _runtime_experience_state(
         self,
@@ -3097,6 +3149,92 @@ class AppRuntimeService:
             "overview_path": "/api/app/v1/planning/overview",
             "timeline_path": "/api/app/v1/planning/timeline",
             "conflicts_path": "/api/app/v1/planning/conflicts",
+        }
+
+    def _agent_runtime_summary(self) -> dict[str, Any]:
+        runtime = self.agent_runtime
+        exec_config = getattr(runtime, "exec_config", None)
+        web_proxy = str(getattr(runtime, "web_proxy", "") or "").strip()
+        brave_api_key = str(getattr(runtime, "brave_api_key", "") or "").strip()
+        mcp_servers = getattr(runtime, "mcp_servers", {}) or {}
+        policy = getattr(self.computer_control_service, "policy", None)
+
+        exec_timeout = 60
+        path_append = ""
+        if exec_config is not None:
+            try:
+                exec_timeout = int(getattr(exec_config, "timeout", 60))
+            except (TypeError, ValueError):
+                exec_timeout = 60
+            path_append = str(getattr(exec_config, "path_append", "") or "").strip()
+
+        allowed_apps = sorted(getattr(policy, "allowed_apps", set()) or [])
+        allowed_shortcuts = sorted(getattr(policy, "allowed_shortcuts", set()) or [])
+        allowed_scripts = sorted((getattr(policy, "allowed_scripts", {}) or {}).keys())
+        allowed_path_roots = [
+            str(path)
+            for path in sorted(
+                getattr(policy, "allowed_path_roots", []) or [],
+                key=lambda item: str(item),
+            )
+        ]
+        allowed_wechat_contacts = sorted(
+            getattr(policy, "allowed_wechat_contacts", set()) or [],
+        )
+        permission_profile = {
+            "api_auth": {
+                "app_auth_required": bool(self.auth_token),
+                "device_auth_required": bool(
+                    str(self.cfg.get("device", {}).get("auth_token", "") or "").strip()
+                ),
+            },
+            "exec": {
+                "workspace_restricted": bool(
+                    getattr(runtime, "restrict_to_workspace", False)
+                ),
+                "timeout_s": exec_timeout,
+                "path_append_configured": bool(path_append),
+            },
+            "web": {
+                "search_enabled": bool(brave_api_key),
+                "fetch_enabled": True,
+                "proxy_configured": bool(web_proxy),
+            },
+            "mcp": {
+                "enabled": bool(mcp_servers),
+                "server_names": sorted(str(name) for name in mcp_servers.keys()),
+            },
+            "cron": {
+                "enabled": bool(getattr(runtime, "cron_enabled", False)),
+            },
+            "computer_control": {
+                "enabled": bool(getattr(policy, "enabled", False)),
+                "available": self.computer_control_service.is_available(),
+                "supported_actions": self.computer_control_service.supported_actions(),
+                "allowed_scripts_contract_version": _ALLOWED_SCRIPTS_CONTRACT_VERSION,
+                "confirm_medium_risk": bool(
+                    getattr(policy, "confirm_medium_risk", False)
+                ),
+                "allowed_apps": allowed_apps,
+                "allowed_shortcuts": allowed_shortcuts,
+                "allowed_scripts": allowed_scripts,
+                "allowed_path_roots": allowed_path_roots,
+                "wechat_enabled": bool(getattr(policy, "wechat_enabled", False)),
+                "allowed_wechat_contacts": allowed_wechat_contacts,
+                "permission_hints": self.computer_control_service.permission_hints(),
+                "adapter_error_present": bool(
+                    getattr(self.computer_control_service, "adapter_error", None)
+                ),
+            },
+        }
+        return {
+            "workspace_restricted": permission_profile["exec"]["workspace_restricted"],
+            "web_search_enabled": permission_profile["web"]["search_enabled"],
+            "web_fetch_enabled": permission_profile["web"]["fetch_enabled"],
+            "mcp_enabled": permission_profile["mcp"]["enabled"],
+            "cron_enabled": permission_profile["cron"]["enabled"],
+            "exec_timeout_s": exec_timeout,
+            "permission_profile": permission_profile,
         }
 
     def _capabilities(self) -> dict[str, Any]:
@@ -3136,22 +3274,65 @@ class AppRuntimeService:
             "app_events": True,
             "event_replay": True,
             "app_auth_enabled": bool(self.auth_token),
+            "agent_runtime": self._agent_runtime_summary(),
         }
 
-    def _build_device_pairing_bundle(self, host: str) -> dict[str, Any]:
+    def _build_device_pairing_bundle(
+        self,
+        host: str,
+        *,
+        request: web.Request | None = None,
+    ) -> dict[str, Any]:
         device_token = str(self.cfg.get("device", {}).get("auth_token", "") or "").strip()
+        transport = self._resolve_device_pairing_transport(request)
         return {
             "server": {
                 "host": host,
-                "port": self._device_pairing_server_port(),
+                "port": transport.port,
                 "path": "/ws/device",
-                "secure": self._device_pairing_server_secure(),
+                "secure": transport.secure,
             },
             "auth": {
                 "device_token": device_token,
                 "required": bool(device_token),
             },
         }
+
+    def _resolve_device_pairing_transport(
+        self,
+        request: web.Request | None,
+    ) -> _DevicePairingTransport:
+        cfg_port = self._device_pairing_server_port()
+        cfg_secure = self._device_pairing_server_secure()
+        if request is None:
+            return _DevicePairingTransport(
+                port=cfg_port,
+                secure=cfg_secure,
+                source="cfg.server",
+            )
+
+        request_port = self._device_pairing_request_port(request)
+        request_secure = self._device_pairing_request_secure(request)
+        fallback_fields: list[str] = []
+
+        port = request_port if request_port is not None else cfg_port
+        if request_port is None:
+            fallback_fields.append("port")
+        secure = request_secure if request_secure is not None else cfg_secure
+        if request_secure is None:
+            fallback_fields.append("secure")
+
+        if fallback_fields:
+            logger.info(
+                "Device pairing bundle fallback to cfg.server for {}",
+                ", ".join(fallback_fields),
+            )
+
+        return _DevicePairingTransport(
+            port=port,
+            secure=secure,
+            source="request" if not fallback_fields else "cfg.server",
+        )
 
     def _device_pairing_server_port(self) -> int:
         raw = self.cfg.get("server", {}).get("port", 8765)
@@ -3170,6 +3351,98 @@ class AppRuntimeService:
             if parsed is not None:
                 return parsed
         return False
+
+    @classmethod
+    def _device_pairing_request_secure(
+        cls,
+        request: web.Request,
+    ) -> bool | None:
+        forwarded = cls._parse_forwarded_header(request.headers.get("Forwarded"))
+        raw_scheme = (
+            request.headers.get("X-Forwarded-Proto")
+            or forwarded.get("proto")
+            or getattr(request, "scheme", None)
+        )
+        if not isinstance(raw_scheme, str):
+            return None
+        scheme = raw_scheme.split(",", 1)[0].strip().lower()
+        if scheme in {"https", "wss"}:
+            return True
+        if scheme in {"http", "ws"}:
+            return False
+        return None
+
+    @classmethod
+    def _device_pairing_request_port(
+        cls,
+        request: web.Request,
+    ) -> int | None:
+        forwarded = cls._parse_forwarded_header(request.headers.get("Forwarded"))
+        candidates = (
+            request.headers.get("X-Forwarded-Port"),
+            cls._port_from_host_value(request.headers.get("X-Forwarded-Host")),
+            cls._port_from_host_value(forwarded.get("host")),
+        )
+        for candidate in candidates:
+            port = cls._parse_optional_port(candidate)
+            if port is not None:
+                return port
+
+        request_url = getattr(request, "url", None)
+        try:
+            request_port = request_url.port if request_url is not None else None
+        except ValueError:
+            request_port = None
+        if isinstance(request_port, int) and 1 <= request_port <= 65535:
+            return request_port
+
+        request_host = request.headers.get("Host") or getattr(request, "host", None)
+        return cls._port_from_host_value(request_host)
+
+    @staticmethod
+    def _parse_forwarded_header(value: str | None) -> dict[str, str]:
+        if not isinstance(value, str) or not value.strip():
+            return {}
+        first = value.split(",", 1)[0]
+        parsed: dict[str, str] = {}
+        for item in first.split(";"):
+            key, _, raw_value = item.partition("=")
+            if not _:
+                continue
+            cleaned_key = key.strip().lower()
+            cleaned_value = raw_value.strip().strip('"')
+            if cleaned_key and cleaned_value:
+                parsed[cleaned_key] = cleaned_value
+        return parsed
+
+    @classmethod
+    def _port_from_host_value(cls, value: Any) -> int | None:
+        if not isinstance(value, str):
+            return None
+        host = value.strip()
+        if not host:
+            return None
+        if host.startswith("["):
+            closing = host.find("]")
+            if closing == -1:
+                return None
+            remainder = host[closing + 1:].strip()
+            if not remainder.startswith(":"):
+                return None
+            return cls._parse_optional_port(remainder[1:])
+        if host.count(":") == 1:
+            return cls._parse_optional_port(host.rsplit(":", 1)[1])
+        return None
+
+    @staticmethod
+    def _parse_optional_port(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            port = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return port if 1 <= port <= 65535 else None
 
     @classmethod
     def _normalize_device_pairing_host(cls, payload: dict[str, Any]) -> tuple[str, str | None]:

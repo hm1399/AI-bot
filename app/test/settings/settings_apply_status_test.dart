@@ -51,6 +51,10 @@ void main() {
         home: Scaffold(
           body: SettingsForm(
             settings: settings,
+            connectionDiagnostics: const SettingsConnectionDiagnosticsModel(
+              status: 'Connected backend',
+              endpoint: 'http://demo.local:8000',
+            ),
             themeMode: ThemeMode.dark,
             apiKeyController: TextEditingController(),
             onChanged: (_) {},
@@ -123,16 +127,29 @@ void main() {
 
     await pumpForm(tester, settings);
 
+    Future<void> dragUntilFound(Finder finder) async {
+      for (
+        var scrolls = 0;
+        scrolls < 8 && finder.evaluate().isEmpty;
+        scrolls += 1
+      ) {
+        await tester.drag(find.byType(ListView), const Offset(0, -500));
+        await tester.pumpAndSettle();
+      }
+    }
+
     expect(find.text('Apply Results'), findsOneWidget);
     expect(find.textContaining('live applied'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -900));
-    await tester.pumpAndSettle();
-    expect(find.text('Live Apply'), findsWidgets);
-    expect(find.text('Config Only'), findsWidgets);
-    expect(find.text('Pending'), findsWidgets);
-    expect(
-      find.text('Saved as config only. Runtime effect is not guaranteed yet.'),
-      findsOneWidget,
+    final configOnlyHelper = find.text(
+      'Saved as config only. Runtime effect is not guaranteed yet.',
     );
+
+    await dragUntilFound(find.text('Live Apply'));
+    expect(find.text('Live Apply'), findsWidgets);
+    expect(find.text('Pending'), findsWidgets);
+
+    await dragUntilFound(configOnlyHelper);
+    expect(find.text('Config Only'), findsWidgets);
+    expect(configOnlyHelper, findsOneWidget);
   });
 }

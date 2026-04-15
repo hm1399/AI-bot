@@ -7,6 +7,7 @@ import '../common/status_pill.dart';
 class SettingsForm extends StatefulWidget {
   const SettingsForm({
     required this.settings,
+    required this.connectionDiagnostics,
     required this.themeMode,
     required this.apiKeyController,
     required this.onChanged,
@@ -21,6 +22,7 @@ class SettingsForm extends StatefulWidget {
   });
 
   final AppSettingsModel settings;
+  final SettingsConnectionDiagnosticsModel connectionDiagnostics;
   final ThemeMode themeMode;
   final TextEditingController apiKeyController;
   final ValueChanged<AppSettingsModel> onChanged;
@@ -348,12 +350,13 @@ class _SettingsFormState extends State<SettingsForm> {
         const SizedBox(height: LinearSpacing.md),
         _Section(
           title: 'LLM',
-          description: 'Backend-managed provider and connection settings.',
+          description:
+              'Backend-managed provider settings. Connection details below are read-only diagnostics from the current app connection.',
           child: Column(
             children: <Widget>[
               _ReadOnlyRow(
-                label: 'Server',
-                value: '${settings.serverUrl}:${settings.serverPort}',
+                label: 'Connection',
+                value: widget.connectionDiagnostics.summary,
               ),
               const SizedBox(height: LinearSpacing.sm),
               TextField(

@@ -10,16 +10,20 @@ from services.experience.models import normalize_persona_fields, normalize_scene
 from .json_store import JsonObjectStore
 
 
+_LEGACY_CONNECTION_FIELDS = {"server_url", "server_port"}
+
+
 class SettingsService:
     def __init__(self, cfg: dict[str, Any], runtime_dir: Path) -> None:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         self.cfg = cfg
         self.overlay_store = JsonObjectStore(runtime_dir / "app_settings.json")
         self.secrets_store = JsonObjectStore(runtime_dir / "app_secrets.json")
+        self._load_overlay()
 
     def get_public_settings(self) -> dict[str, Any]:
         settings = self._base_settings()
-        settings.update(self.overlay_store.load())
+        settings.update(self._load_overlay())
         normalized_persona = normalize_persona_fields(
             {
                 "tone_style": settings.get("persona_tone_style"),
@@ -43,10 +47,13 @@ class SettingsService:
         if not isinstance(payload, dict):
             raise ValueError("settings payload must be an object")
 
-        overlay = self.overlay_store.load()
+        overlay = self._load_overlay()
         for key, value in payload.items():
             if key == "llm_api_key":
                 self._set_secret_value(value)
+                continue
+            if key in _LEGACY_CONNECTION_FIELDS:
+                overlay.pop(key, None)
                 continue
             overlay[key] = self._normalize_field(key, value)
 
@@ -81,6 +88,8 @@ class SettingsService:
                         "message": "llm_api_key must be a string or null",
                         "status": 400,
                     }
+                continue
+            if key in _LEGACY_CONNECTION_FIELDS:
                 continue
             candidate[key] = self._normalize_field(key, value)
 
@@ -134,14 +143,11 @@ class SettingsService:
         }, None
 
     def _base_settings(self) -> dict[str, Any]:
-        server_cfg = self.cfg.get("server", {})
         nanobot_cfg = self.cfg.get("nanobot", {})
         asr_cfg = self.cfg.get("asr", {})
         tts_cfg = self.cfg.get("tts", {})
         app_settings = deepcopy(self.cfg.get("app", {}).get("settings", {}))
         return {
-            "server_url": server_cfg.get("host", "127.0.0.1"),
-            "server_port": server_cfg.get("port", 8765),
             "llm_provider": nanobot_cfg.get("provider", "openrouter"),
             "llm_model": nanobot_cfg.get("model", ""),
             "llm_base_url": nanobot_cfg.get("api_base"),
@@ -194,8 +200,20 @@ class SettingsService:
         raw_cfg = self.cfg.get("nanobot", {}).get("api_key", "")
         return raw_cfg.strip() if isinstance(raw_cfg, str) else ""
 
+    def _load_overlay(self) -> dict[str, Any]:
+        overlay = self.overlay_store.load()
+        if not isinstance(overlay, dict):
+            overlay = {}
+        cleaned = {
+            key: value
+            for key, value in overlay.items()
+            if key not in _LEGACY_CONNECTION_FIELDS
+        }
+        if cleaned != overlay:
+            self.overlay_store.save(cleaned)
+        return cleaned
+
     def _apply_runtime_updates(self, overlay: dict[str, Any]) -> None:
-        server_cfg = self.cfg.setdefault("server", {})
         nanobot_cfg = self.cfg.setdefault("nanobot", {})
         asr_cfg = self.cfg.setdefault("asr", {})
         tts_cfg = self.cfg.setdefault("tts", {})
@@ -203,8 +221,6 @@ class SettingsService:
         app_settings = app_cfg.setdefault("settings", {})
 
         mapping = {
-            "server_url": (server_cfg, "host"),
-            "server_port": (server_cfg, "port"),
             "llm_provider": (nanobot_cfg, "provider"),
             "llm_model": (nanobot_cfg, "model"),
             "llm_base_url": (nanobot_cfg, "api_base"),
@@ -254,7 +270,6 @@ class SettingsService:
             "default_scene_mode": {"focus", "offwork", "meeting"},
         }
         string_keys = {
-            "server_url",
             "llm_provider",
             "llm_model",
             "stt_provider",
@@ -278,7 +293,7 @@ class SettingsService:
             "shake_enabled",
             "tap_confirmation_enabled",
         }
-        int_keys = {"server_port", "device_volume", "led_brightness"}
+        int_keys = {"device_volume", "led_brightness"}
         float_keys = {"tts_speed"}
 
         if key == "default_scene_mode":
@@ -323,8 +338,6 @@ class SettingsService:
         if key in int_keys:
             if not isinstance(value, int):
                 raise ValueError(f"{key} must be an integer")
-            if key == "server_port" and not (1 <= value <= 65535):
-                raise ValueError("server_port must be between 1 and 65535")
             if key in {"device_volume", "led_brightness"} and not (0 <= value <= 100):
                 raise ValueError(f"{key} must be between 0 and 100")
             return value

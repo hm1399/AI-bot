@@ -68,13 +68,31 @@ async def main() -> None:
 
     runner = web.AppRunner(runtime.app)
     await runner.setup()
+    startup_state = runtime.app.get("startup_state")
+    if isinstance(startup_state, dict):
+        startup_state["ready"] = False
+        startup_state["startup_phase"] = "starting_http"
     site = web.TCPSite(
         runner,
         runtime.server_config["host"],
         runtime.server_config["port"],
     )
     await site.start()
+    if isinstance(startup_state, dict):
+        startup_state["ready"] = False
+        startup_state["startup_phase"] = "http_listening"
+    if runtime.agent_runtime.cron_service is not None:
+        if isinstance(startup_state, dict):
+            startup_state["ready"] = False
+            startup_state["startup_phase"] = "starting_cron"
+        await runtime.agent_runtime.cron_service.start()
+    if isinstance(startup_state, dict):
+        startup_state["ready"] = False
+        startup_state["startup_phase"] = "starting_background_tasks"
     await runtime.app["app_runtime"].start_background_tasks()
+    if isinstance(startup_state, dict):
+        startup_state["ready"] = True
+        startup_state["startup_phase"] = "ready"
 
     log_startup_summary(runtime)
     if runtime.desktop_voice_service.enable_local_microphone:
@@ -101,6 +119,11 @@ async def main() -> None:
 
     # 关闭顺序: WebSocket → outbound → agent → WhatsApp → HTTP
     logger.info("正在关闭服务...")
+    if isinstance(startup_state, dict):
+        startup_state["ready"] = False
+        startup_state["startup_phase"] = "shutting_down"
+    if runtime.agent_runtime.cron_service is not None:
+        runtime.agent_runtime.cron_service.stop()
     await runtime.app["app_runtime"].stop_background_tasks()
     await runtime.desktop_voice_service.stop()
     await runtime.device_channel.stop()

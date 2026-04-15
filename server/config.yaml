@@ -1,6 +1,7 @@
 server:
   host: 0.0.0.0
   port: 8765
+  secure: false
 
 nanobot:
   model: x-ai/grok-4.1-fast
@@ -37,6 +38,10 @@ app:
     wake_word: Hey Assistant
     auto_listen: true
 
+storage:
+  session_storage_mode: dual
+  planning_storage_mode: dual
+
 computer_control:
   enabled: true
   allowed_apps:
@@ -71,3 +76,17 @@ whatsapp:
   bridge_token: ""
   self_only: true
   allow_from: ["*"]
+
+tools:
+  restrict_to_workspace: false
+  exec:
+    timeout: 60
+    path_append: ""
+  web:
+    proxy: ""
+    search:
+      api_key: ${BRAVE_API_KEY}
+  mcp_servers: {}
+
+cron:
+  enabled: false

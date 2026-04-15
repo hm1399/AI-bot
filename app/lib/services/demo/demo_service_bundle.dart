@@ -232,8 +232,6 @@ class DemoServiceBundle {
   };
 
   static final AppSettingsModel settings = AppSettingsModel(
-    serverUrl: 'demo.local',
-    serverPort: 8000,
     llmProvider: 'server-managed',
     llmModel: 'demo-model',
     llmApiKeyConfigured: true,

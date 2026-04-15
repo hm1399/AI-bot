@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import time
 import inspect
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,11 +13,13 @@ from aiohttp import web
 from loguru import logger
 
 from config import (
+    get_cron_config,
     get_provider_timeout_seconds,
     SERVER_DIR,
     WORKSPACE_DIR,
     generate_nanobot_config,
     get_server_config,
+    get_tools_config,
     load_yaml_config,
     validate_config,
 )
@@ -69,6 +72,7 @@ class RuntimeComponents:
 
     config: dict[str, Any]
     server_config: dict[str, Any]
+    agent_runtime: "ResolvedAgentRuntimeOptions"
     bus: MessageBus
     agent: AgentLoop
     app: web.Application
@@ -78,6 +82,20 @@ class RuntimeComponents:
     asr_config: dict[str, Any]
     tts_config: dict[str, Any]
     device_config: dict[str, Any]
+
+
+@dataclass
+class ResolvedAgentRuntimeOptions:
+    """Effective tool/runtime configuration wired into AgentLoop."""
+
+    brave_api_key: str
+    web_proxy: str | None
+    exec_config: Any
+    restrict_to_workspace: bool
+    mcp_servers: dict[str, Any]
+    cron_enabled: bool
+    cron_store_path: Path | None
+    cron_service: Any | None
 
 
 class AppPlanningBackend:
@@ -278,6 +296,36 @@ def load_runtime_config() -> tuple[dict[str, Any], dict[str, Any]]:
     return cfg, get_server_config(cfg)
 
 
+def resolve_agent_runtime_options(cfg: dict[str, Any]) -> ResolvedAgentRuntimeOptions:
+    """Resolve the effective runtime/tool options used by AgentLoop."""
+    from nanobot.config.schema import ExecToolConfig
+
+    tools_cfg = get_tools_config(cfg)
+    cron_cfg = get_cron_config(cfg)
+    exec_cfg = tools_cfg["exec"]
+    cron_enabled = bool(cron_cfg.get("enabled", False))
+    cron_store_path = Path(str(cron_cfg.get("store_path") or "")).expanduser()
+    cron_service = None
+    if cron_enabled:
+        from nanobot.cron.service import CronService
+
+        cron_service = CronService(cron_store_path)
+
+    return ResolvedAgentRuntimeOptions(
+        brave_api_key=str(tools_cfg["web"]["search"].get("api_key") or "").strip(),
+        web_proxy=tools_cfg["web"].get("proxy"),
+        exec_config=ExecToolConfig(
+            timeout=exec_cfg["timeout"],
+            path_append=exec_cfg["path_append"],
+        ),
+        restrict_to_workspace=bool(tools_cfg["restrict_to_workspace"]),
+        mcp_servers=deepcopy(tools_cfg["mcp_servers"]),
+        cron_enabled=cron_enabled,
+        cron_store_path=cron_store_path if cron_enabled else None,
+        cron_service=cron_service,
+    )
+
+
 def _create_default_planning_backend(cfg: dict[str, Any] | None = None) -> AppPlanningBackend:
     """Build a standalone planning facade for the agent bootstrap path."""
     from services.reminder_scheduler import ReminderScheduler
@@ -325,12 +373,14 @@ def create_agent(
     cfg: dict[str, Any],
     *,
     planning_backend: PlanningBackend | None = None,
+    runtime_options: ResolvedAgentRuntimeOptions | None = None,
 ) -> tuple[MessageBus, AgentLoop]:
     """根据配置创建 MessageBus 和 AgentLoop。"""
     nanobot_cfg = cfg.get("nanobot", {})
     api_key = nanobot_cfg.get("api_key", "")
     model = nanobot_cfg.get("model", "claude-sonnet-4-6")
     provider_name = nanobot_cfg.get("provider", "anthropic")
+    resolved_runtime = runtime_options or resolve_agent_runtime_options(cfg)
 
     bus = MessageBus()
     provider = LiteLLMProvider(
@@ -351,7 +401,13 @@ def create_agent(
         temperature=nanobot_cfg.get("temperature", 0.1),
         max_tokens=nanobot_cfg.get("max_tokens", 8192),
         memory_window=nanobot_cfg.get("memory_window", 50),
+        brave_api_key=resolved_runtime.brave_api_key or None,
+        web_proxy=resolved_runtime.web_proxy,
+        exec_config=resolved_runtime.exec_config,
+        cron_service=resolved_runtime.cron_service,
+        restrict_to_workspace=resolved_runtime.restrict_to_workspace,
         session_manager=session_manager,
+        mcp_servers=deepcopy(resolved_runtime.mcp_servers),
         planning_backend=resolved_planning_backend,
     )
     return bus, agent
@@ -422,6 +478,7 @@ def create_http_app(
     *,
     start_time: float,
     computer_control_service: ComputerControlService | None = None,
+    agent_runtime: ResolvedAgentRuntimeOptions | None = None,
 ) -> web.Application:
     """Create the aiohttp application and register routes."""
     from nanobot.agent.tools.computer_control import ComputerControlTool
@@ -452,6 +509,7 @@ def create_http_app(
     runtime_dir = getattr(resolved_sessions, "workspace", WORKSPACE_DIR)
     if not isinstance(runtime_dir, Path):
         runtime_dir = WORKSPACE_DIR
+    resolved_agent_runtime = agent_runtime or resolve_agent_runtime_options(cfg)
     resolved_computer_control_service = computer_control_service or ComputerControlService(
         cfg,
         runtime_dir=runtime_dir / "runtime",
@@ -466,6 +524,7 @@ def create_http_app(
         computer_control_service=resolved_computer_control_service,
         version=VERSION,
         start_time=start_time,
+        agent_runtime=resolved_agent_runtime,
     )
     from nanobot.agent.tools.planning import PlanningTool
 
@@ -505,14 +564,23 @@ def create_http_app(
         nanobot_cfg = cfg.get("nanobot", {})
         uptime = time.monotonic() - start_time
         device_state = getattr(getattr(device_channel, "state", None), "value", None) or "unknown"
+        startup_state = request.app.get("startup_state", {})
+        if not isinstance(startup_state, dict):
+            startup_state = {}
         return web.json_response({
             "status": "ok",
+            "ready": bool(startup_state.get("ready", False)),
+            "startup_phase": str(startup_state.get("startup_phase") or "bootstrapping"),
             "version": VERSION,
             "uptime_s": round(uptime),
             "model": nanobot_cfg.get("model", "unknown"),
             "provider": nanobot_cfg.get("provider", "unknown"),
             "asr_model": cfg.get("asr", {}).get("model", "base"),
             "tts_voice": cfg.get("tts", {}).get("voice", "zh-CN-XiaoxiaoNeural"),
+            "server_port": request.app.get("server_config", {}).get(
+                "port",
+                cfg.get("server", {}).get("port", 8765),
+            ),
             "device_connected": device_channel.connected,
             "device_state": device_state,
         })
@@ -521,6 +589,12 @@ def create_http_app(
         return web.json_response(device_channel.get_snapshot())
 
     app = web.Application(middlewares=[cors_middleware])
+    app["server_config"] = get_server_config(cfg)
+    app["startup_state"] = {
+        "ready": False,
+        "startup_phase": "bootstrapping",
+    }
+    app["agent_runtime"] = resolved_agent_runtime
     app.router.add_get("/api/health", health_handler)
     app.router.add_get("/api/device", device_info_handler)
     device_channel.register_routes(app)
@@ -543,7 +617,8 @@ def build_runtime(start_time: float) -> RuntimeComponents:
     from services.desktop_voice_service import DesktopVoiceService
 
     cfg, server_cfg = load_runtime_config()
-    bus, agent = create_agent(cfg)
+    agent_runtime = resolve_agent_runtime_options(cfg)
+    bus, agent = create_agent(cfg, runtime_options=agent_runtime)
     device_channel, asr_cfg, tts_cfg, device_cfg = create_device_channel(cfg, bus)
     desktop_voice_service = DesktopVoiceService(
         bus=bus,
@@ -561,10 +636,12 @@ def build_runtime(start_time: float) -> RuntimeComponents:
         device_channel,
         desktop_voice_service,
         start_time=start_time,
+        agent_runtime=agent_runtime,
     )
     return RuntimeComponents(
         config=cfg,
         server_config=server_cfg,
+        agent_runtime=agent_runtime,
         bus=bus,
         agent=agent,
         app=app,
@@ -606,6 +683,14 @@ def log_startup_summary(runtime: RuntimeComponents) -> None:
     logger.info(
         "  Computer Control: {}",
         "enabled" if runtime.config.get("computer_control", {}).get("enabled", False) else "disabled",
+    )
+    logger.info(
+        "  Agent Runtime: exec={}s | workspace_restricted={} | web_search={} | mcp={} | cron={}",
+        getattr(runtime.agent_runtime.exec_config, "timeout", 60),
+        runtime.agent_runtime.restrict_to_workspace,
+        bool(runtime.agent_runtime.brave_api_key),
+        bool(runtime.agent_runtime.mcp_servers),
+        runtime.agent_runtime.cron_enabled,
     )
     wa_cfg = runtime.config.get("whatsapp", {})
     logger.info(

@@ -231,6 +231,44 @@ class CapabilitiesModel {
   }
 }
 
+class AgentRuntimeModel {
+  const AgentRuntimeModel({
+    this.workspaceRestricted = false,
+    this.webSearchEnabled = false,
+    this.mcpEnabled = false,
+    this.cronEnabled = false,
+    this.execTimeoutS,
+    this.permissionProfile = const <String, dynamic>{},
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final bool workspaceRestricted;
+  final bool webSearchEnabled;
+  final bool mcpEnabled;
+  final bool cronEnabled;
+  final int? execTimeoutS;
+  final Map<String, dynamic> permissionProfile;
+  final Map<String, dynamic> metadata;
+
+  factory AgentRuntimeModel.fromJson(Map<String, dynamic> json) {
+    return AgentRuntimeModel(
+      workspaceRestricted: _readBool(json, const <String>[
+        'workspace_restricted',
+        'restrict_to_workspace',
+      ]),
+      webSearchEnabled: _readBool(json, const <String>['web_search_enabled']),
+      mcpEnabled: _readBool(json, const <String>['mcp_enabled']),
+      cronEnabled: _readBool(json, const <String>['cron_enabled']),
+      execTimeoutS: _readNullableInt(json, const <String>[
+        'exec_timeout_s',
+        'exec_timeout',
+      ]),
+      permissionProfile: _asMap(json['permission_profile']),
+      metadata: Map<String, dynamic>.from(json),
+    );
+  }
+}
+
 class EventResumeModel {
   const EventResumeModel({
     required this.query,
@@ -281,6 +319,7 @@ class BootstrapModel {
   const BootstrapModel({
     required this.serverVersion,
     required this.capabilities,
+    this.agentRuntime = const AgentRuntimeModel(),
     required this.runtime,
     required this.sessions,
     required this.eventStream,
@@ -295,6 +334,7 @@ class BootstrapModel {
 
   final String serverVersion;
   final CapabilitiesModel capabilities;
+  final AgentRuntimeModel agentRuntime;
   final RuntimeStateModel runtime;
   final List<SessionModel> sessions;
   final EventStreamModel eventStream;
@@ -305,6 +345,7 @@ class BootstrapModel {
   BootstrapModel copyWith({
     String? serverVersion,
     CapabilitiesModel? capabilities,
+    AgentRuntimeModel? agentRuntime,
     RuntimeStateModel? runtime,
     List<SessionModel>? sessions,
     EventStreamModel? eventStream,
@@ -315,6 +356,7 @@ class BootstrapModel {
     return BootstrapModel(
       serverVersion: serverVersion ?? this.serverVersion,
       capabilities: capabilities ?? this.capabilities,
+      agentRuntime: agentRuntime ?? this.agentRuntime,
       runtime: runtime ?? this.runtime,
       sessions: sessions ?? this.sessions,
       eventStream: eventStream ?? this.eventStream,
@@ -340,6 +382,9 @@ class BootstrapModel {
     return BootstrapModel(
       serverVersion: json['server_version']?.toString() ?? '',
       capabilities: capabilities,
+      agentRuntime: AgentRuntimeModel.fromJson(
+        _extractAgentRuntimePayload(json, runtimePayload),
+      ),
       runtime: RuntimeStateModel.fromJson(runtimePayload),
       sessions: rawSessions
           .map(
@@ -388,6 +433,37 @@ Map<String, dynamic> _extractBootstrapPlanning(Map<String, dynamic> json) {
   }
 
   return planning;
+}
+
+Map<String, dynamic> _extractAgentRuntimePayload(
+  Map<String, dynamic> bootstrapJson,
+  Map<String, dynamic> runtimeJson,
+) {
+  final runtime = _asMap(bootstrapJson['agent_runtime']);
+  if (runtime.isNotEmpty) {
+    return runtime;
+  }
+
+  final nested = _asMap(runtimeJson['agent_runtime']);
+  if (nested.isNotEmpty) {
+    return nested;
+  }
+
+  final fallback = <String, dynamic>{};
+  for (final key in const <String>[
+    'workspace_restricted',
+    'web_search_enabled',
+    'mcp_enabled',
+    'cron_enabled',
+    'exec_timeout_s',
+    'permission_profile',
+  ]) {
+    final prefixedKey = 'agent_runtime_$key';
+    if (bootstrapJson.containsKey(prefixedKey)) {
+      fallback[key] = bootstrapJson[prefixedKey];
+    }
+  }
+  return fallback;
 }
 
 Map<String, dynamic> _extractBootstrapExperience(
@@ -476,4 +552,18 @@ List<String> _readStringList(Map<String, dynamic> json, List<String> keys) {
     }
   }
   return const <String>[];
+}
+
+int? _readNullableInt(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is int) {
+      return value;
+    }
+    final parsed = int.tryParse(value?.toString() ?? '');
+    if (parsed != null) {
+      return parsed;
+    }
+  }
+  return null;
 }

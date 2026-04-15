@@ -19,9 +19,30 @@ class DevicePairingStorageService {
       return null;
     }
     final decoded = jsonDecode(raw);
-    if (decoded is! Map<String, dynamic>) {
+    if (decoded is! Map) {
       return null;
     }
-    return DevicePairingDraftModel.fromStorageJson(decoded);
+    final payload = Map<String, dynamic>.from(decoded);
+    final draft = DevicePairingDraftModel.fromStorageJson(payload);
+    final normalized = draft.toStorageJson();
+    if (_needsMigration(payload, normalized)) {
+      await preferences.setString(_storageKey, jsonEncode(normalized));
+    }
+    return draft;
+  }
+
+  bool _needsMigration(
+    Map<String, dynamic> current,
+    Map<String, dynamic> normalized,
+  ) {
+    if (current.length != normalized.length) {
+      return true;
+    }
+    for (final entry in normalized.entries) {
+      if (current[entry.key] != entry.value) {
+        return true;
+      }
+    }
+    return false;
   }
 }

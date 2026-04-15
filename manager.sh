@@ -205,8 +205,13 @@ adopt_existing_backend_on_port() {
     if is_compatible_backend_pid "$pid"; then
         ensure_state_dir
         echo "$pid" >"$SERVER_PID_FILE"
-        print_info "检测到端口 $SERVER_PORT 上已有本项目后端，直接复用 (pid: $pid)"
-        return 0
+        print_info "检测到端口 $SERVER_PORT 上已有本项目后端，检查健康状态"
+        if wait_for_server_ready false; then
+            print_info "检测到端口 $SERVER_PORT 上已有本项目后端，直接复用 (pid: $pid)"
+            return 0
+        fi
+        print_error "端口 $SERVER_PORT 上的本项目后端未进入 ready，当前不复用该进程"
+        return 3
     fi
 
     print_error "端口 $SERVER_PORT 已被其他进程占用，无法自动启动后端"
@@ -330,25 +335,95 @@ append_log_banner() {
     } >>"$log_file"
 }
 
-start_server_background() {
-    ensure_state_dir
-    ensure_server_venv
+server_health_url() {
+    echo "http://127.0.0.1:$SERVER_PORT/api/health"
+}
 
-    if is_pid_running "$SERVER_PID_FILE"; then
-        print_info "后端已在后台运行 (pid: $(read_pid "$SERVER_PID_FILE"))"
-        print_info "日志文件: $SERVER_LOG_FILE"
-        return 0
+fetch_server_health() {
+    local url="$1"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsS --max-time 2 "$url"
+        return $?
     fi
 
-    if adopt_existing_backend_on_port; then
-        return 0
-    else
-        local adopt_status=$?
-        if [ "$adopt_status" -eq 2 ]; then
+    python3 - "$url" <<'PY'
+import sys
+import urllib.request
+
+url = sys.argv[1]
+with urllib.request.urlopen(url, timeout=2) as response:
+    sys.stdout.write(response.read().decode("utf-8"))
+PY
+}
+
+summarize_server_health() {
+    local payload="$1"
+    python3 -c '
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+ready = "true" if payload.get("ready") is True else "false"
+phase = str(payload.get("startup_phase") or "")
+port = payload.get("server_port")
+print("{}|{}|{}".format(ready, phase, "" if port is None else port))
+' "$payload"
+}
+
+wait_for_server_ready() {
+    local cleanup_on_failure="${1:-true}"
+    local url body summary ready phase port
+    local max_attempts=30
+
+    url="$(server_health_url)"
+    print_info "正在等待后端健康检查 ready=true: $url"
+
+    local attempt
+    for attempt in $(seq 1 "$max_attempts"); do
+        if ! is_pid_running "$SERVER_PID_FILE"; then
+            print_error "后端进程已退出，未进入 ready 状态"
+            print_error "最近日志如下："
+            tail -n 40 "$SERVER_LOG_FILE" 2>/dev/null || true
+            print_info "如缺依赖，先运行: ./manager.sh update"
             return 1
         fi
-    fi
 
+        body="$(fetch_server_health "$url" 2>/dev/null || true)"
+        if [ -n "${body:-}" ]; then
+            summary="$(summarize_server_health "$body" 2>/dev/null || true)"
+            if [ -n "${summary:-}" ]; then
+                IFS='|' read -r ready phase port <<<"$summary"
+                if [ "$ready" = "true" ]; then
+                    print_success "后端已就绪 (pid: $(read_pid "$SERVER_PID_FILE"))"
+                    if [ -n "${phase:-}" ]; then
+                        print_info "健康阶段: $phase"
+                    fi
+                    print_info "日志文件: $SERVER_LOG_FILE"
+                    return 0
+                fi
+            fi
+        fi
+
+        sleep 1
+    done
+
+    print_error "后端未在预期时间内进入 ready 状态"
+    if [ "$cleanup_on_failure" = "true" ]; then
+        if is_pid_running "$SERVER_PID_FILE"; then
+            print_warning "正在停止未就绪的后端进程"
+            stop_pid_file "$SERVER_PID_FILE" "后端"
+        else
+            rm -f "$SERVER_PID_FILE"
+        fi
+    fi
+    print_error "最近日志如下："
+    tail -n 40 "$SERVER_LOG_FILE" 2>/dev/null || true
+    print_info "如缺依赖，先运行: ./manager.sh update"
+    return 1
+}
+
+spawn_server_process() {
     append_log_banner "$SERVER_LOG_FILE" "server start"
     print_info "正在后台启动后端"
     (
@@ -356,18 +431,32 @@ start_server_background() {
         nohup env PYTHONUNBUFFERED=1 "$SERVER_PYTHON" main.py >>"$SERVER_LOG_FILE" 2>&1 &
         echo $! >"$SERVER_PID_FILE"
     )
+}
 
-    sleep 2
+start_server_background() {
+    ensure_state_dir
+    ensure_server_venv
+
     if is_pid_running "$SERVER_PID_FILE"; then
-        print_success "后端已启动 (pid: $(read_pid "$SERVER_PID_FILE"))"
-        print_info "日志文件: $SERVER_LOG_FILE"
-        return 0
+        print_info "后端已在后台运行 (pid: $(read_pid "$SERVER_PID_FILE"))，检查健康状态"
+        if wait_for_server_ready false; then
+            return 0
+        fi
+        print_error "后端进程存在但尚未 ready；请检查日志或执行 ./manager.sh backend-restart"
+        return 1
     fi
 
-    print_error "后端启动失败，最近日志如下："
-    tail -n 40 "$SERVER_LOG_FILE" 2>/dev/null || true
-    print_info "如缺依赖，先运行: ./manager.sh update"
-    return 1
+    if adopt_existing_backend_on_port; then
+        return 0
+    else
+        local adopt_status=$?
+        if [ "$adopt_status" -eq 2 ] || [ "$adopt_status" -eq 3 ]; then
+            return 1
+        fi
+    fi
+
+    spawn_server_process
+    wait_for_server_ready true
 }
 
 start_bridge_background() {
@@ -463,8 +552,18 @@ run_app_foreground() {
 
 show_status() {
     print_header
-    if is_pid_running "$SERVER_PID_FILE" || adopt_existing_backend_on_port; then
-        print_success "后端运行中 (pid: $(read_pid "$SERVER_PID_FILE"))"
+    local server_pid=""
+    if is_pid_running "$SERVER_PID_FILE"; then
+        server_pid="$(read_pid "$SERVER_PID_FILE")"
+    else
+        server_pid="$(find_listening_pid_on_server_port || true)"
+        if [ -n "${server_pid:-}" ] && ! is_compatible_backend_pid "$server_pid"; then
+            server_pid=""
+        fi
+    fi
+
+    if [ -n "${server_pid:-}" ]; then
+        print_success "后端运行中 (pid: $server_pid)"
         print_info "日志: $SERVER_LOG_FILE"
     else
         print_info "后端未在后台运行"

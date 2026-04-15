@@ -25,6 +25,7 @@ import '../models/planning/planning_timeline_item_model.dart';
 import '../models/reminders/reminder_model.dart';
 import '../models/settings/settings_model.dart';
 import '../models/tasks/task_model.dart';
+import '../models/voice/voice_activity_model.dart';
 import '../services/api/api_client.dart';
 import '../services/bootstrap/bootstrap_service.dart';
 import '../services/chat/chat_service.dart';
@@ -252,6 +253,7 @@ class AppController extends StateNotifier<AppState> {
         sessionExperienceOverrides: _experienceOverridesFromSessions(
           bootstrap.sessions,
         ),
+        voiceActivity: VoiceActivityModel.empty(),
         globalMessage: silent ? null : 'Connected to AI-bot backend.',
       );
       if (sessionId.isNotEmpty) {
@@ -269,6 +271,7 @@ class AppController extends StateNotifier<AppState> {
         eventStreamConnected: false,
         bootstrap: null,
         capabilities: CapabilitiesModel.empty(),
+        voiceActivity: VoiceActivityModel.empty(),
         sessions: const <SessionModel>[],
         globalMessage: error is ApiError ? error.message : 'Connection failed.',
       );
@@ -491,6 +494,7 @@ class AppController extends StateNotifier<AppState> {
       messagesBySession: DemoServiceBundle.messagesBySession,
       sessionExperienceOverrides:
           const <String, SessionExperienceOverrideModel>{},
+      voiceActivity: VoiceActivityModel.empty(),
       settingsStatus: FeatureStatus.demo,
       settings: _demoSettings(),
       tasksStatus: FeatureStatus.demo,
@@ -558,6 +562,7 @@ class AppController extends StateNotifier<AppState> {
         messagesBySession: DemoServiceBundle.messagesBySession,
         sessionExperienceOverrides:
             const <String, SessionExperienceOverrideModel>{},
+        voiceActivity: VoiceActivityModel.empty(),
         settingsStatus: FeatureStatus.demo,
         settings: _demoSettings(),
         tasksStatus: FeatureStatus.demo,
@@ -610,6 +615,7 @@ class AppController extends StateNotifier<AppState> {
         sessionExperienceOverrides: _experienceOverridesFromSessions(
           bootstrap.sessions,
         ),
+        voiceActivity: VoiceActivityModel.empty(),
         globalMessage: 'Workspace refreshed.',
       );
       if (sessionId.isNotEmpty) {
@@ -2507,6 +2513,85 @@ class AppController extends StateNotifier<AppState> {
     );
   }
 
+  void _applyVoiceActivityUpdate({
+    String? transcript,
+    String? response,
+    String? error,
+    String? stateLabel,
+    String? sessionId,
+    String? taskId,
+    required String occurredAt,
+    bool clearError = false,
+  }) {
+    state = state.copyWith(
+      voiceActivity: state.voiceActivity.copyWith(
+        lastTranscript: transcript ?? state.voiceActivity.lastTranscript,
+        lastResponse: response ?? state.voiceActivity.lastResponse,
+        lastError: clearError ? null : error ?? state.voiceActivity.lastError,
+        lastUpdatedAt: occurredAt,
+        sessionId: sessionId ?? state.voiceActivity.sessionId,
+        taskId: taskId ?? state.voiceActivity.taskId,
+        state: stateLabel ?? state.voiceActivity.state,
+      ),
+    );
+  }
+
+  void _applyVoiceRuntimeSnapshot(dynamic rawSnapshot) {
+    final snapshot = rawSnapshot is Map<String, dynamic>
+        ? rawSnapshot
+        : <String, dynamic>{};
+    if (snapshot.isEmpty) {
+      return;
+    }
+    state = state.copyWith(
+      runtimeState: state.runtimeState.copyWithVoice(
+        VoiceStatusModel.fromJson(snapshot),
+      ),
+    );
+  }
+
+  String? _readVoiceSnapshotStatus(dynamic rawSnapshot) {
+    if (rawSnapshot is! Map<String, dynamic>) {
+      return null;
+    }
+    final value = rawSnapshot['status']?.toString().trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  String? _readVoiceEventSessionId(AppEventModel event) {
+    final metadata = event.payload['metadata'];
+    if (event.sessionId != null && event.sessionId!.trim().isNotEmpty) {
+      return event.sessionId;
+    }
+    if (metadata is Map<String, dynamic>) {
+      for (final key in const <String>[
+        'app_session_id',
+        'source_session_id',
+        'session_id',
+      ]) {
+        final value = metadata[key]?.toString().trim();
+        if (value != null && value.isNotEmpty) {
+          return value;
+        }
+      }
+    }
+    return null;
+  }
+
+  String? _readVoiceEventTaskId(AppEventModel event) {
+    final metadata = event.payload['metadata'];
+    if (event.taskId != null && event.taskId!.trim().isNotEmpty) {
+      return event.taskId;
+    }
+    if (metadata is Map<String, dynamic>) {
+      final value = metadata['task_id']?.toString().trim();
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    }
+    return null;
+  }
+
   void _handleEvent(AppEventModel event) {
     if (event.eventId.isNotEmpty) {
       final nextConnection = state.connection.copyWith(
@@ -2524,6 +2609,47 @@ class AppController extends StateNotifier<AppState> {
             resume['should_refetch_bootstrap'] == true) {
           unawaited(refreshAll());
         }
+        break;
+      case 'desktop_voice.state.changed':
+        _applyVoiceRuntimeSnapshot(event.payload);
+        _applyVoiceActivityUpdate(
+          occurredAt: event.occurredAt,
+          sessionId: _readVoiceEventSessionId(event),
+          taskId: _readVoiceEventTaskId(event),
+          stateLabel: event.payload['status']?.toString(),
+        );
+        break;
+      case 'desktop_voice.transcript':
+        _applyVoiceRuntimeSnapshot(event.payload['state']);
+        _applyVoiceActivityUpdate(
+          transcript: event.payload['text']?.toString(),
+          occurredAt: event.occurredAt,
+          sessionId: _readVoiceEventSessionId(event),
+          taskId: _readVoiceEventTaskId(event),
+          stateLabel: _readVoiceSnapshotStatus(event.payload['state']),
+          clearError: true,
+        );
+        break;
+      case 'desktop_voice.response':
+        _applyVoiceRuntimeSnapshot(event.payload['state']);
+        _applyVoiceActivityUpdate(
+          response: event.payload['text']?.toString(),
+          occurredAt: event.occurredAt,
+          sessionId: _readVoiceEventSessionId(event),
+          taskId: _readVoiceEventTaskId(event),
+          stateLabel: _readVoiceSnapshotStatus(event.payload['state']),
+          clearError: true,
+        );
+        break;
+      case 'desktop_voice.error':
+        _applyVoiceRuntimeSnapshot(event.payload['state']);
+        _applyVoiceActivityUpdate(
+          error: event.payload['message']?.toString(),
+          occurredAt: event.occurredAt,
+          sessionId: _readVoiceEventSessionId(event),
+          taskId: _readVoiceEventTaskId(event),
+          stateLabel: _readVoiceSnapshotStatus(event.payload['state']) ?? 'error',
+        );
         break;
       case 'runtime.task.current_changed':
       case 'runtime.task.queue_changed':
@@ -3127,26 +3253,18 @@ class DevicePairingController extends StateNotifier<DevicePairingStateModel> {
 
     try {
       final bundle = await _requestBundle(host: state.draft.trimmedHost);
-      final nextDraft = state.draft.copyWith(
-        host: bundle.server.host,
-        port: bundle.server.port,
-        path: bundle.server.path,
-        secure: bundle.server.secure,
-      );
       state = state.copyWith(
-        draft: nextDraft,
         bundle: bundle,
         statusMessage: 'Sending pairing bundle over USB...',
         errorMessage: null,
       );
-      await _persistDraft(nextDraft);
 
       final completer = Completer<Map<String, dynamic>>();
       _pendingApplyResult = completer;
       await _serial.sendJson(
         bundle.toPairingApplyEnvelope(
-          wifiSsid: nextDraft.trimmedWifiSsid,
-          wifiPassword: nextDraft.wifiPassword,
+          wifiSsid: state.draft.trimmedWifiSsid,
+          wifiPassword: state.draft.wifiPassword,
         ),
       );
 
@@ -3367,6 +3485,12 @@ final appControllerProvider = StateNotifierProvider<AppController, AppState>((
   Ref ref,
 ) {
   return AppController(ref);
+});
+
+final voiceActivityProvider = Provider<VoiceActivityModel>((Ref ref) {
+  return ref.watch(
+    appControllerProvider.select((AppState state) => state.voiceActivity),
+  );
 });
 
 final devicePairingControllerProvider =

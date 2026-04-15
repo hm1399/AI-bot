@@ -56,6 +56,12 @@ class FakeComputerControlService:
             "permission_hints": [],
         }
 
+    async def confirm_action(self, action_id: str) -> dict[str, object]:
+        return {"action_id": action_id, "status": "confirmed"}
+
+    async def cancel_action(self, action_id: str) -> dict[str, object]:
+        return {"action_id": action_id, "status": "cancelled"}
+
 
 class DummyDeviceChannel:
     connected = False

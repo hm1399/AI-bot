@@ -33,6 +33,7 @@ class BootstrapProviderTimeoutTests(unittest.TestCase):
         provider = object()
         session_manager = object()
         agent = object()
+        planning_backend = object()
 
         cfg = {
             "nanobot": {
@@ -52,6 +53,10 @@ class BootstrapProviderTimeoutTests(unittest.TestCase):
             "SessionManager",
             return_value=session_manager,
         ) as session_manager_cls, patch.object(
+            bootstrap,
+            "_create_default_planning_backend",
+            return_value=planning_backend,
+        ), patch.object(
             bootstrap,
             "AgentLoop",
             return_value=agent,

@@ -1,11 +1,55 @@
+import '../connect/connection_config_model.dart';
 import '../experience/experience_model.dart';
+
+class SettingsConnectionDiagnosticsModel {
+  const SettingsConnectionDiagnosticsModel({
+    required this.status,
+    required this.endpoint,
+  });
+
+  final String status;
+  final String? endpoint;
+
+  String get summary =>
+      endpoint == null || endpoint!.isEmpty ? status : '$status · $endpoint';
+
+  factory SettingsConnectionDiagnosticsModel.fromConnection(
+    ConnectionConfigModel connection, {
+    required bool connected,
+    required bool demoMode,
+  }) {
+    final endpoint = connection.hasServer
+        ? '${connection.secure ? 'https' : 'http'}://${connection.host.trim()}:${connection.port}'
+        : null;
+    if (demoMode) {
+      return SettingsConnectionDiagnosticsModel(
+        status: 'Demo backend',
+        endpoint: endpoint,
+      );
+    }
+    if (connected) {
+      return SettingsConnectionDiagnosticsModel(
+        status: 'Connected backend',
+        endpoint: endpoint,
+      );
+    }
+    if (connection.hasServer) {
+      return SettingsConnectionDiagnosticsModel(
+        status: 'Saved backend',
+        endpoint: endpoint,
+      );
+    }
+    return const SettingsConnectionDiagnosticsModel(
+      status: 'Not connected',
+      endpoint: null,
+    );
+  }
+}
 
 class AppSettingsModel {
   static const Object _unset = Object();
 
   const AppSettingsModel({
-    required this.serverUrl,
-    required this.serverPort,
     required this.llmProvider,
     required this.llmModel,
     required this.llmApiKeyConfigured,
@@ -35,8 +79,6 @@ class AppSettingsModel {
     this.applyResults = const <String, SettingApplyResultModel>{},
   });
 
-  final String serverUrl;
-  final int serverPort;
   final String llmProvider;
   final String llmModel;
   final bool llmApiKeyConfigured;
@@ -147,8 +189,6 @@ class AppSettingsModel {
     Object? applyResults = _unset,
   }) {
     return AppSettingsModel(
-      serverUrl: serverUrl,
-      serverPort: serverPort,
       llmProvider: llmProvider ?? this.llmProvider,
       llmModel: llmModel ?? this.llmModel,
       llmApiKeyConfigured: llmApiKeyConfigured ?? this.llmApiKeyConfigured,
@@ -215,10 +255,6 @@ class AppSettingsModel {
   factory AppSettingsModel.fromJson(Map<String, dynamic> json) {
     final payload = _extractSettingsPayload(json);
     return AppSettingsModel(
-      serverUrl: payload['server_url']?.toString() ?? '',
-      serverPort: payload['server_port'] is int
-          ? payload['server_port'] as int
-          : int.tryParse(payload['server_port']?.toString() ?? '') ?? 8000,
       llmProvider: payload['llm_provider']?.toString() ?? 'server-managed',
       llmModel: payload['llm_model']?.toString() ?? '',
       llmApiKeyConfigured: payload['llm_api_key_configured'] == true,
