@@ -76,3 +76,5 @@
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-14-触摸按键防抖与播放期误触抑制实施计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-14-触摸按键防抖与播放期误触抑制实施计划.md)
 - [2026-04-14-设备屏幕闪屏与局部重绘实施计划](./2026-04-14-设备屏幕闪屏与局部重绘实施计划.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-14-设备屏幕闪屏与局部重绘实施计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-14-设备屏幕闪屏与局部重绘实施计划.md)
+- [2026-04-15-P1热点文件性能风险与用户可见偏差总方案](./2026-04-15-P1热点文件性能风险与用户可见偏差总方案.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-P1热点文件性能风险与用户可见偏差总方案.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-P1热点文件性能风险与用户可见偏差总方案.md)
