@@ -24,6 +24,8 @@ PLANNING_METADATA_FIELDS: tuple[str, ...] = (
     "linked_task_id",
     "linked_event_id",
     "linked_reminder_id",
+    "scheduled_action_kind",
+    "scheduled_action_target",
 )
 REMINDER_RUNTIME_FIELDS: tuple[str, ...] = (
     "next_trigger_at",
@@ -159,9 +161,9 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
     },
 }
 _PLANNING_METADATA_TEXT_COLUMNS: dict[str, tuple[str, ...]] = {
-    "tasks": ("planning_surface", "owner_kind", "delivery_mode"),
-    "events": ("planning_surface", "owner_kind", "delivery_mode"),
-    "reminders": ("planning_surface", "owner_kind", "delivery_mode"),
+    "tasks": PLANNING_METADATA_FIELDS,
+    "events": PLANNING_METADATA_FIELDS,
+    "reminders": PLANNING_METADATA_FIELDS,
 }
 
 
@@ -210,6 +212,8 @@ class SQLitePlanningStore:
                       reminders.linked_task_id,
                       reminders.linked_event_id,
                       reminders.linked_reminder_id,
+                      reminders.scheduled_action_kind,
+                      reminders.scheduled_action_target,
                       reminders.created_at,
                       reminders.updated_at,
                       reminder_runtime.next_trigger_at,
@@ -259,6 +263,8 @@ class SQLitePlanningStore:
                       reminders.linked_task_id,
                       reminders.linked_event_id,
                       reminders.linked_reminder_id,
+                      reminders.scheduled_action_kind,
+                      reminders.scheduled_action_target,
                       reminders.created_at,
                       reminders.updated_at,
                       reminder_runtime.next_trigger_at,
@@ -361,6 +367,7 @@ class SQLitePlanningStore:
         *,
         due_before: str | None = None,
         limit: int | None = None,
+        deliverable_only: bool = False,
     ) -> list[dict[str, Any]]:
         due_epoch = _parse_epoch(due_before or _now_iso())
         if due_epoch is None:
@@ -388,6 +395,8 @@ class SQLitePlanningStore:
               reminders.linked_task_id,
               reminders.linked_event_id,
               reminders.linked_reminder_id,
+              reminders.scheduled_action_kind,
+              reminders.scheduled_action_target,
               reminders.created_at,
               reminders.updated_at,
               reminder_runtime.next_trigger_at,
@@ -402,9 +411,16 @@ class SQLitePlanningStore:
             WHERE reminders.enabled = 1
               AND reminder_runtime.next_trigger_epoch IS NOT NULL
               AND reminder_runtime.next_trigger_epoch <= ?
-            ORDER BY reminder_runtime.next_trigger_epoch ASC, reminders.created_at ASC
         """
         params: list[Any] = [due_epoch]
+        if deliverable_only:
+            sql += """
+              AND (
+                reminder_runtime.last_triggered_epoch IS NULL
+                OR reminder_runtime.last_triggered_epoch < reminder_runtime.next_trigger_epoch
+              )
+            """
+        sql += " ORDER BY reminder_runtime.next_trigger_epoch ASC, reminders.created_at ASC"
         if isinstance(limit, int) and limit > 0:
             sql += " LIMIT ?"
             params.append(limit)
@@ -412,6 +428,115 @@ class SQLitePlanningStore:
         with self._connect() as conn:
             rows = conn.execute(sql, tuple(params)).fetchall()
         return [self._row_to_reminder_item(row) for row in rows]
+
+    def get_next_reminder_fire(
+        self,
+        *,
+        deliverable_only: bool = True,
+    ) -> dict[str, Any] | None:
+        sql = """
+            SELECT
+              reminders.reminder_id,
+              reminders.title,
+              reminders.time,
+              reminders.message,
+              reminders.repeat,
+              reminders.enabled,
+              reminders.bundle_id,
+              reminders.created_via,
+              reminders.source_channel,
+              reminders.source_message_id,
+              reminders.source_session_id,
+              reminders.interaction_surface,
+              reminders.planning_surface,
+              reminders.owner_kind,
+              reminders.delivery_mode,
+              reminders.capture_source,
+              reminders.voice_path,
+              reminders.linked_task_id,
+              reminders.linked_event_id,
+              reminders.linked_reminder_id,
+              reminders.scheduled_action_kind,
+              reminders.scheduled_action_target,
+              reminders.created_at,
+              reminders.updated_at,
+              reminder_runtime.next_trigger_at,
+              reminder_runtime.last_triggered_at,
+              reminder_runtime.last_error,
+              reminder_runtime.snoozed_until,
+              reminder_runtime.completed_at,
+              reminder_runtime.status
+            FROM reminder_runtime
+            INNER JOIN reminders
+              ON reminders.reminder_id = reminder_runtime.reminder_id
+            WHERE reminders.enabled = 1
+              AND reminder_runtime.next_trigger_epoch IS NOT NULL
+        """
+        if deliverable_only:
+            sql += """
+              AND (
+                reminder_runtime.last_triggered_epoch IS NULL
+                OR reminder_runtime.last_triggered_epoch < reminder_runtime.next_trigger_epoch
+              )
+            """
+        sql += """
+            ORDER BY reminder_runtime.next_trigger_epoch ASC, reminders.created_at ASC
+            LIMIT 1
+        """
+        with self._connect() as conn:
+            row = conn.execute(sql).fetchone()
+        return self._row_to_reminder_item(row) if row is not None else None
+
+    def reminder_runtime_stats(self, *, due_before: str | None = None) -> dict[str, Any]:
+        due_epoch = _parse_epoch(due_before or _now_iso())
+        with self._connect() as conn:
+            status_rows = conn.execute(
+                """
+                SELECT COALESCE(status, 'unknown') AS status, COUNT(*) AS count
+                FROM reminder_runtime
+                GROUP BY COALESCE(status, 'unknown')
+                """
+            ).fetchall()
+            reminder_total_row = conn.execute("SELECT COUNT(*) AS count FROM reminders").fetchone()
+            enabled_row = conn.execute(
+                "SELECT COUNT(*) AS count FROM reminders WHERE enabled = 1"
+            ).fetchone()
+            next_trigger_row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM reminder_runtime
+                WHERE next_trigger_epoch IS NOT NULL
+                """
+            ).fetchone()
+            deliverable_due_row = None
+            if due_epoch is not None:
+                deliverable_due_row = conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM reminder_runtime
+                    INNER JOIN reminders
+                      ON reminders.reminder_id = reminder_runtime.reminder_id
+                    WHERE reminders.enabled = 1
+                      AND reminder_runtime.next_trigger_epoch IS NOT NULL
+                      AND reminder_runtime.next_trigger_epoch <= ?
+                      AND (
+                        reminder_runtime.last_triggered_epoch IS NULL
+                        OR reminder_runtime.last_triggered_epoch < reminder_runtime.next_trigger_epoch
+                      )
+                    """,
+                    (due_epoch,),
+                ).fetchone()
+        status_counts = {
+            str(row["status"]): int(row["count"] or 0)
+            for row in status_rows
+        }
+        return {
+            "total": int(reminder_total_row["count"]) if reminder_total_row is not None else 0,
+            "enabled": int(enabled_row["count"]) if enabled_row is not None else 0,
+            "with_next_trigger": int(next_trigger_row["count"]) if next_trigger_row is not None else 0,
+            "deliverable_due": int(deliverable_due_row["count"]) if deliverable_due_row is not None else 0,
+            "status_counts": status_counts,
+        }
 
     def create_notification_and_update_reminder(
         self,
@@ -472,6 +597,8 @@ class SQLitePlanningStore:
                       linked_task_id TEXT,
                       linked_event_id TEXT,
                       linked_reminder_id TEXT,
+                      scheduled_action_kind TEXT,
+                      scheduled_action_target TEXT,
                       created_at TEXT NOT NULL,
                       updated_at TEXT NOT NULL
                     ) STRICT
@@ -500,6 +627,8 @@ class SQLitePlanningStore:
                       linked_task_id TEXT,
                       linked_event_id TEXT,
                       linked_reminder_id TEXT,
+                      scheduled_action_kind TEXT,
+                      scheduled_action_target TEXT,
                       created_at TEXT NOT NULL,
                       updated_at TEXT NOT NULL
                     ) STRICT
@@ -543,6 +672,8 @@ class SQLitePlanningStore:
                       linked_task_id TEXT,
                       linked_event_id TEXT,
                       linked_reminder_id TEXT,
+                      scheduled_action_kind TEXT,
+                      scheduled_action_target TEXT,
                       created_at TEXT NOT NULL,
                       updated_at TEXT NOT NULL
                     ) STRICT
@@ -777,6 +908,8 @@ class SQLitePlanningStore:
               reminders.linked_task_id,
               reminders.linked_event_id,
               reminders.linked_reminder_id,
+              reminders.scheduled_action_kind,
+              reminders.scheduled_action_target,
               reminders.created_at,
               reminders.updated_at,
               reminder_runtime.next_trigger_at,
@@ -859,5 +992,13 @@ class SQLiteReminderStoreAdapter(SQLiteCollectionAdapter):
         *,
         due_before: str | None = None,
         limit: int | None = None,
+        deliverable_only: bool = False,
     ) -> list[dict[str, Any]]:
-        return self._store.list_due_reminders(due_before=due_before, limit=limit)
+        return self._store.list_due_reminders(
+            due_before=due_before,
+            limit=limit,
+            deliverable_only=deliverable_only,
+        )
+
+    def get_next_fire_item(self, *, deliverable_only: bool = True) -> dict[str, Any] | None:
+        return self._store.get_next_reminder_fire(deliverable_only=deliverable_only)

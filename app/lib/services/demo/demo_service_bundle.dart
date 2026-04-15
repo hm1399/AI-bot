@@ -63,7 +63,7 @@ class DemoServiceBundle {
         startedAt: null,
       ),
     ],
-    device: const DeviceStatusModel(
+    device: DeviceStatusModel(
       connected: true,
       state: 'idle',
       battery: 85,
@@ -101,6 +101,7 @@ class DemoServiceBundle {
         error: null,
         updatedAt: null,
       ),
+      displayCapabilities: DeviceDisplayCapabilitiesModel.empty(),
     ),
     voice: const VoiceStatusModel(
       reportedByBackend: true,

@@ -30,6 +30,8 @@ PLANNING_METADATA_FIELDS = (
     "linked_task_id",
     "linked_event_id",
     "linked_reminder_id",
+    "scheduled_action_kind",
+    "scheduled_action_target",
 )
 REMINDER_RUNTIME_FIELDS = (
     "next_trigger_at",
@@ -75,6 +77,7 @@ NOTIFICATION_ORIGIN_ALIASES = {
     "linked_event_id": "event_id",
     "linked_reminder_id": "reminder_id",
 }
+_PLANNING_DOMAINS = ("tasks", "events", "notifications", "reminders")
 
 
 class ResourceValidationError(ValueError):
@@ -155,9 +158,29 @@ class AppResourceService:
         self.storage_mode = resolved_storage_mode
         self.sqlite_path = resolved_sqlite_path
         self.last_imported_at: str | None = None
+        self.last_import_summary: dict[str, dict[str, Any]] = {}
         self.shadow_failure_count = 0
         self.shadow_mismatch_count = 0
         self.shadow_mismatch_domains: dict[str, int] = {}
+        self.shadow_last_synced_at: str | None = None
+        self.shadow_last_error: str | None = None
+        self.shadow_last_error_at: str | None = None
+        self.shadow_last_mismatch_at: str | None = None
+        self._shadow_domain_state: dict[str, dict[str, Any]] = {
+            domain: {
+                "enabled": self.storage_mode == "dual",
+                "last_synced_at": None,
+                "last_error": None,
+                "last_error_at": None,
+                "mismatch_count": 0,
+                "last_mismatch_at": None,
+                "last_match": None,
+                "last_primary_count": 0,
+                "last_shadow_count": 0,
+            }
+            for domain in _PLANNING_DOMAINS
+        }
+        self._reminder_change_listeners: list[Callable[[dict[str, Any]], None]] = []
 
         json_task_store = JsonCollectionStore(runtime_dir / "tasks.json", id_field="task_id", prefix="task")
         json_event_store = JsonCollectionStore(runtime_dir / "events.json", id_field="event_id", prefix="event")
@@ -187,6 +210,10 @@ class AppResourceService:
                 self._sqlite_store,
                 overwrite=False,
             )
+            self.last_import_summary = {
+                domain: deepcopy(summary)
+                for domain, summary in import_summary.items()
+            }
             if any(bool(item.get("imported")) for item in import_summary.values()):
                 self.last_imported_at = self._now_iso()
             self._sqlite_adapters = {
@@ -330,20 +357,41 @@ class AppResourceService:
         return {"items": items}
 
     def create_reminder(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.reminder_store.create(self._normalize_reminder_payload(payload, partial=False))
+        created = self.reminder_store.create(self._normalize_reminder_payload(payload, partial=False))
+        self._notify_reminder_change("created", reminder_id=created.get("reminder_id"), reminder=created)
+        return created
 
     def update_reminder(self, reminder_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         patch = self._normalize_reminder_payload(payload, partial=True)
         updated = self.reminder_store.update(reminder_id, patch)
         if updated is None:
             raise ResourceNotFoundError("REMINDER_NOT_FOUND")
+        self._notify_reminder_change("updated", reminder_id=reminder_id, reminder=updated)
         return updated
 
     def delete_reminder(self, reminder_id: str) -> dict[str, Any]:
         deleted = self.reminder_store.delete(reminder_id)
         if deleted is None:
             raise ResourceNotFoundError("REMINDER_NOT_FOUND")
+        self._notify_reminder_change("deleted", reminder_id=reminder_id, reminder=deleted)
         return deleted
+
+    def register_reminder_change_listener(
+        self,
+        listener: Callable[[dict[str, Any]], None],
+    ) -> None:
+        if listener not in self._reminder_change_listeners:
+            self._reminder_change_listeners.append(listener)
+
+    def unregister_reminder_change_listener(
+        self,
+        listener: Callable[[dict[str, Any]], None],
+    ) -> None:
+        self._reminder_change_listeners = [
+            candidate
+            for candidate in self._reminder_change_listeners
+            if candidate != listener
+        ]
 
     def list_task_items(self) -> list[dict[str, Any]]:
         return self.task_store.list_items()
@@ -360,6 +408,30 @@ class AppResourceService:
     def get_reminder(self, reminder_id: str) -> dict[str, Any] | None:
         return self.reminder_store.get(reminder_id)
 
+    def get_next_reminder_fire(self) -> dict[str, Any] | None:
+        if self._should_use_sqlite_reminder_runtime() and self._sqlite_store is not None:
+            return self._sqlite_store.get_next_reminder_fire(deliverable_only=True)
+
+        items = [
+            item
+            for item in self.list_reminder_items()
+            if self._reminder_delivery_pending(item)
+        ]
+        items.sort(
+            key=lambda item: (
+                self._parse_epoch(item.get("next_trigger_at")) or 0,
+                item.get("created_at", ""),
+            )
+        )
+        return deepcopy(items[0]) if items else None
+
+    def get_next_reminder_fire_at(self) -> str | None:
+        next_item = self.get_next_reminder_fire()
+        if next_item is None:
+            return None
+        value = next_item.get("next_trigger_at")
+        return str(value) if isinstance(value, str) and value.strip() else None
+
     def planning_inputs(self) -> dict[str, list[dict[str, Any]]]:
         if self._sqlite_store is not None:
             return {
@@ -375,18 +447,72 @@ class AppResourceService:
             "notifications": self.list_notification_items(),
         }
 
-    def storage_runtime_state(self) -> dict[str, Any]:
-        sqlite_exists = bool(self._sqlite_store and self.sqlite_path.exists())
+    def planning_store_diagnostics(self) -> dict[str, Any]:
+        domain_stats = self._planning_domain_stats()
         schema_version = self._sqlite_store.schema_version() if self._sqlite_store is not None else 0
+        sqlite_ready = bool(self._sqlite_store and self.sqlite_path.exists())
+        reminder_runtime = (
+            self._sqlite_store.reminder_runtime_stats()
+            if self._sqlite_store is not None
+            else self._json_reminder_runtime_stats()
+        )
+        next_fire_at = self.get_next_reminder_fire_at()
+        shadow_state = {
+            "enabled": self.storage_mode == "dual",
+            "primary_backend": "json" if self.storage_mode != "sqlite" else "sqlite",
+            "shadow_backend": "sqlite" if self.storage_mode == "dual" else None,
+            "last_synced_at": self.shadow_last_synced_at,
+            "last_error": self.shadow_last_error,
+            "last_error_at": self.shadow_last_error_at,
+            "last_mismatch_at": self.shadow_last_mismatch_at,
+            "failure_count": self.shadow_failure_count,
+            "mismatch_count": self.shadow_mismatch_count,
+            "mismatch_domains": dict(self.shadow_mismatch_domains),
+            "domains": {
+                domain: deepcopy(state)
+                for domain, state in self._shadow_domain_state.items()
+            },
+        }
         return {
             "mode": self.storage_mode,
+            "primary_backend": "sqlite" if self.storage_mode == "sqlite" else "json",
+            "shadow_backend": "sqlite" if self.storage_mode == "dual" else None,
             "sqlite_path": str(self.sqlite_path),
-            "sqlite_ready": sqlite_exists,
+            "sqlite_ready": sqlite_ready,
             "schema_version": schema_version,
             "latest_imported_at": self.last_imported_at,
+            "imports": {
+                "latest_imported_at": self.last_imported_at,
+                "latest_summary": {
+                    domain: deepcopy(summary)
+                    for domain, summary in self.last_import_summary.items()
+                },
+            },
+            "shadow": shadow_state,
+            "domains": domain_stats,
+            "reminder_runtime": {
+                **reminder_runtime,
+                "next_fire_at": next_fire_at,
+            },
+        }
+
+    def storage_runtime_state(self) -> dict[str, Any]:
+        diagnostics = self.planning_store_diagnostics()
+        return {
+            "mode": diagnostics["mode"],
+            "primary_backend": diagnostics["primary_backend"],
+            "shadow_backend": diagnostics["shadow_backend"],
+            "sqlite_path": diagnostics["sqlite_path"],
+            "sqlite_ready": diagnostics["sqlite_ready"],
+            "schema_version": diagnostics["schema_version"],
+            "latest_imported_at": diagnostics["latest_imported_at"],
             "shadow_failures": self.shadow_failure_count,
             "mismatch_count": self.shadow_mismatch_count,
             "mismatch_domains": dict(self.shadow_mismatch_domains),
+            "imports": deepcopy(diagnostics["imports"]),
+            "shadow": deepcopy(diagnostics["shadow"]),
+            "domains": deepcopy(diagnostics["domains"]),
+            "reminder_runtime": deepcopy(diagnostics["reminder_runtime"]),
         }
 
     def list_due_reminders(
@@ -394,9 +520,14 @@ class AppResourceService:
         *,
         due_before: str | None = None,
         limit: int | None = None,
+        deliverable_only: bool = False,
     ) -> list[dict[str, Any]]:
-        if self._sqlite_store is not None:
-            return self._sqlite_store.list_due_reminders(due_before=due_before, limit=limit)
+        if self._should_use_sqlite_reminder_runtime() and self._sqlite_store is not None:
+            return self._sqlite_store.list_due_reminders(
+                due_before=due_before,
+                limit=limit,
+                deliverable_only=deliverable_only,
+            )
 
         due_epoch = self._parse_epoch(due_before or self._now_iso())
         if due_epoch is None:
@@ -405,9 +536,7 @@ class AppResourceService:
         items = [
             item
             for item in self.list_reminder_items()
-            if bool(item.get("enabled", True))
-            and self._parse_epoch(item.get("next_trigger_at")) is not None
-            and self._parse_epoch(item.get("next_trigger_at")) <= due_epoch
+            if self._reminder_due(item, due_epoch=due_epoch, deliverable_only=deliverable_only)
         ]
         items.sort(
             key=lambda item: (
@@ -430,17 +559,139 @@ class AppResourceService:
         normalized_reminder_patch = self._normalize_reminder_payload(reminder_patch, partial=True)
 
         if self.storage_mode == "sqlite" and self._sqlite_store is not None:
-            return self._sqlite_store.create_notification_and_update_reminder(
+            notification, updated_reminder = self._sqlite_store.create_notification_and_update_reminder(
                 reminder_id=reminder_id,
                 notification_payload=normalized_notification,
                 reminder_patch=normalized_reminder_patch,
             )
+            if updated_reminder is not None:
+                self._notify_reminder_change(
+                    "notification_update",
+                    reminder_id=reminder_id,
+                    reminder=updated_reminder,
+                )
+            return notification, updated_reminder
 
         if self.get_reminder(reminder_id) is None:
             return None, None
         notification = self.notification_store.create(normalized_notification)
         updated_reminder = self.reminder_store.update(reminder_id, normalized_reminder_patch)
+        if updated_reminder is not None:
+            self._notify_reminder_change(
+                "notification_update",
+                reminder_id=reminder_id,
+                reminder=updated_reminder,
+            )
         return notification, updated_reminder
+
+    def _notify_reminder_change(
+        self,
+        action: str,
+        *,
+        reminder_id: Any,
+        reminder: dict[str, Any] | None,
+    ) -> None:
+        if not isinstance(reminder_id, str) or not reminder_id.strip():
+            return
+        payload = {
+            "action": action,
+            "reminder_id": reminder_id.strip(),
+            "reminder": deepcopy(reminder) if isinstance(reminder, dict) else None,
+            "storage_mode": self.storage_mode,
+            "changed_at": self._now_iso(),
+        }
+        for listener in list(self._reminder_change_listeners):
+            try:
+                listener(deepcopy(payload))
+            except Exception:
+                continue
+
+    def _planning_domain_stats(self) -> dict[str, dict[str, Any]]:
+        now_iso = self._now_iso()
+        stats: dict[str, dict[str, Any]] = {}
+        reminder_runtime = (
+            self._sqlite_store.reminder_runtime_stats(due_before=now_iso)
+            if self._sqlite_store is not None
+            else self._json_reminder_runtime_stats(due_before=now_iso)
+        )
+        for domain in _PLANNING_DOMAINS:
+            json_count = len(self._json_stores[domain].list_items())
+            sqlite_count = (
+                self._sqlite_store.domain_count(domain)
+                if self._sqlite_store is not None
+                else 0
+            )
+            active_count = sqlite_count if self.storage_mode == "sqlite" else json_count
+            stats[domain] = {
+                "active_count": active_count,
+                "json_count": json_count,
+                "sqlite_count": sqlite_count,
+                "active_backend": "sqlite" if self.storage_mode == "sqlite" else "json",
+                "shadow_backend": "sqlite" if self.storage_mode == "dual" else None,
+                "count_delta": sqlite_count - json_count,
+            }
+        stats["reminders"]["runtime"] = reminder_runtime
+        return stats
+
+    def _json_reminder_runtime_stats(self, *, due_before: str | None = None) -> dict[str, Any]:
+        items = self.list_reminder_items()
+        due_epoch = self._parse_epoch(due_before or self._now_iso())
+        status_counts: dict[str, int] = {}
+        enabled_count = 0
+        with_next_trigger = 0
+        deliverable_due = 0
+        for item in items:
+            if bool(item.get("enabled", True)):
+                enabled_count += 1
+            if self._parse_epoch(item.get("next_trigger_at")) is not None:
+                with_next_trigger += 1
+            status = str(item.get("status") or "unknown").strip().lower() or "unknown"
+            status_counts[status] = status_counts.get(status, 0) + 1
+            if due_epoch is not None and self._reminder_due(item, due_epoch=due_epoch, deliverable_only=True):
+                deliverable_due += 1
+        return {
+            "total": len(items),
+            "enabled": enabled_count,
+            "with_next_trigger": with_next_trigger,
+            "deliverable_due": deliverable_due,
+            "status_counts": status_counts,
+        }
+
+    def _should_use_sqlite_reminder_runtime(self) -> bool:
+        if self._sqlite_store is None:
+            return False
+        if self.storage_mode == "sqlite":
+            return True
+        reminder_shadow_state = self._shadow_domain_state.get("reminders", {})
+        return (
+            reminder_shadow_state.get("last_error") is None
+            and reminder_shadow_state.get("last_match", True) is not False
+        )
+
+    def _reminder_due(
+        self,
+        item: dict[str, Any],
+        *,
+        due_epoch: int,
+        deliverable_only: bool,
+    ) -> bool:
+        next_trigger_epoch = self._parse_epoch(item.get("next_trigger_at"))
+        if not bool(item.get("enabled", True)) or next_trigger_epoch is None or next_trigger_epoch > due_epoch:
+            return False
+        if not deliverable_only:
+            return True
+        return self._reminder_delivery_pending(item)
+
+    def _reminder_delivery_pending(self, item: dict[str, Any]) -> bool:
+        if not bool(item.get("enabled", True)):
+            return False
+        next_trigger_epoch = self._parse_epoch(item.get("next_trigger_at"))
+        if next_trigger_epoch is None:
+            return False
+        last_triggered_epoch = self._parse_epoch(item.get("last_triggered_at"))
+        if last_triggered_epoch is None:
+            return True
+        return last_triggered_epoch < next_trigger_epoch
 
     def _normalize_task_payload(self, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
         normalized: dict[str, Any] = {}
@@ -546,21 +797,59 @@ class AppResourceService:
     def _sync_shadow_domain(self, domain: str) -> None:
         if self._sqlite_store is None:
             return
+        state = self._shadow_domain_state.setdefault(
+            domain,
+            {
+                "enabled": self.storage_mode == "dual",
+                "last_synced_at": None,
+                "last_error": None,
+                "last_error_at": None,
+                "mismatch_count": 0,
+                "last_mismatch_at": None,
+                "last_match": None,
+                "last_primary_count": 0,
+                "last_shadow_count": 0,
+            },
+        )
         try:
             primary_items = self._json_stores[domain].list_items()
             shadow_items = self._sqlite_adapters[domain].replace_all(primary_items)
-        except Exception:
+        except Exception as exc:
+            error_at = self._now_iso()
             self.shadow_failure_count += 1
+            self.shadow_last_error = str(exc)
+            self.shadow_last_error_at = error_at
+            state["last_error"] = str(exc)
+            state["last_error_at"] = error_at
             return
+        synced_at = self._now_iso()
+        self.shadow_last_synced_at = synced_at
+        self.shadow_last_error = None
+        self.shadow_last_error_at = None
+        state["last_synced_at"] = synced_at
+        state["last_error"] = None
+        state["last_error_at"] = None
+        state["last_primary_count"] = len(primary_items)
+        state["last_shadow_count"] = len(shadow_items)
         id_field = {
             "tasks": "task_id",
             "events": "event_id",
             "notifications": "notification_id",
             "reminders": "reminder_id",
         }[domain]
-        if self._canonical_items(domain, primary_items, id_field) != self._canonical_items(domain, shadow_items, id_field):
+        matched = self._canonical_items(domain, primary_items, id_field) == self._canonical_items(
+            domain,
+            shadow_items,
+            id_field,
+        )
+        state["last_match"] = matched
+        if not matched:
+            mismatch_at = self._now_iso()
             self.shadow_mismatch_count += 1
             self.shadow_mismatch_domains[domain] = self.shadow_mismatch_domains.get(domain, 0) + 1
+            self.shadow_last_mismatch_at = mismatch_at
+            state["mismatch_count"] = int(state.get("mismatch_count", 0) or 0) + 1
+            state["last_mismatch_at"] = mismatch_at
 
     @staticmethod
     def _canonical_items(domain: str, items: list[dict[str, Any]], id_field: str) -> list[dict[str, Any]]:

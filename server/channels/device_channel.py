@@ -29,7 +29,13 @@ import aiohttp
 from aiohttp import web
 from loguru import logger
 
-from models.protocol import DeviceMessageType, ServerMessageType, make_server_message
+from models.protocol import (
+    DISPLAY_HINT_MAX_CHARS,
+    DeviceMessageType,
+    ServerMessageType,
+    TelemetryValidity,
+    make_server_message,
+)
 from models.device_state import DeviceState, VALID_TRANSITIONS, STATE_DISPLAY_HINTS
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
@@ -49,9 +55,6 @@ MIN_AUDIO_BYTES = 16000
 
 # 最大音频 buffer 长度 (30s @ 16kHz 16bit = 960000 bytes)
 MAX_AUDIO_BYTES = 960000
-
-# 屏幕显示参数 (1.54寸 ST7789, 240×240)
-DISPLAY_MAX_CHARS = 120  # 中文约每行10字 × 12行
 
 # WebSocket 心跳间隔 (秒)
 HEARTBEAT_INTERVAL = 30
@@ -109,11 +112,29 @@ _DEFAULT_CONTROL_STATE: dict[str, Any] = {
     "led_color": "#2563eb",
 }
 
+_VALIDITY_VALID = TelemetryValidity.VALID.value
+_VALIDITY_UNAVAILABLE = TelemetryValidity.UNAVAILABLE.value
+
+_DEFAULT_DEVICE_INFO: dict[str, Any] = {
+    "battery": None,
+    "battery_capability": False,
+    "battery_validity": _VALIDITY_UNAVAILABLE,
+    "wifi_rssi": 0,
+    "charging": None,
+    "charging_capability": False,
+    "charging_validity": _VALIDITY_UNAVAILABLE,
+}
+
 _DEFAULT_STATUS_BAR_STATE: dict[str, Any] = {
     "time": None,
     "weather": None,
-    "weather_status": "idle",
+    "weather_status": "unsupported",
     "updated_at": None,
+    "capability": False,
+    "validity": _VALIDITY_UNAVAILABLE,
+    "time_validity": _VALIDITY_UNAVAILABLE,
+    "weather_capability": False,
+    "weather_validity": _VALIDITY_UNAVAILABLE,
 }
 
 _DEFAULT_LAST_COMMAND_STATE: dict[str, Any] = {
@@ -152,17 +173,14 @@ class DeviceChannel:
         self._asr_task: asyncio.Task | None = None
         self._tts_task: asyncio.Task | None = None
         self._audio_finalize_lock = asyncio.Lock()
+        self._tts_playback_lock = asyncio.Lock()
         self._connection_seq: int = 0
 
         # ── 状态机 (Phase 5) ────────────────────────────
         self.state = DeviceState.IDLE
 
         # ── 设备信息 (Phase 5) ───────────────────────────
-        self.device_info: dict[str, Any] = {
-            "battery": -1,      # 电量百分比, -1 = 未知
-            "wifi_rssi": 0,     # WiFi 信号强度 (dBm)
-            "charging": False,  # 是否充电中
-        }
+        self.device_info: dict[str, Any] = dict(_DEFAULT_DEVICE_INFO)
         self._control_state: dict[str, Any] = dict(_DEFAULT_CONTROL_STATE)
         self._status_bar_state: dict[str, Any] = dict(_DEFAULT_STATUS_BAR_STATE)
         self._last_command_state: dict[str, Any] = dict(_DEFAULT_LAST_COMMAND_STATE)
@@ -183,6 +201,7 @@ class DeviceChannel:
         self._weather_task: asyncio.Task | None = None
         self._weather_config: dict[str, Any] = {}
         self._last_weather: str = ""  # 缓存最新天气字符串
+        self._app_weather_status: str = "idle"
         self._weather_provider: str | None = None
         self._weather_city: str = "Hong Kong"
         self._weather_source: str = "computer_fetch"
@@ -277,7 +296,7 @@ class DeviceChannel:
                 update_display=True,
             )
         elif display_value:
-            await self._send_display_update(display_text)
+            await self._send_display_update(display_value)
         animation_hint = result.get("animation_hint")
         if (
             isinstance(animation_hint, str)
@@ -302,6 +321,18 @@ class DeviceChannel:
     def get_snapshot(self) -> dict[str, Any]:
         """返回当前设备快照。"""
         status_bar = dict(self._status_bar_state)
+        app_weather_status = self._app_weather_snapshot_status()
+        app_weather = self._last_weather.strip() or None
+        app_weather_available = self._app_weather_available()
+        if app_weather is not None:
+            status_bar["weather"] = app_weather
+        status_bar["weather_status"] = app_weather_status
+        status_bar["weather_capability"] = app_weather_available
+        status_bar["weather_validity"] = (
+            _VALIDITY_VALID
+            if app_weather_status == "ready" and app_weather is not None
+            else _VALIDITY_UNAVAILABLE
+        )
         status_bar["weather_meta"] = {
             "provider": self._weather_provider,
             "city": self._weather_city,
@@ -312,11 +343,27 @@ class DeviceChannel:
             "connected": self._is_effectively_connected(),
             "state": self.state.value,
             "battery": self.device_info["battery"],
+            "battery_capability": self.device_info["battery_capability"],
+            "battery_validity": self.device_info["battery_validity"],
             "wifi_rssi": self.device_info["wifi_rssi"],
             "charging": self.device_info["charging"],
+            "charging_capability": self.device_info["charging_capability"],
+            "charging_validity": self.device_info["charging_validity"],
             "reconnect_count": self._reconnect_count,
             "last_seen_at": self._last_device_activity_at,
             "controls": dict(self._control_state),
+            "display_capabilities": {
+                "text_reply_available": True,
+                "display_update_hint_available": True,
+                "status_bar_available": self._status_bar_capable(),
+                "status_bar_validity": self._status_bar_state.get("validity"),
+                "weather_available": app_weather_available,
+                "weather_validity": status_bar.get("weather_validity"),
+                "battery_available": self.device_info["battery_capability"],
+                "battery_validity": self.device_info["battery_validity"],
+                "charging_available": self.device_info["charging_capability"],
+                "charging_validity": self.device_info["charging_validity"],
+            },
             "status_bar": status_bar,
             "last_command": dict(self._last_command_state),
         }
@@ -344,6 +391,55 @@ class DeviceChannel:
             "error": error.strip() if isinstance(error, str) and error.strip() else None,
             "updated_at": self._now_iso(),
         }
+
+    @staticmethod
+    def _read_capability_flag(value: Any) -> bool | None:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "true":
+                return True
+            if normalized == "false":
+                return False
+        return None
+
+    @staticmethod
+    def _normalize_validity_token(value: Any) -> str | None:
+        if isinstance(value, TelemetryValidity):
+            return value.value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {_VALIDITY_VALID, _VALIDITY_UNAVAILABLE}:
+                return normalized
+        return None
+
+    def _status_bar_capable(self) -> bool:
+        return bool(self._status_bar_state.get("capability"))
+
+    def _status_bar_weather_capable(self) -> bool:
+        return self._status_bar_capable() and bool(
+            self._status_bar_state.get("weather_capability")
+        )
+
+    def _app_weather_available(self) -> bool:
+        if self._status_bar_weather_capable():
+            return True
+        if self._last_weather.strip():
+            return True
+        if self._app_weather_status in {"ready", "fetch_failed", "missing_api_key"}:
+            return True
+        return self._is_effectively_connected()
+
+    def _app_weather_snapshot_status(self) -> str:
+        if self._status_bar_weather_capable():
+            current = str(self._status_bar_state.get("weather_status") or "").strip()
+            if current:
+                return current
+        current = self._app_weather_status.strip()
+        if current:
+            return current
+        return "ready" if self._last_weather.strip() else "idle"
 
     def _merge_control_state(self, payload: dict[str, Any]) -> None:
         if "volume" in payload:
@@ -379,6 +475,96 @@ class DeviceChannel:
             if isinstance(color, str) and color.strip():
                 self._control_state["led_color"] = color.strip()
 
+    def _merge_device_info_state(self, payload: dict[str, Any]) -> None:
+        battery_capability = bool(self.device_info.get("battery_capability"))
+        explicit_battery_capability = self._read_capability_flag(
+            payload.get("battery_capability")
+        )
+        if explicit_battery_capability is not None:
+            battery_capability = explicit_battery_capability
+
+        battery_value = self.device_info.get("battery")
+        if "battery" in payload:
+            raw_battery = payload.get("battery")
+            try:
+                parsed_battery = (
+                    int(raw_battery)
+                    if raw_battery is not None and str(raw_battery).strip() != ""
+                    else None
+                )
+            except (TypeError, ValueError):
+                parsed_battery = None
+            if parsed_battery is None or parsed_battery < 0:
+                battery_value = None
+            else:
+                battery_value = max(0, min(100, parsed_battery))
+                if explicit_battery_capability is not False:
+                    battery_capability = True
+
+        battery_validity = self._normalize_validity_token(
+            payload.get("battery_validity")
+        )
+        if battery_validity is None:
+            battery_validity = (
+                _VALIDITY_VALID
+                if battery_capability and battery_value is not None
+                else _VALIDITY_UNAVAILABLE
+            )
+        if battery_validity != _VALIDITY_VALID:
+            battery_value = None
+
+        charging_capability = bool(self.device_info.get("charging_capability"))
+        explicit_charging_capability = self._read_capability_flag(
+            payload.get("charging_capability")
+        )
+        if explicit_charging_capability is not None:
+            charging_capability = explicit_charging_capability
+
+        charging_value = self.device_info.get("charging")
+        if "charging" in payload:
+            raw_charging = payload.get("charging")
+            parsed_charging: bool | None = None
+            if isinstance(raw_charging, bool):
+                parsed_charging = raw_charging
+            elif isinstance(raw_charging, str):
+                normalized = raw_charging.strip().lower()
+                if normalized == "true":
+                    parsed_charging = True
+                elif normalized == "false":
+                    parsed_charging = False
+            if parsed_charging is not None:
+                charging_value = parsed_charging
+                if explicit_charging_capability is not False:
+                    charging_capability = True
+            else:
+                charging_value = None
+
+        charging_validity = self._normalize_validity_token(
+            payload.get("charging_validity")
+        )
+        if charging_validity is None:
+            charging_validity = (
+                _VALIDITY_VALID
+                if charging_capability and charging_value is not None
+                else _VALIDITY_UNAVAILABLE
+            )
+        if charging_validity != _VALIDITY_VALID:
+            charging_value = None
+
+        if "wifi_rssi" in payload:
+            raw_wifi_rssi = payload.get("wifi_rssi")
+            try:
+                self.device_info["wifi_rssi"] = int(raw_wifi_rssi)
+            except (TypeError, ValueError):
+                pass
+
+        self.device_info["battery"] = battery_value
+        self.device_info["battery_capability"] = battery_capability
+        self.device_info["battery_validity"] = battery_validity
+        self.device_info["charging"] = charging_value
+        self.device_info["charging_capability"] = charging_capability
+        self.device_info["charging_validity"] = charging_validity
+
     def _merge_status_bar_state(
         self,
         payload: dict[str, Any],
@@ -387,31 +573,138 @@ class DeviceChannel:
     ) -> None:
         status_bar = payload.get("status_bar")
         if isinstance(status_bar, dict):
-            payload = {
-                key: status_bar.get(key)
-                for key in ("time", "weather", "weather_status")
-                if key in status_bar
-            }
+            payload = dict(status_bar)
 
         changed = False
-        if "time" in payload:
-            time_value = payload.get("time")
-            normalized_time = time_value.strip() if isinstance(time_value, str) and time_value.strip() else None
-            if self._status_bar_state.get("time") != normalized_time:
-                self._status_bar_state["time"] = normalized_time
-                changed = True
-        if "weather" in payload:
-            weather_value = payload.get("weather")
-            normalized_weather = weather_value.strip() if isinstance(weather_value, str) and weather_value.strip() else None
-            if self._status_bar_state.get("weather") != normalized_weather:
-                self._status_bar_state["weather"] = normalized_weather
-                changed = True
+        existing_time = self._status_bar_state.get("time")
+        existing_weather = self._status_bar_state.get("weather")
+        capability = bool(self._status_bar_state.get("capability"))
+        explicit_capability = self._read_capability_flag(payload.get("capability"))
+        if explicit_capability is not None:
+            capability = explicit_capability
+        elif (
+            not capability
+            and (
+                ("time" in payload and isinstance(payload.get("time"), str) and payload.get("time", "").strip())
+                or (
+                    "weather" in payload
+                    and isinstance(payload.get("weather"), str)
+                    and payload.get("weather", "").strip()
+                )
+            )
+        ):
+            capability = True
+        elif (
+            not capability
+            and (
+                isinstance(existing_time, str) and existing_time.strip()
+                or isinstance(existing_weather, str) and existing_weather.strip()
+            )
+        ):
+            capability = True
+
+        weather_capability = bool(self._status_bar_state.get("weather_capability"))
+        explicit_weather_capability = self._read_capability_flag(
+            payload.get("weather_capability")
+        )
+        if explicit_weather_capability is not None:
+            weather_capability = explicit_weather_capability
+        elif explicit_capability is not None:
+            weather_capability = capability
+        elif (
+            capability
+            and "weather" in payload
+            and isinstance(payload.get("weather"), str)
+            and payload.get("weather", "").strip()
+        ):
+            weather_capability = True
+        elif (
+            capability
+            and not weather_capability
+            and isinstance(existing_weather, str)
+            and existing_weather.strip()
+        ):
+            weather_capability = True
+        weather_capability = capability and weather_capability
+
+        time_value = payload.get("time") if "time" in payload else self._status_bar_state.get("time")
+        normalized_time = (
+            time_value.strip()
+            if capability and isinstance(time_value, str) and time_value.strip()
+            else None
+        )
+        if self._status_bar_state.get("time") != normalized_time:
+            self._status_bar_state["time"] = normalized_time
+            changed = True
+
+        weather_value = (
+            payload.get("weather")
+            if "weather" in payload
+            else self._status_bar_state.get("weather")
+        )
+        normalized_weather = (
+            weather_value.strip()
+            if weather_capability and isinstance(weather_value, str) and weather_value.strip()
+            else None
+        )
+        if self._status_bar_state.get("weather") != normalized_weather:
+            self._status_bar_state["weather"] = normalized_weather
+            changed = True
+
         next_weather_status = weather_status
         if next_weather_status is None and isinstance(payload.get("weather_status"), str):
             next_weather_status = payload["weather_status"].strip() or None
-        if next_weather_status is not None and self._status_bar_state.get("weather_status") != next_weather_status:
+        if not weather_capability:
+            next_weather_status = "unsupported"
+        elif next_weather_status is None:
+            next_weather_status = (
+                "ready" if normalized_weather else "idle"
+            )
+        if (
+            next_weather_status is not None
+            and self._status_bar_state.get("weather_status") != next_weather_status
+        ):
             self._status_bar_state["weather_status"] = next_weather_status
             changed = True
+
+        next_validity = self._normalize_validity_token(payload.get("validity"))
+        if next_validity is None:
+            next_validity = _VALIDITY_VALID if capability else _VALIDITY_UNAVAILABLE
+        if self._status_bar_state.get("validity") != next_validity:
+            self._status_bar_state["validity"] = next_validity
+            changed = True
+
+        next_time_validity = self._normalize_validity_token(payload.get("time_validity"))
+        if next_time_validity is None:
+            next_time_validity = (
+                _VALIDITY_VALID if capability and normalized_time else _VALIDITY_UNAVAILABLE
+            )
+        if self._status_bar_state.get("time_validity") != next_time_validity:
+            self._status_bar_state["time_validity"] = next_time_validity
+            changed = True
+
+        next_weather_validity = self._normalize_validity_token(
+            payload.get("weather_validity")
+        )
+        if next_weather_validity is None:
+            next_weather_validity = (
+                _VALIDITY_VALID
+                if weather_capability
+                and next_weather_status == "ready"
+                and normalized_weather
+                else _VALIDITY_UNAVAILABLE
+            )
+        if self._status_bar_state.get("weather_validity") != next_weather_validity:
+            self._status_bar_state["weather_validity"] = next_weather_validity
+            changed = True
+
+        if self._status_bar_state.get("capability") != capability:
+            self._status_bar_state["capability"] = capability
+            changed = True
+        if self._status_bar_state.get("weather_capability") != weather_capability:
+            self._status_bar_state["weather_capability"] = weather_capability
+            changed = True
+
         if changed:
             self._status_bar_state["updated_at"] = self._now_iso()
 
@@ -439,7 +732,6 @@ class DeviceChannel:
             return
         if self.state != DeviceState.SPEAKING:
             await self._set_state(DeviceState.SPEAKING)
-        await self._send_display_update(text)
         await self.send_text_reply(text)
         if self.state != DeviceState.IDLE:
             await self._set_state(DeviceState.IDLE)
@@ -1108,20 +1400,27 @@ class DeviceChannel:
     async def _on_device_status(self, data: dict) -> None:
         """记录设备状态（电量/WiFi/充电）。"""
         self._mark_device_activity()
-        if "battery" in data:
-            self.device_info["battery"] = data["battery"]
-        if "wifi_rssi" in data:
-            self.device_info["wifi_rssi"] = data["wifi_rssi"]
-        if "charging" in data:
-            self.device_info["charging"] = data["charging"]
+        previous_status_bar_capability = self._status_bar_capable()
+        previous_weather_capability = self._status_bar_weather_capable()
         self._merge_control_state(data)
+        self._merge_device_info_state(data)
         self._merge_status_bar_state(data)
         logger.info(
-            "设备状态更新: 电量={}%, WiFi={}dBm, 充电={}",
+            "设备状态更新: 电量={}({}/{}) WiFi={}dBm 充电={}({}/{})",
             self.device_info["battery"],
+            self.device_info["battery_capability"],
+            self.device_info["battery_validity"],
             self.device_info["wifi_rssi"],
             self.device_info["charging"],
+            self.device_info["charging_capability"],
+            self.device_info["charging_validity"],
         )
+        if not previous_status_bar_capability and self._status_bar_capable():
+            now = datetime.now()
+            await self._send_status_bar_update(time=now.strftime("%H:%M"))
+        if not previous_weather_capability and self._status_bar_weather_capable():
+            await self._cancel_task(self._weather_task)
+            self._weather_task = asyncio.create_task(self._weather_push_loop())
         await self._notify_event_observer(
             "on_device_status_updated",
             snapshot=self.get_snapshot(),
@@ -1202,7 +1501,9 @@ class DeviceChannel:
         while True:
             try:
                 weather_str, weather_status = await self._fetch_weather()
-                self._merge_status_bar_state({}, weather_status=weather_status)
+                self._app_weather_status = weather_status
+                if self._status_bar_weather_capable():
+                    self._merge_status_bar_state({}, weather_status=weather_status)
                 await self._notify_event_observer(
                     "on_device_status_updated",
                     snapshot=self.get_snapshot(),
@@ -1210,14 +1511,17 @@ class DeviceChannel:
                 if weather_str:
                     self._last_weather = weather_str
                     self._weather_fetched_at = self._now_iso()
-                    await self._send_status_bar_update(weather=weather_str)
+                    if self._status_bar_weather_capable():
+                        await self._send_status_bar_update(weather=weather_str)
                     logger.info("天气推送: {}", weather_str)
                 await asyncio.sleep(WEATHER_PUSH_INTERVAL)
             except asyncio.CancelledError:
                 break
             except Exception:
                 logger.exception("天气推送异常")
-                self._merge_status_bar_state({}, weather_status="fetch_failed")
+                self._app_weather_status = "fetch_failed"
+                if self._status_bar_weather_capable():
+                    self._merge_status_bar_state({}, weather_status="fetch_failed")
                 await self._notify_event_observer(
                     "on_device_status_updated",
                     snapshot=self.get_snapshot(),
@@ -1339,13 +1643,20 @@ class DeviceChannel:
     ) -> None:
         """发送状态栏更新到设备。"""
         data: dict[str, Any] = {}
-        if time is not None:
+        if time is not None and self._status_bar_capable():
             data["time"] = time
-        if battery is not None:
+            data["time_validity"] = _VALIDITY_VALID if time else _VALIDITY_UNAVAILABLE
+        if battery is not None and bool(self.device_info.get("battery_capability")):
             data["battery"] = battery
-        if weather is not None:
+        if weather is not None and self._status_bar_weather_capable():
             data["weather"] = weather
+            data["weather_validity"] = _VALIDITY_VALID if weather else _VALIDITY_UNAVAILABLE
         if data:
+            data["capability"] = self._status_bar_capable()
+            data["validity"] = (
+                _VALIDITY_VALID if self._status_bar_capable() else _VALIDITY_UNAVAILABLE
+            )
+            data["weather_capability"] = self._status_bar_weather_capable()
             next_weather_status = "ready" if weather is not None and weather else None
             self._merge_status_bar_state(data, weather_status=next_weather_status)
             await self.send_json(make_server_message(
@@ -1358,17 +1669,23 @@ class DeviceChannel:
 
     # ── 屏幕显示控制 (Phase 5.3) ─────────────────────────────
 
-    async def _send_display_update(self, text: str, truncate: bool = True) -> None:
-        """发送屏幕显示更新。
+    @staticmethod
+    def _normalize_display_hint(text: str) -> str | None:
+        cleaned = " ".join(str(text).split()).strip()
+        if not cleaned:
+            return None
+        if len(cleaned) > DISPLAY_HINT_MAX_CHARS:
+            return None
+        return cleaned
 
-        Args:
-            text: 显示文字
-            truncate: 是否截断超长文本（默认 True）
-        """
-        if truncate and len(text) > DISPLAY_MAX_CHARS:
-            text = text[:DISPLAY_MAX_CHARS - 3] + "..."
+    async def _send_display_update(self, text: str) -> None:
+        """发送屏幕短 hint；完整正文必须走 text_reply。"""
+        hint = self._normalize_display_hint(text)
+        if not hint:
+            logger.debug("忽略非短 hint 的 display_update 文本")
+            return
         await self.send_json(make_server_message(
-            ServerMessageType.DISPLAY_UPDATE, {"text": text}
+            ServerMessageType.DISPLAY_UPDATE, {"text": hint}
         ))
 
     # ── 发送方法 ─────────────────────────────────────────────
@@ -1522,7 +1839,7 @@ class DeviceChannel:
         """TTS 合成并流式发送语音回复给设备。
 
         流程:
-        1. 发送 display_update (屏幕显示文字)
+        1. 可选发送 display_update 短 hint
         2. 发送 state_change → SPEAKING
         3. 发送 audio_play 开始信号
         4. TTS 合成 → 流式发送 PCM 二进制帧
@@ -1532,31 +1849,38 @@ class DeviceChannel:
         if not self.tts:
             logger.warning("TTS 服务未初始化，仅发送文字回复")
             await self.send_text_reply(text)
-            await self._send_display_update(display_text or text)
+            if display_text:
+                await self._send_display_update(display_text)
             return
-        playback_task = asyncio.create_task(self._stream_voice_reply(
-            text,
-            display_text=display_text,
-            update_display=update_display,
-        ))
-        try:
-            self._tts_task = playback_task
-            await playback_task
-        except asyncio.CancelledError:
-            logger.info("语音播放已取消")
-            await self.send_json(make_server_message(
-                ServerMessageType.AUDIO_PLAY_END, {}
+        if self._tts_playback_lock.locked():
+            logger.info("设备语音播放繁忙，等待上一段播报结束后继续")
+        async with self._tts_playback_lock:
+            if not self._is_effectively_connected():
+                return
+            playback_task = asyncio.create_task(self._stream_voice_reply(
+                text,
+                display_text=display_text,
+                update_display=update_display,
             ))
-        except Exception:
-            logger.exception("TTS 合成/发送失败，降级为文字回复")
-            # TTS 失败降级: 发送文字回复 (Phase 6.2)
-            await self.send_text_reply(text)
-            await self._send_display_update(display_text or text)
-        finally:
-            if self._tts_task is playback_task and playback_task.done():
-                self._tts_task = None
-            if self.state != DeviceState.IDLE:
-                await self._set_state(DeviceState.IDLE)
+            try:
+                self._tts_task = playback_task
+                await playback_task
+            except asyncio.CancelledError:
+                logger.info("语音播放已取消")
+                await self.send_json(make_server_message(
+                    ServerMessageType.AUDIO_PLAY_END, {}
+                ))
+            except Exception:
+                logger.exception("TTS 合成/发送失败，降级为文字回复")
+                # TTS 失败降级: 发送文字回复 (Phase 6.2)
+                await self.send_text_reply(text)
+                if display_text:
+                    await self._send_display_update(display_text)
+            finally:
+                if self._tts_task is playback_task and playback_task.done():
+                    self._tts_task = None
+                if self.state != DeviceState.IDLE:
+                    await self._set_state(DeviceState.IDLE)
 
     async def _stream_voice_reply(
         self,
@@ -1567,8 +1891,8 @@ class DeviceChannel:
     ) -> None:
         """执行实际的 TTS 合成与音频流发送。"""
         await self.send_text_reply(text)
-        if update_display:
-            await self._send_display_update(display_text or text)
+        if update_display and display_text:
+            await self._send_display_update(display_text)
         await self._set_state(DeviceState.SPEAKING)
         logger.info(
             "开始向设备发送 TTS 音频: voice={}, text='{}'",

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../models/chat/session_model.dart';
+import '../../models/voice/voice_activity_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
 import '../common/status_pill.dart';
+import 'voice_activity_strip.dart';
 
 class ChatStatusStrip extends StatelessWidget {
   const ChatStatusStrip({
@@ -12,6 +14,7 @@ class ChatStatusStrip extends StatelessWidget {
     required this.voice,
     required this.activeSession,
     this.embedded = false,
+    this.voiceActivity,
     super.key,
   });
 
@@ -19,10 +22,14 @@ class ChatStatusStrip extends StatelessWidget {
   final VoiceUiState voice;
   final SessionModel? activeSession;
   final bool embedded;
+  final VoiceActivityModel? voiceActivity;
 
   @override
   Widget build(BuildContext context) {
     final chrome = context.linear;
+    final showVoiceActivity = voiceActivity?.shouldRenderStrip ?? false;
+    final showVoiceError = !showVoiceActivity && voice.errorMessage != null;
+    final showLegacyDescriptions = !embedded || !showVoiceActivity;
 
     return Container(
       width: double.infinity,
@@ -78,21 +85,27 @@ class ChatStatusStrip extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: LinearSpacing.sm),
-          Text(
-            voice.primaryDescription,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: chrome.textSecondary),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            voice.statusMessage ?? voice.bridgeDescription,
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(color: chrome.textQuaternary),
-          ),
-          if (voice.errorMessage != null) ...<Widget>[
+          if (showLegacyDescriptions) ...<Widget>[
+            const SizedBox(height: LinearSpacing.sm),
+            Text(
+              voice.primaryDescription,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: chrome.textSecondary),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              voice.statusMessage ?? voice.bridgeDescription,
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: chrome.textQuaternary),
+            ),
+          ],
+          if (showVoiceActivity) ...<Widget>[
+            const SizedBox(height: LinearSpacing.sm),
+            VoiceActivityStrip(activity: voiceActivity!),
+          ],
+          if (showVoiceError) ...<Widget>[
             const SizedBox(height: 4),
             Text(
               voice.errorMessage!,

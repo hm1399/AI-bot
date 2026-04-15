@@ -37,51 +37,129 @@ class ReminderScheduler:
         *,
         event_observer: Any | None = None,
         poll_interval_s: float = 15.0,
+        reconcile_interval_s: float | None = None,
         now_provider: Callable[[], datetime] | None = None,
     ) -> None:
         self.resources = resources
         self.event_observer = event_observer
         self.poll_interval_s = poll_interval_s
+        self.reconcile_interval_s = max(
+            float(reconcile_interval_s if reconcile_interval_s is not None else max(poll_interval_s * 20.0, 300.0)),
+            30.0,
+        )
         self.now_provider = now_provider or (lambda: datetime.now().astimezone())
         self._task: asyncio.Task | None = None
+        self._reconcile_task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._lock = asyncio.Lock()
+        self._reschedule_event = asyncio.Event()
+        self._listener_registered = False
+        self._reschedule_count = 0
+        self._next_fire_wakeup_count = 0
+        self._reconcile_count = 0
+        self._last_reschedule_reason: str | None = None
+        self._last_reschedule_at: str | None = None
+        self._last_due_scan_at: str | None = None
+        self._last_reconcile_at: str | None = None
+        self._last_schedule_evaluated_at: str | None = None
+        self._scheduled_next_fire_at: str | None = None
+
+        register_listener = getattr(self.resources, "register_reminder_change_listener", None)
+        if callable(register_listener):
+            register_listener(self._handle_resource_reminder_change)
+            self._listener_registered = True
 
     def set_event_observer(self, observer: Any) -> None:
         self.event_observer = observer
 
     def is_running(self) -> bool:
-        return bool(self._task and not self._task.done())
+        return bool(
+            (self._task and not self._task.done())
+            or (self._reconcile_task and not self._reconcile_task.done())
+        )
+
+    def runtime_state(self) -> dict[str, Any]:
+        return {
+            "running": self.is_running(),
+            "model": "next_fire",
+            "poll_interval_s": float(self.poll_interval_s),
+            "reconcile_interval_s": float(self.reconcile_interval_s),
+            "listener_registered": self._listener_registered,
+            "next_fire_at": self._scheduled_next_fire_at,
+            "last_schedule_evaluated_at": self._last_schedule_evaluated_at,
+            "last_reschedule_at": self._last_reschedule_at,
+            "last_reschedule_reason": self._last_reschedule_reason,
+            "last_due_scan_at": self._last_due_scan_at,
+            "last_reconcile_at": self._last_reconcile_at,
+            "reschedule_count": self._reschedule_count,
+            "next_fire_wakeup_count": self._next_fire_wakeup_count,
+            "reconcile_count": self._reconcile_count,
+        }
+
+    def request_reschedule(
+        self,
+        *,
+        reason: str,
+        reminder_id: str | None = None,
+    ) -> None:
+        now = self._format_dt(self.now_provider())
+        self._reschedule_count += 1
+        self._last_reschedule_reason = (
+            f"{reason}:{reminder_id}" if reminder_id else reason
+        )
+        self._last_reschedule_at = now
+        if self._loop is not None and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._reschedule_event.set)
 
     async def start(self) -> None:
         if self.is_running():
             return
-        await self.sync_all()
-        self._task = asyncio.create_task(self._run_loop())
+        self._loop = asyncio.get_running_loop()
+        self._reschedule_event.clear()
+        await self.sync_all(reschedule=False)
+        self._task = asyncio.create_task(self._run_schedule_loop())
+        self._reconcile_task = asyncio.create_task(self._run_reconcile_loop())
         logger.info("ReminderScheduler started")
 
     async def stop(self) -> None:
-        if not self._task:
+        tasks = [task for task in (self._task, self._reconcile_task) if task is not None]
+        if not tasks:
             return
-        self._task.cancel()
-        try:
-            await self._task
-        except asyncio.CancelledError:
-            pass
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         self._task = None
+        self._reconcile_task = None
+        self._loop = None
+        self._scheduled_next_fire_at = None
 
-    async def sync_all(self) -> None:
+    async def sync_all(self, *, reschedule: bool = True) -> None:
         async with self._lock:
             now = self.now_provider()
             items = self.resources.list_reminder_items()
             for item in items:
                 await self._sync_reminder_unlocked(item, now=now)
+        if reschedule:
+            self.request_reschedule(reason="sync_all")
 
-    async def sync_reminder(self, reminder_id: str) -> dict[str, Any] | None:
+    async def sync_reminder(
+        self,
+        reminder_id: str,
+        *,
+        reschedule: bool = True,
+    ) -> dict[str, Any] | None:
         async with self._lock:
             item = self.resources.get_reminder(reminder_id)
             if item is None:
                 return None
-            return await self._sync_reminder_unlocked(item, now=self.now_provider())
+            updated = await self._sync_reminder_unlocked(item, now=self.now_provider())
+        if reschedule:
+            self.request_reschedule(reason="sync_reminder", reminder_id=reminder_id)
+        return updated
 
     async def snooze_reminder(
         self,
@@ -117,14 +195,16 @@ class ReminderScheduler:
             )
             if updated is None:
                 return None
-            return await self._sync_reminder_unlocked(updated, now=now)
+            updated = await self._sync_reminder_unlocked(updated, now=now)
+        self.request_reschedule(reason="snooze", reminder_id=reminder_id)
+        return updated
 
     async def complete_reminder(self, reminder_id: str) -> dict[str, Any] | None:
         async with self._lock:
             item = self.resources.get_reminder(reminder_id)
             if item is None:
                 return None
-            return self.resources.update_reminder(
+            updated = self.resources.update_reminder(
                 reminder_id,
                 {
                     "enabled": False,
@@ -135,21 +215,78 @@ class ReminderScheduler:
                     "status": _STATUS_COMPLETED,
                 },
             )
+        self.request_reschedule(reason="complete", reminder_id=reminder_id)
+        return updated
 
-    async def _run_loop(self) -> None:
+    async def _run_schedule_loop(self) -> None:
         while True:
             try:
-                await asyncio.sleep(self.poll_interval_s)
+                next_fire_at = self.resources.get_next_reminder_fire_at()
+                self._last_schedule_evaluated_at = self._format_dt(self.now_provider())
+                self._scheduled_next_fire_at = next_fire_at
+                if next_fire_at is None:
+                    await self._wait_for_reschedule()
+                    continue
+
+                next_fire_dt = self._parse_iso_datetime(next_fire_at)
+                if next_fire_dt is None:
+                    await self._wait_for_reschedule()
+                    continue
+
+                wait_seconds = max((next_fire_dt - self.now_provider()).total_seconds(), 0.0)
+                if wait_seconds > 0 and await self._wait_for_reschedule(timeout=wait_seconds):
+                    continue
+
+                self._next_fire_wakeup_count += 1
                 await self._process_due_reminders()
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("ReminderScheduler loop failed")
+                logger.exception("ReminderScheduler next-fire loop failed")
+                await asyncio.sleep(1.0)
+
+    async def _run_reconcile_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(self.reconcile_interval_s)
+                self._reconcile_count += 1
+                self._last_reconcile_at = self._format_dt(self.now_provider())
+                await self.sync_all(reschedule=False)
+                self.request_reschedule(reason="reconcile")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("ReminderScheduler reconcile loop failed")
+                await asyncio.sleep(1.0)
+
+    async def _wait_for_reschedule(self, timeout: float | None = None) -> bool:
+        if timeout is None:
+            await self._reschedule_event.wait()
+            self._reschedule_event.clear()
+            return True
+        try:
+            await asyncio.wait_for(self._reschedule_event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return False
+        self._reschedule_event.clear()
+        return True
+
+    def _handle_resource_reminder_change(self, payload: dict[str, Any]) -> None:
+        reminder_id = None
+        raw_reminder_id = payload.get("reminder_id")
+        if isinstance(raw_reminder_id, str) and raw_reminder_id.strip():
+            reminder_id = raw_reminder_id.strip()
+        action = str(payload.get("action") or "resource_change")
+        self.request_reschedule(reason=f"resource_{action}", reminder_id=reminder_id)
 
     async def _process_due_reminders(self) -> None:
         async with self._lock:
             now = self.now_provider()
-            items = self.resources.list_due_reminders(due_before=self._format_dt(now))
+            self._last_due_scan_at = self._format_dt(now)
+            items = self.resources.list_due_reminders(
+                due_before=self._format_dt(now),
+                deliverable_only=True,
+            )
             for item in items:
                 updated = await self._sync_reminder_unlocked(item, now=now)
                 if not updated.get("enabled", False):

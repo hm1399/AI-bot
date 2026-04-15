@@ -204,8 +204,11 @@ class ChatScreen extends ConsumerWidget {
                     onShowSessions: showSessionsDialog,
                     onConversationAction: handleConversationAction,
                   ),
-                  const SizedBox(height: LinearSpacing.sm),
+                  const SizedBox(height: LinearSpacing.xs),
                   ExperienceChipBar(
+                    state: state,
+                    voice: voice,
+                    activeSession: activeSession,
                     experience: experience,
                     catalog: state.experienceCatalog,
                     enabled: activeSession != null && !activeSession.archived,
@@ -214,7 +217,7 @@ class ChatScreen extends ConsumerWidget {
                     onPersonaSelected: (PersonaPresetModel preset) => controller
                         .updateCurrentSessionExperience(personaPreset: preset),
                   ),
-                  const SizedBox(height: LinearSpacing.sm),
+                  const SizedBox(height: LinearSpacing.xs),
                   Expanded(
                     child: _ConversationPanel(
                       state: state,

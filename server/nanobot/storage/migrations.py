@@ -13,7 +13,7 @@ from nanobot.storage.sqlite_db import (
 )
 
 
-LATEST_USER_VERSION = 1
+LATEST_USER_VERSION = 2
 
 
 MIGRATIONS: dict[int, str] = {
@@ -82,6 +82,9 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_import_manifest_domain
         ON import_manifest(domain, imported_at DESC);
     """,
+    2: """
+    -- Reserved shared-schema marker for workspace state.sqlite3.
+    """,
 }
 
 
@@ -102,6 +105,8 @@ def run_migrations(target: SQLiteConnectionFactory | Path | str) -> int:
                 f"SQLite schema version {current_version} is newer than supported {LATEST_USER_VERSION}"
             )
 
+        _ensure_foundational_schema(connection)
+
         while current_version < LATEST_USER_VERSION:
             next_version = current_version + 1
             script = MIGRATIONS.get(next_version)
@@ -111,6 +116,11 @@ def run_migrations(target: SQLiteConnectionFactory | Path | str) -> int:
             current_version = next_version
 
         return current_version
+
+
+def _ensure_foundational_schema(connection: sqlite3.Connection) -> None:
+    """Ensure session tables exist even when another subsystem already bumped user_version."""
+    connection.executescript(MIGRATIONS[1])
 
 
 def _apply_migration(

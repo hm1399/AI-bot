@@ -124,6 +124,8 @@ class ResourceServiceTests(unittest.TestCase):
                             "snoozed_until": "2026-04-10T08:55:00+08:00",
                             "completed_at": None,
                             "status": "scheduled",
+                            "scheduled_action_kind": "open_app",
+                            "scheduled_action_target": "WeChat",
                         }
                     )
                     self.assertEqual(reminder["bundle_id"], "bundle_plan_001")
@@ -132,6 +134,8 @@ class ResourceServiceTests(unittest.TestCase):
                     self.assertEqual(reminder["next_trigger_at"], "2026-04-10T08:50:00+08:00")
                     self.assertEqual(reminder["snoozed_until"], "2026-04-10T08:55:00+08:00")
                     self.assertEqual(reminder["status"], "scheduled")
+                    self.assertEqual(reminder["scheduled_action_kind"], "open_app")
+                    self.assertEqual(reminder["scheduled_action_target"], "WeChat")
 
                     updated = service.update_reminder(
                         reminder["reminder_id"],

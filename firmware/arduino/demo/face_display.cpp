@@ -636,15 +636,18 @@ void faceClearStatusText() {
 }
 
 void faceSetStatusBar(const char* time, bool wifiOk, bool wsOk) {
+    // Demo face renderer currently has no real status-bar layer.
     (void)time;
     (void)wifiOk;
     (void)wsOk;
 }
 
 void faceSetBattery(int percent) {
+    // Demo hardware currently has no battery telemetry wiring.
     (void)percent;
 }
 
 void faceSetWeather(const char* weather) {
+    // Demo face renderer currently has no weather/status-bar overlay.
     (void)weather;
 }

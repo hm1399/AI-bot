@@ -23,6 +23,23 @@ ENV_FILE = SERVER_DIR / ".env"
 DEFAULT_PROVIDER_TIMEOUT_SECONDS = 90.0
 DEFAULT_EXEC_TOOL_TIMEOUT_SECONDS = 60
 _VALID_STORAGE_MODES = {"json", "dual", "sqlite"}
+_DEFAULT_TRANSPORT_CONFIG = {
+    "bus": {
+        "inbound_maxsize": 128,
+        "outbound_maxsize": 128,
+        "inbound_reserved_slots": 8,
+        "outbound_reserved_slots": 8,
+    },
+    "app_events": {
+        "client_queue_maxsize": 64,
+    },
+    "outbound_lanes": {
+        "device_voice_lane": 32,
+        "desktop_voice_lane": 32,
+        "external_channels_lane": 64,
+        "app_realtime_lane": 64,
+    },
+}
 
 
 def _load_dotenv() -> None:
@@ -151,6 +168,47 @@ def load_yaml_config() -> dict:
     cron_cfg.setdefault("enabled", False)
     cron_cfg.setdefault("store_path", str(WORKSPACE_DIR / "runtime" / "cron_jobs.json"))
 
+    transport_cfg = cfg.setdefault("transport", {})
+    bus_cfg = transport_cfg.setdefault("bus", {})
+    bus_cfg.setdefault(
+        "inbound_maxsize",
+        _DEFAULT_TRANSPORT_CONFIG["bus"]["inbound_maxsize"],
+    )
+    bus_cfg.setdefault(
+        "outbound_maxsize",
+        _DEFAULT_TRANSPORT_CONFIG["bus"]["outbound_maxsize"],
+    )
+    bus_cfg.setdefault(
+        "inbound_reserved_slots",
+        _DEFAULT_TRANSPORT_CONFIG["bus"]["inbound_reserved_slots"],
+    )
+    bus_cfg.setdefault(
+        "outbound_reserved_slots",
+        _DEFAULT_TRANSPORT_CONFIG["bus"]["outbound_reserved_slots"],
+    )
+    app_events_cfg = transport_cfg.setdefault("app_events", {})
+    app_events_cfg.setdefault(
+        "client_queue_maxsize",
+        _DEFAULT_TRANSPORT_CONFIG["app_events"]["client_queue_maxsize"],
+    )
+    outbound_lanes_cfg = transport_cfg.setdefault("outbound_lanes", {})
+    outbound_lanes_cfg.setdefault(
+        "device_voice_lane",
+        _DEFAULT_TRANSPORT_CONFIG["outbound_lanes"]["device_voice_lane"],
+    )
+    outbound_lanes_cfg.setdefault(
+        "desktop_voice_lane",
+        _DEFAULT_TRANSPORT_CONFIG["outbound_lanes"]["desktop_voice_lane"],
+    )
+    outbound_lanes_cfg.setdefault(
+        "external_channels_lane",
+        _DEFAULT_TRANSPORT_CONFIG["outbound_lanes"]["external_channels_lane"],
+    )
+    outbound_lanes_cfg.setdefault(
+        "app_realtime_lane",
+        _DEFAULT_TRANSPORT_CONFIG["outbound_lanes"]["app_realtime_lane"],
+    )
+
     return cfg
 
 
@@ -185,6 +243,14 @@ def _parse_exec_tool_timeout_seconds(value: object) -> int:
         raise ValueError
 
     return timeout
+
+
+def _parse_positive_int(value: object, *, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def get_tools_config(cfg: dict) -> dict[str, Any]:
@@ -228,6 +294,66 @@ def get_cron_config(cfg: dict) -> dict[str, Any]:
     return {
         "enabled": bool(cron_cfg.get("enabled", False)),
         "store_path": str(cron_cfg.get("store_path") or default_store_path),
+    }
+
+
+def get_transport_config(cfg: dict) -> dict[str, Any]:
+    """Return normalized transport runtime config."""
+    transport_cfg = cfg.get("transport", {}) if isinstance(cfg.get("transport", {}), dict) else {}
+    bus_cfg = transport_cfg.get("bus", {}) if isinstance(transport_cfg.get("bus", {}), dict) else {}
+    app_events_cfg = (
+        transport_cfg.get("app_events", {})
+        if isinstance(transport_cfg.get("app_events", {}), dict)
+        else {}
+    )
+    outbound_lanes_cfg = (
+        transport_cfg.get("outbound_lanes", {})
+        if isinstance(transport_cfg.get("outbound_lanes", {}), dict)
+        else {}
+    )
+    return {
+        "bus": {
+            "inbound_maxsize": _parse_positive_int(
+                bus_cfg.get("inbound_maxsize"),
+                default=_DEFAULT_TRANSPORT_CONFIG["bus"]["inbound_maxsize"],
+            ),
+            "outbound_maxsize": _parse_positive_int(
+                bus_cfg.get("outbound_maxsize"),
+                default=_DEFAULT_TRANSPORT_CONFIG["bus"]["outbound_maxsize"],
+            ),
+            "inbound_reserved_slots": _parse_positive_int(
+                bus_cfg.get("inbound_reserved_slots"),
+                default=_DEFAULT_TRANSPORT_CONFIG["bus"]["inbound_reserved_slots"],
+            ),
+            "outbound_reserved_slots": _parse_positive_int(
+                bus_cfg.get("outbound_reserved_slots"),
+                default=_DEFAULT_TRANSPORT_CONFIG["bus"]["outbound_reserved_slots"],
+            ),
+        },
+        "app_events": {
+            "client_queue_maxsize": _parse_positive_int(
+                app_events_cfg.get("client_queue_maxsize"),
+                default=_DEFAULT_TRANSPORT_CONFIG["app_events"]["client_queue_maxsize"],
+            ),
+        },
+        "outbound_lanes": {
+            "device_voice_lane": _parse_positive_int(
+                outbound_lanes_cfg.get("device_voice_lane"),
+                default=_DEFAULT_TRANSPORT_CONFIG["outbound_lanes"]["device_voice_lane"],
+            ),
+            "desktop_voice_lane": _parse_positive_int(
+                outbound_lanes_cfg.get("desktop_voice_lane"),
+                default=_DEFAULT_TRANSPORT_CONFIG["outbound_lanes"]["desktop_voice_lane"],
+            ),
+            "external_channels_lane": _parse_positive_int(
+                outbound_lanes_cfg.get("external_channels_lane"),
+                default=_DEFAULT_TRANSPORT_CONFIG["outbound_lanes"]["external_channels_lane"],
+            ),
+            "app_realtime_lane": _parse_positive_int(
+                outbound_lanes_cfg.get("app_realtime_lane"),
+                default=_DEFAULT_TRANSPORT_CONFIG["outbound_lanes"]["app_realtime_lane"],
+            ),
+        },
     }
 
 
@@ -469,6 +595,44 @@ def validate_config(cfg: dict) -> list[str]:
             errors.append("cron.enabled 必须是布尔值")
         if "store_path" in cron_cfg and not isinstance(cron_cfg.get("store_path"), str):
             errors.append("cron.store_path 必须是字符串")
+
+    transport_cfg = cfg.get("transport", {})
+    if transport_cfg and not isinstance(transport_cfg, dict):
+        errors.append("transport 必须是对象")
+    else:
+        for section, keys in (
+            (
+                "bus",
+                (
+                    "inbound_maxsize",
+                    "outbound_maxsize",
+                    "inbound_reserved_slots",
+                    "outbound_reserved_slots",
+                ),
+            ),
+            ("app_events", ("client_queue_maxsize",)),
+            (
+                "outbound_lanes",
+                (
+                    "device_voice_lane",
+                    "desktop_voice_lane",
+                    "external_channels_lane",
+                    "app_realtime_lane",
+                ),
+            ),
+        ):
+            payload = transport_cfg.get(section, {})
+            if payload and not isinstance(payload, dict):
+                errors.append(f"transport.{section} 必须是对象")
+                continue
+            if not isinstance(payload, dict):
+                continue
+            for key in keys:
+                if key not in payload:
+                    continue
+                value = payload.get(key)
+                if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                    errors.append(f"transport.{section}.{key} 必须是大于 0 的整数")
 
     # 运行时依赖检查（在真正实例化服务前先给出明确错误）
     dependency_requirements = [

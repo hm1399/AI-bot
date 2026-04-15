@@ -19,6 +19,7 @@ from config import (
     WORKSPACE_DIR,
     generate_nanobot_config,
     get_server_config,
+    get_transport_config,
     get_tools_config,
     load_yaml_config,
     validate_config,
@@ -374,6 +375,7 @@ def create_agent(
     *,
     planning_backend: PlanningBackend | None = None,
     runtime_options: ResolvedAgentRuntimeOptions | None = None,
+    transport_config: dict[str, Any] | None = None,
 ) -> tuple[MessageBus, AgentLoop]:
     """根据配置创建 MessageBus 和 AgentLoop。"""
     nanobot_cfg = cfg.get("nanobot", {})
@@ -381,8 +383,14 @@ def create_agent(
     model = nanobot_cfg.get("model", "claude-sonnet-4-6")
     provider_name = nanobot_cfg.get("provider", "anthropic")
     resolved_runtime = runtime_options or resolve_agent_runtime_options(cfg)
+    resolved_transport = transport_config or get_transport_config(cfg)
 
-    bus = MessageBus()
+    bus = MessageBus(
+        inbound_maxsize=resolved_transport["bus"]["inbound_maxsize"],
+        outbound_maxsize=resolved_transport["bus"]["outbound_maxsize"],
+        inbound_reserved_slots=resolved_transport["bus"]["inbound_reserved_slots"],
+        outbound_reserved_slots=resolved_transport["bus"]["outbound_reserved_slots"],
+    )
     provider = LiteLLMProvider(
         api_key=api_key,
         default_model=model,
@@ -618,7 +626,12 @@ def build_runtime(start_time: float) -> RuntimeComponents:
 
     cfg, server_cfg = load_runtime_config()
     agent_runtime = resolve_agent_runtime_options(cfg)
-    bus, agent = create_agent(cfg, runtime_options=agent_runtime)
+    transport_config = get_transport_config(cfg)
+    bus, agent = create_agent(
+        cfg,
+        runtime_options=agent_runtime,
+        transport_config=transport_config,
+    )
     device_channel, asr_cfg, tts_cfg, device_cfg = create_device_channel(cfg, bus)
     desktop_voice_service = DesktopVoiceService(
         bus=bus,

@@ -314,6 +314,40 @@ class SQLiteSessionBackend:
             return None
         return str(row["imported_at"] or "") or None
 
+    def storage_stats(self) -> dict[str, int]:
+        with self.factory.session() as connection:
+            session_row = connection.execute(
+                "SELECT COUNT(*) AS count FROM sessions"
+            ).fetchone()
+            message_row = connection.execute(
+                "SELECT COUNT(*) AS count FROM session_messages"
+            ).fetchone()
+            app_session_row = connection.execute(
+                "SELECT COUNT(*) AS count FROM sessions WHERE channel = ?",
+                (APP_CHANNEL,),
+            ).fetchone()
+            archived_row = connection.execute(
+                "SELECT COUNT(*) AS count FROM sessions WHERE archived = 1"
+            ).fetchone()
+            manifest_row = connection.execute(
+                "SELECT COUNT(*) AS count FROM import_manifest"
+            ).fetchone()
+            imported_session_row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM import_manifest
+                WHERE domain = 'session'
+                """
+            ).fetchone()
+        return {
+            "sessions": int(session_row["count"]) if session_row is not None else 0,
+            "messages": int(message_row["count"]) if message_row is not None else 0,
+            "app_sessions": int(app_session_row["count"]) if app_session_row is not None else 0,
+            "archived_sessions": int(archived_row["count"]) if archived_row is not None else 0,
+            "import_manifest_entries": int(manifest_row["count"]) if manifest_row is not None else 0,
+            "imported_sessions": int(imported_session_row["count"]) if imported_session_row is not None else 0,
+        }
+
     def read_import_manifest(self, manifest_key: str) -> dict[str, Any] | None:
         entry = self.get_import_manifest(manifest_key)
         if entry is None:

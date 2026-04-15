@@ -55,13 +55,17 @@ async def main() -> None:
 
     # 启动 AgentLoop 后台任务
     agent_task = asyncio.create_task(runtime.agent.run())
+    outbound_lane_cfg = runtime.config.get("transport", {}).get("outbound_lanes", {})
+    lane_maxsizes = outbound_lane_cfg if isinstance(outbound_lane_cfg, dict) else {}
 
     outbound_router = UnifiedOutboundRouter(
         runtime.bus,
         runtime.device_channel,
         runtime.desktop_voice_service,
         runtime.whatsapp_channel,
+        lane_maxsizes=lane_maxsizes,
     )
+    runtime.app["app_runtime"].set_outbound_router(outbound_router)
     outbound_task = asyncio.create_task(outbound_router.run())
 
     from aiohttp import web

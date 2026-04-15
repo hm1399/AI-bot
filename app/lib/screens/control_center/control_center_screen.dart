@@ -27,13 +27,25 @@ class ControlCenterScreen extends ConsumerStatefulWidget {
 class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
   double _volume = 70;
   double _brightness = 50;
-  String _lastRuntimeSyncToken = '';
   late final TextEditingController _colorController;
+  late final FocusNode _colorFocusNode;
+  bool _volumeDirty = false;
+  bool _brightnessDirty = false;
+  bool _colorDirty = false;
+  bool _settingColorText = false;
 
   @override
   void initState() {
     super.initState();
-    _colorController = TextEditingController(text: '#2563eb');
+    final controls = ref
+        .read(appControllerProvider)
+        .runtimeState
+        .device
+        .controls;
+    _volume = controls.volume.toDouble();
+    _brightness = controls.ledBrightness.toDouble();
+    _colorController = TextEditingController(text: controls.ledColor);
+    _colorFocusNode = FocusNode()..addListener(_handleColorFocusChanged);
     Future<void>.microtask(() async {
       await ref.read(appControllerProvider.notifier).loadNotifications();
       await ref.read(appControllerProvider.notifier).loadReminders();
@@ -48,11 +60,152 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
   @override
   void dispose() {
     _colorController.dispose();
+    _colorFocusNode
+      ..removeListener(_handleColorFocusChanged)
+      ..dispose();
     super.dispose();
+  }
+
+  void _handleColorFocusChanged() {
+    if (_colorFocusNode.hasFocus || _colorDirty) {
+      return;
+    }
+    _syncDraftsFromRuntime(ref.read(appControllerProvider).runtimeState.device);
+  }
+
+  bool _controlsChanged(
+    DeviceControlsModel? previous,
+    DeviceControlsModel next,
+  ) {
+    if (previous == null) {
+      return true;
+    }
+    return previous.volume != next.volume ||
+        previous.ledBrightness != next.ledBrightness ||
+        previous.ledColor != next.ledColor ||
+        previous.ledEnabled != next.ledEnabled ||
+        previous.muted != next.muted ||
+        previous.sleeping != next.sleeping;
+  }
+
+  void _setColorText(String value) {
+    if (_colorController.text == value) {
+      return;
+    }
+    _settingColorText = true;
+    _colorController.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+    _settingColorText = false;
+  }
+
+  void _syncDraftsFromRuntime(DeviceStatusModel device) {
+    var shouldSetState = false;
+    final controls = device.controls;
+
+    if (!_volumeDirty && _volume != controls.volume.toDouble()) {
+      _volume = controls.volume.toDouble();
+      shouldSetState = true;
+    }
+    if (!_brightnessDirty && _brightness != controls.ledBrightness.toDouble()) {
+      _brightness = controls.ledBrightness.toDouble();
+      shouldSetState = true;
+    }
+    if (!_colorDirty && !_colorFocusNode.hasFocus) {
+      _setColorText(controls.ledColor);
+    }
+
+    if (shouldSetState && mounted) {
+      setState(() {});
+    }
+  }
+
+  void _clearDirtyForCommand(String? command) {
+    switch (command) {
+      case 'set_volume':
+        _volumeDirty = false;
+        break;
+      case 'set_led_brightness':
+        _brightnessDirty = false;
+        break;
+      case 'set_led_color':
+        _colorDirty = false;
+        break;
+      default:
+        break;
+    }
+  }
+
+  void _handleDeviceRuntimeChange(
+    DeviceStatusModel? previous,
+    DeviceStatusModel next,
+  ) {
+    final wasConnected = previous?.connected ?? false;
+    final justReconnected = !wasConnected && next.connected;
+    final previousCommand = previous?.lastCommand ?? DeviceCommandModel.empty();
+    final commandCompleted =
+        previousCommand.isPending && !next.lastCommand.isPending;
+
+    if (commandCompleted && next.lastCommand.isSucceeded) {
+      _clearDirtyForCommand(next.lastCommand.command);
+    }
+
+    if (justReconnected ||
+        _controlsChanged(previous?.controls, next.controls)) {
+      _syncDraftsFromRuntime(next);
+    }
+  }
+
+  void _handleVolumeChanged(double value) {
+    final runtimeValue = ref
+        .read(appControllerProvider)
+        .runtimeState
+        .device
+        .controls
+        .volume;
+    setState(() {
+      _volume = value;
+      _volumeDirty = value.round() != runtimeValue;
+    });
+  }
+
+  void _handleBrightnessChanged(double value) {
+    final runtimeValue = ref
+        .read(appControllerProvider)
+        .runtimeState
+        .device
+        .controls
+        .ledBrightness;
+    setState(() {
+      _brightness = value;
+      _brightnessDirty = value.round() != runtimeValue;
+    });
+  }
+
+  void _handleColorChanged(String value) {
+    if (_settingColorText) {
+      return;
+    }
+    final runtimeValue = ref
+        .read(appControllerProvider)
+        .runtimeState
+        .device
+        .controls
+        .ledColor
+        .trim();
+    _colorDirty = value.trim() != runtimeValue;
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<DeviceStatusModel>(
+      appControllerProvider.select(
+        (AppState state) => state.runtimeState.device,
+      ),
+      _handleDeviceRuntimeChange,
+    );
+
     final state = ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
     final settings = state.settings;
@@ -75,19 +228,6 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     );
     final planning = _ControlCenterPlanningSnapshot.fromSources(state: state);
     final experience = state.currentExperience;
-
-    final controls = runtime.device.controls;
-    final runtimeSyncToken =
-        '${runtime.device.connected}|${runtime.device.reconnectCount}|'
-        '${controls.volume}|${controls.muted}|${controls.sleeping}|'
-        '${controls.ledEnabled}|${controls.ledBrightness}|${controls.ledColor}|'
-        '${runtime.device.lastCommand.updatedAt ?? ''}';
-    if (runtimeSyncToken != _lastRuntimeSyncToken) {
-      _volume = controls.volume.toDouble();
-      _brightness = controls.ledBrightness.toDouble();
-      _colorController.text = controls.ledColor;
-      _lastRuntimeSyncToken = runtimeSyncToken;
-    }
 
     return ListView(
       children: <Widget>[
@@ -174,10 +314,10 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
               volume: _volume,
               brightness: _brightness,
               colorController: _colorController,
-              onVolumeChanged: (double value) =>
-                  setState(() => _volume = value),
-              onBrightnessChanged: (double value) =>
-                  setState(() => _brightness = value),
+              colorFocusNode: _colorFocusNode,
+              onVolumeChanged: _handleVolumeChanged,
+              onBrightnessChanged: _handleBrightnessChanged,
+              onColorChanged: _handleColorChanged,
               onSendVolume: () => controller.sendDeviceCommand(
                 'set_volume',
                 params: <String, dynamic>{'level': _volume.round()},
@@ -239,11 +379,8 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
           desktopBridgeReady: runtime.voice.desktopBridgeReady,
           pendingDebugTriggerKey: state.physicalInteractionDebugPendingKey,
           onTriggerPhysicalInteraction:
-              (String kind, Map<String, dynamic> payload) =>
-                  controller.triggerPhysicalInteraction(
-                    kind: kind,
-                    payload: payload,
-                  ),
+              (String kind, Map<String, dynamic> payload) => controller
+                  .triggerPhysicalInteraction(kind: kind, payload: payload),
         ),
         const SizedBox(height: LinearSpacing.md),
         if (showComputerActions) ...<Widget>[
@@ -292,8 +429,10 @@ class _DeviceCommandPanel extends StatelessWidget {
     required this.volume,
     required this.brightness,
     required this.colorController,
+    required this.colorFocusNode,
     required this.onVolumeChanged,
     required this.onBrightnessChanged,
+    required this.onColorChanged,
     required this.onSendVolume,
     required this.onSendBrightness,
     required this.onSendColor,
@@ -313,8 +452,10 @@ class _DeviceCommandPanel extends StatelessWidget {
   final double volume;
   final double brightness;
   final TextEditingController colorController;
+  final FocusNode colorFocusNode;
   final ValueChanged<double> onVolumeChanged;
   final ValueChanged<double> onBrightnessChanged;
+  final ValueChanged<String> onColorChanged;
   final Future<void> Function() onSendVolume;
   final Future<void> Function() onSendBrightness;
   final Future<void> Function() onSendColor;
@@ -484,7 +625,9 @@ class _DeviceCommandPanel extends StatelessWidget {
           const SizedBox(height: LinearSpacing.md),
           TextField(
             controller: colorController,
+            focusNode: colorFocusNode,
             enabled: canSendCommands,
+            onChanged: onColorChanged,
             decoration: const InputDecoration(
               labelText: 'LED Color',
               hintText: '#2563eb',

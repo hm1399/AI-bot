@@ -403,15 +403,15 @@ class ComputerControlPolicy:
 
     @staticmethod
     def _parse_scripts(raw: Any) -> dict[str, dict[str, Any]]:
-        parsed: dict[str, dict[str, Any]] = {}
-        if isinstance(raw, dict):
-            items = raw.items()
-        elif isinstance(raw, list):
-            items = [(item, {}) for item in raw if isinstance(item, str)]
-        else:
-            items = []
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise ValueError(
+                "computer_control.allowed_scripts must be an object keyed by script_id"
+            )
 
-        for script_id, payload in items:
+        parsed: dict[str, dict[str, Any]] = {}
+        for script_id, payload in raw.items():
             cleaned_id = str(script_id).strip()
             if not cleaned_id:
                 continue

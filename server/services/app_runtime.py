@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
 import hmac
@@ -19,23 +18,21 @@ from loguru import logger
 
 from channels.device_channel import DEVICE_CHANNEL, DEVICE_CHAT_ID, DeviceChannel
 from nanobot.bus.events import InboundMessage, OutboundMessage
-from nanobot.bus.queue import MessageBus
+from nanobot.bus.queue import MessageBus, MessageBusQueueFullError
 from nanobot.session.manager import Session, SessionManager
-from nanobot.utils.atomic_write import atomic_write_text
 from services.app_api import (
     AppResourceService,
     ResourceNotFoundError,
     ResourceValidationError,
     SettingsService,
 )
+from services.app_realtime_hub import AppRealtimeHub
 from services.computer_control import ComputerControlError, ComputerControlService
 from services.experience import ExperienceService
-from services.planning import (
-    PlanningBundleService,
-    PlanningProjectionService,
-    PlanningSummaryService,
-)
+from services.planning_runtime_service import PlanningRuntimeService
+from services.planning import PlanningBundleService
 from services.reminder_scheduler import ReminderScheduler
+from services.runtime_projection_service import RuntimeProjectionService
 
 
 _EXPERIENCE_COMMAND_VERB_RE = re.compile(
@@ -154,24 +151,12 @@ class AppRuntimeService:
             default=200,
         )
         self._lock = asyncio.Lock()
-        self._ws_clients: set[web.WebSocketResponse] = set()
-        self._slow_client_drops = 0
+        self._outbound_router: Any | None = None
         self._tasks: dict[str, dict[str, Any]] = {}
         self._task_order: list[str] = []
-        self._event_history: deque[dict[str, Any]] = deque(maxlen=self.event_buffer_size)
         self._runtime_dir = self.sessions.workspace / "runtime"
         self._runtime_dir.mkdir(parents=True, exist_ok=True)
         self._storage_config = dict(cfg.get("storage") or {})
-        self._todo_summary_path = self._runtime_dir / "todo_summary.json"
-        self._calendar_summary_path = self._runtime_dir / "calendar_summary.json"
-        self._todo_summary = self._load_summary_file(
-            self._todo_summary_path,
-            self._default_todo_summary(),
-        )
-        self._calendar_summary = self._load_summary_file(
-            self._calendar_summary_path,
-            self._default_calendar_summary(),
-        )
         self.settings = SettingsService(self.cfg, self._runtime_dir)
         self.experience_service = _invoke_with_storage_support(
             ExperienceService,
@@ -191,11 +176,44 @@ class AppRuntimeService:
         )
         self.computer_control_service.set_event_callback(self.on_computer_action_event)
         self.planning_bundle_service = PlanningBundleService(self.resources)
-        self.planning_projection_service = PlanningProjectionService()
-        self.planning_summary_service = PlanningSummaryService()
         self.reminder_scheduler = ReminderScheduler(
             self.resources,
             event_observer=self,
+        )
+        self.realtime_hub = AppRealtimeHub(
+            version=self.version,
+            buffer_size=self.event_buffer_size,
+            per_client_maxsize=self._coerce_positive_int(
+                cfg.get("transport", {}).get("app_events", {}).get(
+                    "client_queue_maxsize"
+                ),
+                default=64,
+            ),
+            now_iso=self._now_iso,
+            new_id=self._new_id,
+        )
+        self.planning_runtime_service = PlanningRuntimeService(
+            self._runtime_dir,
+            self.resources,
+        )
+        self.runtime_projection_service = RuntimeProjectionService(
+            self.cfg,
+            settings=self.settings,
+            bus=self.bus,
+            sessions=self.sessions,
+            resources=self.resources,
+            reminder_scheduler=self.reminder_scheduler,
+            computer_control_service=self.computer_control_service,
+            device_channel=self.device_channel,
+            desktop_voice_service=self.desktop_voice_service,
+            experience_service=self.experience_service,
+            planning_runtime_service=self.planning_runtime_service,
+            agent_runtime=self.agent_runtime,
+            auth_token=self.auth_token,
+            allowed_scripts_contract_version=_ALLOWED_SCRIPTS_CONTRACT_VERSION,
+            get_active_app_session_id=self.get_active_app_session_id,
+            get_outbound_router=lambda: self._outbound_router,
+            get_realtime_snapshot=self.realtime_hub.snapshot,
         )
         self.experience_service.configure_runtime(
             active_session_id_resolver=self.get_active_app_session_id,
@@ -278,6 +296,10 @@ class AppRuntimeService:
 
     async def stop_background_tasks(self) -> None:
         await self.reminder_scheduler.stop()
+        await self.realtime_hub.close()
+
+    def set_outbound_router(self, router: Any | None) -> None:
+        self._outbound_router = router
 
     async def on_inbound_published(self, msg: InboundMessage) -> None:
         """观察 inbound 队列，登记任务与 App 用户消息。"""
@@ -727,6 +749,10 @@ class AppRuntimeService:
             reminder=reminder,
             notification=notification,
         )
+        await self._maybe_execute_scheduled_reminder_action(
+            reminder=reminder,
+            notification=notification,
+        )
         await self.refresh_planning_state()
 
     async def _maybe_deliver_reminder_device_voice(
@@ -836,6 +862,156 @@ class AppRuntimeService:
             reminder.get("message") or notification.get("message") or ""
         ).strip()
         return message or title
+
+    async def _maybe_execute_scheduled_reminder_action(
+        self,
+        *,
+        reminder: dict[str, Any],
+        notification: dict[str, Any],
+    ) -> None:
+        action_kind, action_target = self._reminder_scheduled_action(
+            reminder,
+            notification,
+        )
+        if action_kind is None or action_target is None:
+            return
+
+        request_payload = self._build_scheduled_reminder_action_request(
+            action_kind=action_kind,
+            action_target=action_target,
+        )
+        if request_payload is None:
+            logger.warning(
+                "Skipping scheduled reminder action for {} because action is unsupported or invalid: {} -> {}",
+                reminder.get("reminder_id"),
+                action_kind,
+                action_target,
+            )
+            return
+
+        try:
+            resolved_action_target = next(
+                (
+                    str(value).strip()
+                    for value in request_payload.get("target", {}).values()
+                    if str(value).strip()
+                ),
+                action_target,
+            )
+            action = await self.computer_control_service.request_action(
+                {
+                    **request_payload,
+                    "created_via": "reminder_scheduler",
+                    "requested_via": "reminder",
+                    "source_channel": str(
+                        reminder.get("source_channel") or "reminder_scheduler"
+                    ).strip()
+                    or "reminder_scheduler",
+                    "source_session_id": str(
+                        reminder.get("source_session_id")
+                        or self.get_active_app_session_id()
+                    ).strip()
+                    or self.get_active_app_session_id(),
+                    "reason": (
+                        f"Execute scheduled reminder action for "
+                        f"{str(reminder.get('title') or notification.get('title') or 'reminder').strip()}"
+                    ),
+                    "task_id": str(reminder.get("linked_task_id") or "").strip() or None,
+                    "metadata": {
+                        "linked_reminder_id": str(reminder.get("reminder_id") or "").strip() or None,
+                        "bundle_id": str(reminder.get("bundle_id") or "").strip() or None,
+                        "scheduled_action_kind": action_kind,
+                        "scheduled_action_target": resolved_action_target,
+                    },
+                }
+            )
+        except Exception:
+            logger.exception(
+                "Failed to execute scheduled reminder action for {}",
+                reminder.get("reminder_id"),
+            )
+            return
+
+        if str(action.get("status") or "").strip().lower() == "failed":
+            logger.warning(
+                "Scheduled reminder action failed for {}: {}",
+                reminder.get("reminder_id"),
+                action.get("error"),
+            )
+
+    def _reminder_scheduled_action(
+        self,
+        reminder: dict[str, Any],
+        notification: dict[str, Any],
+    ) -> tuple[str | None, str | None]:
+        reminder_kind = str(reminder.get("scheduled_action_kind") or "").strip()
+        reminder_target = str(reminder.get("scheduled_action_target") or "").strip()
+        if reminder_kind or reminder_target:
+            return reminder_kind.lower() or None, reminder_target or None
+        metadata = notification.get("metadata")
+        if not isinstance(metadata, dict):
+            return None, None
+        metadata_kind = str(metadata.get("scheduled_action_kind") or "").strip()
+        metadata_target = str(metadata.get("scheduled_action_target") or "").strip()
+        return metadata_kind.lower() or None, metadata_target or None
+
+    def _resolve_scheduled_open_app_target(self, target: str) -> str | None:
+        candidate = target.strip()
+        if not candidate:
+            return None
+        policy = getattr(self.computer_control_service, "policy", None)
+        allowed_apps = set(getattr(policy, "allowed_apps", set()) or set())
+        if candidate in allowed_apps:
+            return candidate
+
+        casefold_lookup = {
+            str(item).casefold(): str(item)
+            for item in allowed_apps
+            if isinstance(item, str) and item.strip()
+        }
+        matched = casefold_lookup.get(candidate.casefold())
+        if matched is not None:
+            return matched
+
+        alias_map = {
+            "微信": "WeChat",
+            "wechat": "WeChat",
+        }
+        alias_target = alias_map.get(candidate.casefold(), alias_map.get(candidate))
+        if alias_target in allowed_apps:
+            return alias_target
+        return None
+
+    def _build_scheduled_reminder_action_request(
+        self,
+        *,
+        action_kind: str,
+        action_target: str,
+    ) -> dict[str, Any] | None:
+        normalized_kind = action_kind.strip().lower()
+        if normalized_kind == "open_app":
+            resolved_target = self._resolve_scheduled_open_app_target(action_target)
+            if resolved_target is None:
+                return None
+            return {
+                "action": "open_app",
+                "target": {"app": resolved_target},
+            }
+        if normalized_kind == "open_path":
+            if not action_target.strip():
+                return None
+            return {
+                "action": "open_path",
+                "target": {"path": action_target.strip()},
+            }
+        if normalized_kind == "open_url":
+            if not action_target.strip():
+                return None
+            return {
+                "action": "open_url",
+                "target": {"url": action_target.strip()},
+            }
+        return None
 
     async def handle_bootstrap(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -1281,7 +1457,14 @@ class AppRuntimeService:
                 "queued": False,
             })
 
-        await self.bus.publish_inbound(msg)
+        try:
+            await self.bus.publish_inbound(msg)
+        except MessageBusQueueFullError:
+            return self._error(
+                "BUSY",
+                "message queue is busy, please retry in a moment",
+                status=503,
+            )
 
         return self._ok({
             "accepted_message": self._build_message_payload(
@@ -1764,12 +1947,19 @@ class AppRuntimeService:
         if not task.get("cancellable", False):
             return self._error("TASK_NOT_CANCELLABLE", "task is not cancellable", status=400)
 
-        await self.bus.publish_inbound(InboundMessage(
-            channel="system",
-            sender_id="app",
-            chat_id=task["source_session_id"],
-            content="/stop",
-        ))
+        try:
+            await self.bus.publish_inbound(InboundMessage(
+                channel="system",
+                sender_id="app",
+                chat_id=task["source_session_id"],
+                content="/stop",
+            ))
+        except MessageBusQueueFullError:
+            return self._error(
+                "BUSY",
+                "stop queue is busy, please retry in a moment",
+                status=503,
+            )
         return self._ok({"task_id": task_id, "stopping": True})
 
     async def handle_todo_summary(self, request: web.Request) -> web.Response:
@@ -1986,7 +2176,7 @@ class AppRuntimeService:
                 if msg.type == WSMsgType.ERROR:
                     logger.warning("App events websocket error: {}", ws.exception())
         finally:
-            self._ws_clients.discard(ws)
+            await self._detach_event_client(ws)
 
         return ws
 
@@ -2002,50 +2192,21 @@ class AppRuntimeService:
                 and self._tasks[task_id]["status"] in {"queued", "running"}
                 and task_id != current_task_id
             ]
-
-        device_snapshot = self._device_runtime_state()
-        desktop_voice = self._desktop_voice_runtime()
-        voice_runtime = self._voice_runtime_state()
-        computer_control = self._computer_control_runtime_state()
-        return {
-            "current_task": current_task,
-            "task_queue": task_queue,
-            "chat": {
-                "active_session_id": self.get_active_app_session_id(),
-            },
-            "agent_runtime": self._agent_runtime_summary(),
-            "computer_control": computer_control,
-            "device": device_snapshot,
-            "desktop_voice": desktop_voice,
-            "voice": voice_runtime,
-            "storage": self._storage_runtime_state(),
-            "transport": self._transport_runtime_state(),
-            "experience": await self._runtime_experience_state(
-                session_id=self.get_active_app_session_id(),
-                device_snapshot=device_snapshot,
-                voice_runtime=voice_runtime,
-                computer_control_state=computer_control,
-                current_task=current_task,
-            ),
-            "reminders": {
-                "scheduler_running": self.reminder_scheduler.is_running(),
-            },
-            "planning": self._planning_runtime_state(),
-            "todo_summary": self.get_todo_summary(),
-            "calendar_summary": self.get_calendar_summary(),
-        }
+        return await self.runtime_projection_service.build_runtime_state(
+            current_task=current_task,
+            task_queue=task_queue,
+        )
 
     def get_todo_summary(self) -> dict[str, Any]:
         """返回当前 Todo 摘要快照。"""
-        return dict(self._todo_summary)
+        return self.planning_runtime_service.get_todo_summary()
 
     def get_calendar_summary(self) -> dict[str, Any]:
         """返回当前日历摘要快照。"""
-        return dict(self._calendar_summary)
+        return self.planning_runtime_service.get_calendar_summary()
 
     def get_planning_overview(self) -> dict[str, Any]:
-        planning = self._planning_snapshot()
-        return dict(planning["overview"])
+        return self.planning_runtime_service.get_planning_overview()
 
     def get_planning_timeline(
         self,
@@ -2053,23 +2214,22 @@ class AppRuntimeService:
         date: str | None = None,
         surface: str | None = None,
     ) -> list[dict[str, Any]]:
-        planning = self._planning_snapshot(date=date, surface=surface)
-        return [dict(item) for item in planning["timeline"]]
+        return self.planning_runtime_service.get_planning_timeline(
+            date=date,
+            surface=surface,
+        )
 
     def get_planning_conflicts(self) -> list[dict[str, Any]]:
-        planning = self._planning_snapshot()
-        return [dict(item) for item in planning["conflicts"]]
+        return self.planning_runtime_service.get_planning_conflicts()
 
     async def set_todo_summary(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         """更新 Todo 摘要，并在变更时广播事件。"""
-        async with self._lock:
-            updated, error = self._normalize_todo_summary(self._todo_summary, payload)
-            if error:
-                return {}, error
-            changed = updated != self._todo_summary
-            self._todo_summary = updated
-            if changed:
-                self._save_summary_file(self._todo_summary_path, updated)
+        updated, error, changed = await self.planning_runtime_service.set_todo_summary(
+            payload,
+            lock=self._lock,
+        )
+        if error:
+            return {}, error
 
         if changed:
             await self._broadcast_event(
@@ -2081,14 +2241,12 @@ class AppRuntimeService:
 
     async def set_calendar_summary(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         """更新日历摘要，并在变更时广播事件。"""
-        async with self._lock:
-            updated, error = self._normalize_calendar_summary(self._calendar_summary, payload)
-            if error:
-                return {}, error
-            changed = updated != self._calendar_summary
-            self._calendar_summary = updated
-            if changed:
-                self._save_summary_file(self._calendar_summary_path, updated)
+        updated, error, changed = await self.planning_runtime_service.set_calendar_summary(
+            payload,
+            lock=self._lock,
+        )
+        if error:
+            return {}, error
 
         if changed:
             await self._broadcast_event(
@@ -2099,7 +2257,9 @@ class AppRuntimeService:
         return dict(updated), None
 
     async def refresh_planning_state(self) -> None:
-        changed_events = await self._refresh_summary_files_from_resources()
+        changed_events = await self.planning_runtime_service.refresh_summary_files(
+            lock=self._lock,
+        )
         for event_type, payload in changed_events:
             await self._broadcast_event(event_type, payload=payload, scope="global")
         overview = self.get_planning_overview()
@@ -2290,26 +2450,13 @@ class AppRuntimeService:
         session_id: str | None = None,
         task_id: str | None = None,
     ) -> None:
-        event = self._make_event(
+        await self.realtime_hub.broadcast(
             event_type=event_type,
             payload=payload,
             scope=scope,
             session_id=session_id,
             task_id=task_id,
         )
-        self._event_history.append(event)
-
-        if not self._ws_clients:
-            return
-
-        dead_clients: list[web.WebSocketResponse] = []
-        for ws in tuple(self._ws_clients):
-            try:
-                await ws.send_json(event)
-            except Exception:
-                dead_clients.append(ws)
-        for ws in dead_clients:
-            self._ws_clients.discard(ws)
 
     async def _broadcast_direct(
         self,
@@ -2319,15 +2466,12 @@ class AppRuntimeService:
         payload: dict[str, Any],
         scope: str,
     ) -> None:
-        await ws.send_json({
-            "event_id": self._new_id("evt"),
-            "event_type": event_type,
-            "scope": scope,
-            "occurred_at": self._now_iso(),
-            "session_id": None,
-            "task_id": None,
-            "payload": payload,
-        })
+        await self.realtime_hub.broadcast_direct(
+            ws,
+            event_type,
+            payload=payload,
+            scope=scope,
+        )
 
     def _list_app_sessions(
         self,
@@ -2472,19 +2616,14 @@ class AppRuntimeService:
         replay_limit: int,
     ) -> None:
         """注册一个事件客户端，并按需回放断线期间的事件。"""
-        self._ws_clients.add(ws)
-        hello_payload, replay_events = self._build_replay_payload(
+        await self.realtime_hub.attach_client(
+            ws,
             last_event_id=last_event_id,
             replay_limit=replay_limit,
         )
-        await self._broadcast_direct(
-            ws,
-            "system.hello",
-            payload=hello_payload,
-            scope="global",
-        )
-        for event in replay_events:
-            await ws.send_json(event)
+
+    async def _detach_event_client(self, ws: web.WebSocketResponse) -> None:
+        await self.realtime_hub.detach_client(ws)
 
     def _build_current_task_event_payload_unlocked(self) -> dict[str, Any]:
         current_task_id = self._get_current_task_id_unlocked()
@@ -2548,45 +2687,10 @@ class AppRuntimeService:
         last_event_id: str | None,
         replay_limit: int,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        history = list(self._event_history)
-        latest_event_id = history[-1]["event_id"] if history else None
-        resume = {
-            "requested": bool(last_event_id),
-            "accepted": False,
-            "replayed_count": 0,
-            "replay_limit": replay_limit,
-            "latest_event_id": latest_event_id,
-            "history_size": len(history),
-            "should_refetch_bootstrap": False,
-            "reason": None,
-        }
-
-        replay_events: list[dict[str, Any]] = []
-        if last_event_id:
-            matched_index = next(
-                (index for index, event in enumerate(history) if event["event_id"] == last_event_id),
-                None,
-            )
-            if matched_index is None:
-                resume["should_refetch_bootstrap"] = True
-                resume["reason"] = "last_event_id_not_found"
-            else:
-                missed_events = history[matched_index + 1:]
-                if len(missed_events) > replay_limit:
-                    resume["should_refetch_bootstrap"] = True
-                    resume["reason"] = "replay_limit_exceeded"
-                else:
-                    replay_events = missed_events
-                    resume["accepted"] = True
-                    resume["replayed_count"] = len(replay_events)
-
-        hello_payload = {
-            "server_version": self.version,
-            "protocol_version": "app-v1",
-            "ts": self._now_iso(),
-            "resume": resume,
-        }
-        return hello_payload, replay_events
+        return self.realtime_hub.build_replay_payload(
+            last_event_id=last_event_id,
+            replay_limit=replay_limit,
+        )
 
     def _make_event(
         self,
@@ -2597,15 +2701,13 @@ class AppRuntimeService:
         session_id: str | None = None,
         task_id: str | None = None,
     ) -> dict[str, Any]:
-        return {
-            "event_id": self._new_id("evt"),
-            "event_type": event_type,
-            "scope": scope,
-            "occurred_at": self._now_iso(),
-            "session_id": session_id,
-            "task_id": task_id,
-            "payload": payload,
-        }
+        return self.realtime_hub.make_event(
+            event_type=event_type,
+            payload=payload,
+            scope=scope,
+            session_id=session_id,
+            task_id=task_id,
+        )
 
     def _paginate_messages(
         self,
@@ -2677,276 +2779,9 @@ class AppRuntimeService:
             metadata["tool_results"] = entry["tool_results"]
         return metadata
 
-    def _planning_inputs(self) -> dict[str, list[dict[str, Any]]]:
-        planning_inputs = getattr(self.resources, "planning_inputs", None)
-        if callable(planning_inputs):
-            payload = planning_inputs()
-            if isinstance(payload, dict):
-                return {
-                    "tasks": list(payload.get("tasks", [])),
-                    "events": list(payload.get("events", [])),
-                    "reminders": list(payload.get("reminders", [])),
-                    "notifications": list(payload.get("notifications", [])),
-                }
-        return {
-            "tasks": self.resources.task_store.list_items(),
-            "events": self.resources.event_store.list_items(),
-            "reminders": self.resources.reminder_store.list_items(),
-            "notifications": self.resources.notification_store.list_items(),
-        }
-
-    def _planning_snapshot(
-        self,
-        *,
-        date: str | None = None,
-        surface: str | None = None,
-    ) -> dict[str, Any]:
-        inputs = self._planning_inputs()
-        overview = self.planning_projection_service.build_overview(**inputs)
-        timeline = self._build_planning_timeline_projection(
-            tasks=inputs["tasks"],
-            events=inputs["events"],
-            reminders=inputs["reminders"],
-            target_date=date,
-            surface=surface,
-        )
-        conflicts = self.planning_projection_service.build_conflicts(
-            tasks=inputs["tasks"],
-            events=inputs["events"],
-            reminders=inputs["reminders"],
-        )
-        return {
-            "overview": overview,
-            "timeline": timeline,
-            "conflicts": conflicts,
-        }
-
-    def _build_planning_timeline_projection(
-        self,
-        *,
-        tasks: list[dict[str, Any]],
-        events: list[dict[str, Any]],
-        reminders: list[dict[str, Any]],
-        target_date: str | None = None,
-        surface: str | None = None,
-    ) -> list[dict[str, Any]]:
-        build_timeline = self.planning_projection_service.build_timeline
-        kwargs: dict[str, Any] = {
-            "tasks": tasks,
-            "events": events,
-            "reminders": reminders,
-        }
-
-        parameter_names: set[str] | None = None
-        try:
-            parameter_names = set(inspect.signature(build_timeline).parameters)
-        except (TypeError, ValueError):
-            parameter_names = None
-
-        if target_date is not None:
-            if parameter_names is not None and "date" in parameter_names and "target_date" not in parameter_names:
-                kwargs["date"] = target_date
-            else:
-                kwargs["target_date"] = target_date
-        if surface is not None:
-            if parameter_names is None or "surface" in parameter_names:
-                kwargs["surface"] = surface
-            elif "interaction_surface" in parameter_names:
-                kwargs["interaction_surface"] = surface
-
-        try:
-            return build_timeline(**kwargs)
-        except TypeError:
-            fallback_kwargs = {
-                "tasks": tasks,
-                "events": events,
-                "reminders": reminders,
-            }
-            if target_date is not None:
-                fallback_kwargs["target_date"] = target_date
-            return build_timeline(**fallback_kwargs)
-
     @staticmethod
     def _normalize_planning_surface(value: Any) -> str | None:
-        if not isinstance(value, str):
-            return None
-        cleaned = value.strip().lower()
-        if cleaned in {"agenda", "tasks", "hidden"}:
-            return cleaned
-        return None
-
-    async def _refresh_summary_files_from_resources(self) -> list[tuple[str, dict[str, Any]]]:
-        inputs = self._planning_inputs()
-        derived = self.planning_summary_service.derive_all(
-            tasks=inputs["tasks"],
-            events=inputs["events"],
-            reminders=inputs["reminders"],
-        )
-
-        changed_events: list[tuple[str, dict[str, Any]]] = []
-        async with self._lock:
-            todo_summary = derived["todo_summary"]
-            if todo_summary != self._todo_summary:
-                self._todo_summary = dict(todo_summary)
-                self._save_summary_file(self._todo_summary_path, self._todo_summary)
-                changed_events.append(("todo.summary.changed", dict(self._todo_summary)))
-
-            calendar_summary = derived["calendar_summary"]
-            if calendar_summary != self._calendar_summary:
-                self._calendar_summary = dict(calendar_summary)
-                self._save_summary_file(self._calendar_summary_path, self._calendar_summary)
-                changed_events.append(("calendar.summary.changed", dict(self._calendar_summary)))
-
-        return changed_events
-
-    @staticmethod
-    def _default_todo_summary() -> dict[str, Any]:
-        return {
-            "enabled": False,
-            "pending_count": 0,
-            "overdue_count": 0,
-            "next_due_at": None,
-        }
-
-    @staticmethod
-    def _default_calendar_summary() -> dict[str, Any]:
-        return {
-            "enabled": False,
-            "today_count": 0,
-            "next_event_at": None,
-            "next_event_title": None,
-        }
-
-    def _load_summary_file(self, path: Path, default: dict[str, Any]) -> dict[str, Any]:
-        if not path.exists():
-            return dict(default)
-        try:
-            with open(path, encoding="utf-8") as f:
-                payload = json.load(f)
-            if not isinstance(payload, dict):
-                raise ValueError("summary file must be a json object")
-        except Exception:
-            logger.warning("Failed to load summary file {}", path)
-            return dict(default)
-        merged = dict(default)
-        merged.update(payload)
-        return merged
-
-    @staticmethod
-    def _save_summary_file(path: Path, summary: dict[str, Any]) -> None:
-        def _write(handle) -> None:
-            json.dump(summary, handle, ensure_ascii=False, indent=2)
-
-        atomic_write_text(path, _write, encoding="utf-8")
-
-    def _normalize_todo_summary(
-        self,
-        current: dict[str, Any],
-        payload: dict[str, Any],
-    ) -> tuple[dict[str, Any], str | None]:
-        summary = dict(self._default_todo_summary())
-        summary.update(current)
-        summary["enabled"] = self._normalize_bool_field(
-            payload,
-            key="enabled",
-            current=summary["enabled"],
-        )
-        counts, error = self._normalize_nonnegative_int_fields(
-            payload,
-            current=summary,
-            keys=("pending_count", "overdue_count"),
-        )
-        if error:
-            return {}, error
-        summary.update(counts)
-        next_due_at, error = self._normalize_optional_string_field(
-            payload,
-            key="next_due_at",
-            current=summary["next_due_at"],
-        )
-        if error:
-            return {}, error
-        summary["next_due_at"] = next_due_at
-        if not summary["enabled"]:
-            summary = self._default_todo_summary()
-        return summary, None
-
-    def _normalize_calendar_summary(
-        self,
-        current: dict[str, Any],
-        payload: dict[str, Any],
-    ) -> tuple[dict[str, Any], str | None]:
-        summary = dict(self._default_calendar_summary())
-        summary.update(current)
-        summary["enabled"] = self._normalize_bool_field(
-            payload,
-            key="enabled",
-            current=summary["enabled"],
-        )
-        counts, error = self._normalize_nonnegative_int_fields(
-            payload,
-            current=summary,
-            keys=("today_count",),
-        )
-        if error:
-            return {}, error
-        summary.update(counts)
-        next_event_at, error = self._normalize_optional_string_field(
-            payload,
-            key="next_event_at",
-            current=summary["next_event_at"],
-        )
-        if error:
-            return {}, error
-        next_event_title, error = self._normalize_optional_string_field(
-            payload,
-            key="next_event_title",
-            current=summary["next_event_title"],
-        )
-        if error:
-            return {}, error
-        summary["next_event_at"] = next_event_at
-        summary["next_event_title"] = next_event_title
-        if not summary["enabled"]:
-            summary = self._default_calendar_summary()
-        return summary, None
-
-    @staticmethod
-    def _normalize_bool_field(payload: dict[str, Any], *, key: str, current: bool) -> bool:
-        value = payload.get(key, current)
-        return value if isinstance(value, bool) else current
-
-    @staticmethod
-    def _normalize_nonnegative_int_fields(
-        payload: dict[str, Any],
-        *,
-        current: dict[str, Any],
-        keys: tuple[str, ...],
-    ) -> tuple[dict[str, int], str | None]:
-        normalized: dict[str, int] = {}
-        for key in keys:
-            value = payload.get(key, current[key])
-            if not isinstance(value, int) or value < 0:
-                return {}, f"{key} must be a non-negative integer"
-            normalized[key] = value
-        return normalized, None
-
-    @staticmethod
-    def _normalize_optional_string_field(
-        payload: dict[str, Any],
-        *,
-        key: str,
-        current: str | None,
-    ) -> tuple[str | None, str | None]:
-        if key not in payload:
-            return current, None
-        value = payload[key]
-        if value is None:
-            return None, None
-        if not isinstance(value, str):
-            return None, f"{key} must be a string or null"
-        cleaned = value.strip()
-        return cleaned or None, None
+        return PlanningRuntimeService.normalize_planning_surface(value)
 
     def _is_authorized(self, request: web.Request) -> bool:
         if not self.auth_token:
@@ -2976,150 +2811,28 @@ class AppRuntimeService:
         return True, ""
 
     def _desktop_voice_runtime(self) -> dict[str, Any]:
-        if self.desktop_voice_service is None:
-            return {
-                "connected": False,
-                "ready": False,
-                "status": "idle",
-                "capture_active": False,
-                "client_count": 0,
-                "device_feedback_available": bool(self.device_channel.connected),
-                "asr_available": bool(self.device_channel.asr),
-                "wake_word_active": False,
-                "auto_listen_active": False,
-            }
-        return self.desktop_voice_service.get_snapshot()
+        return self.runtime_projection_service.desktop_voice_runtime()
 
     def _device_runtime_state(self) -> dict[str, Any]:
-        snapshot = dict(self.device_channel.get_snapshot())
-        capabilities = snapshot.get("display_capabilities")
-        if not isinstance(capabilities, dict):
-            battery = snapshot.get("battery")
-            battery_available = False
-            try:
-                battery_available = int(battery) >= 0
-            except (TypeError, ValueError):
-                battery_available = False
-            capabilities = {
-                "text_reply_available": True,
-                "display_update_hint_available": True,
-                "status_bar_available": False,
-                "weather_available": False,
-                "battery_telemetry_available": battery_available,
-                "charging_telemetry_available": battery_available,
-            }
-        snapshot["display_capabilities"] = dict(capabilities)
-        return snapshot
+        return self.runtime_projection_service.device_runtime_state()
 
     def _voice_runtime_state(self) -> dict[str, Any]:
-        settings = self.settings.get_public_settings()
-        desktop = self._desktop_voice_runtime()
-        return {
-            "pipeline_ready": bool(self.device_channel.asr and desktop.get("ready")),
-            "desktop_bridge": desktop,
-            "device_feedback_available": bool(self.device_channel.connected),
-            "wake_word": {
-                "configured_value": settings.get("wake_word"),
-                "configured": bool(settings.get("wake_word")),
-                "implemented": False,
-                "active": False,
-                "reason": "configured_only_not_runtime_enabled",
-            },
-            "auto_listen": {
-                "configured_value": bool(settings.get("auto_listen", False)),
-                "configured": True,
-                "implemented": False,
-                "active": False,
-                "reason": "configured_only_not_runtime_enabled",
-            },
-        }
+        return self.runtime_projection_service.voice_runtime_state()
 
     def _planning_runtime_state(self) -> dict[str, Any]:
-        overview = self.get_planning_overview()
-        counts = overview.get("counts", {})
-        return {
-            "available": True,
-            "overview_ready": True,
-            "timeline_ready": True,
-            "conflicts_ready": True,
-            "conflict_count": int(counts.get("conflict_count", 0) or 0),
-            "generated_at": overview.get("generated_at"),
-        }
+        return self.runtime_projection_service.planning_runtime_state()
+
+    def _reminder_runtime_state(self) -> dict[str, Any]:
+        return self.runtime_projection_service.reminder_runtime_state()
 
     def _storage_runtime_state(self) -> dict[str, Any]:
-        sqlite_path = self._storage_config.get("sqlite_path")
-        sqlite_path_value = str(sqlite_path).strip() if sqlite_path is not None else ""
-        state = {
-            "session_mode": str(
-                self._storage_config.get("session_storage_mode", "json")
-            ).strip().lower() or "json",
-            "planning_mode": str(
-                self._storage_config.get("planning_storage_mode", "json")
-            ).strip().lower() or "json",
-            "experience_mode": str(
-                self._storage_config.get("experience_storage_mode", "json")
-            ).strip().lower() or "json",
-            "computer_action_mode": str(
-                self._storage_config.get("computer_action_storage_mode", "json")
-            ).strip().lower() or "json",
-            "sqlite_path": sqlite_path_value or None,
-            "schema_version": 0,
-            "latest_imported_at": None,
-            "shadow_failures": 0,
-            "mismatch_count": 0,
-        }
-        session_runtime_state = getattr(self.sessions, "storage_runtime_state", None)
-        if callable(session_runtime_state):
-            payload = session_runtime_state()
-            if isinstance(payload, dict):
-                state["session_mode"] = str(payload.get("mode") or state["session_mode"])
-                state["sqlite_path"] = payload.get("sqlite_path") or state["sqlite_path"]
-                state["schema_version"] = max(
-                    int(state["schema_version"] or 0),
-                    int(payload.get("schema_version", 0) or 0),
-                )
-                state["latest_imported_at"] = (
-                    payload.get("latest_imported_at") or state["latest_imported_at"]
-                )
-
-        planning_runtime_state = getattr(self.resources, "storage_runtime_state", None)
-        if callable(planning_runtime_state):
-            payload = planning_runtime_state()
-            if isinstance(payload, dict):
-                state["planning_mode"] = str(payload.get("mode") or state["planning_mode"])
-                state["sqlite_path"] = payload.get("sqlite_path") or state["sqlite_path"]
-                state["schema_version"] = max(
-                    int(state["schema_version"] or 0),
-                    int(payload.get("schema_version", 0) or 0),
-                )
-                state["latest_imported_at"] = (
-                    payload.get("latest_imported_at") or state["latest_imported_at"]
-                )
-                state["shadow_failures"] = int(payload.get("shadow_failures", 0) or 0)
-                state["mismatch_count"] = int(payload.get("mismatch_count", 0) or 0)
-                mismatch_domains = payload.get("mismatch_domains")
-                if isinstance(mismatch_domains, dict):
-                    state["mismatch_domains"] = dict(mismatch_domains)
-        return state
+        return self.runtime_projection_service.storage_runtime_state()
 
     def _transport_runtime_state(self) -> dict[str, Any]:
-        runtime_state = getattr(self.bus, "runtime_state", None)
-        state = runtime_state() if callable(runtime_state) else {}
-        if not isinstance(state, dict):
-            state = {}
-        state.setdefault("bus_inbound_depth", int(getattr(self.bus, "inbound_size", 0) or 0))
-        state.setdefault("bus_outbound_depth", int(getattr(self.bus, "outbound_size", 0) or 0))
-        state.setdefault("ws_client_count", len(self._ws_clients))
-        state.setdefault("slow_client_drops", self._slow_client_drops)
-        return state
+        return self.runtime_projection_service.transport_runtime_state()
 
     def _computer_control_runtime_state(self) -> dict[str, Any]:
-        state = dict(self.computer_control_service.get_state())
-        state.setdefault(
-            "allowed_scripts_contract_version",
-            _ALLOWED_SCRIPTS_CONTRACT_VERSION,
-        )
-        return state
+        return self.runtime_projection_service.computer_control_runtime_state()
 
     async def _runtime_experience_state(
         self,
@@ -3130,11 +2843,11 @@ class AppRuntimeService:
         computer_control_state: dict[str, Any] | None = None,
         current_task: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return self.experience_service.get_public_snapshot(
+        return await self.runtime_projection_service.runtime_experience_state(
             session_id=session_id,
-            device_snapshot=device_snapshot or self.device_channel.get_snapshot(),
-            voice_runtime=voice_runtime or self._voice_runtime_state(),
-            computer_control_state=computer_control_state or self._computer_control_runtime_state(),
+            device_snapshot=device_snapshot,
+            voice_runtime=voice_runtime,
+            computer_control_state=computer_control_state,
             current_task=current_task,
         )
 
@@ -3152,130 +2865,10 @@ class AppRuntimeService:
         }
 
     def _agent_runtime_summary(self) -> dict[str, Any]:
-        runtime = self.agent_runtime
-        exec_config = getattr(runtime, "exec_config", None)
-        web_proxy = str(getattr(runtime, "web_proxy", "") or "").strip()
-        brave_api_key = str(getattr(runtime, "brave_api_key", "") or "").strip()
-        mcp_servers = getattr(runtime, "mcp_servers", {}) or {}
-        policy = getattr(self.computer_control_service, "policy", None)
-
-        exec_timeout = 60
-        path_append = ""
-        if exec_config is not None:
-            try:
-                exec_timeout = int(getattr(exec_config, "timeout", 60))
-            except (TypeError, ValueError):
-                exec_timeout = 60
-            path_append = str(getattr(exec_config, "path_append", "") or "").strip()
-
-        allowed_apps = sorted(getattr(policy, "allowed_apps", set()) or [])
-        allowed_shortcuts = sorted(getattr(policy, "allowed_shortcuts", set()) or [])
-        allowed_scripts = sorted((getattr(policy, "allowed_scripts", {}) or {}).keys())
-        allowed_path_roots = [
-            str(path)
-            for path in sorted(
-                getattr(policy, "allowed_path_roots", []) or [],
-                key=lambda item: str(item),
-            )
-        ]
-        allowed_wechat_contacts = sorted(
-            getattr(policy, "allowed_wechat_contacts", set()) or [],
-        )
-        permission_profile = {
-            "api_auth": {
-                "app_auth_required": bool(self.auth_token),
-                "device_auth_required": bool(
-                    str(self.cfg.get("device", {}).get("auth_token", "") or "").strip()
-                ),
-            },
-            "exec": {
-                "workspace_restricted": bool(
-                    getattr(runtime, "restrict_to_workspace", False)
-                ),
-                "timeout_s": exec_timeout,
-                "path_append_configured": bool(path_append),
-            },
-            "web": {
-                "search_enabled": bool(brave_api_key),
-                "fetch_enabled": True,
-                "proxy_configured": bool(web_proxy),
-            },
-            "mcp": {
-                "enabled": bool(mcp_servers),
-                "server_names": sorted(str(name) for name in mcp_servers.keys()),
-            },
-            "cron": {
-                "enabled": bool(getattr(runtime, "cron_enabled", False)),
-            },
-            "computer_control": {
-                "enabled": bool(getattr(policy, "enabled", False)),
-                "available": self.computer_control_service.is_available(),
-                "supported_actions": self.computer_control_service.supported_actions(),
-                "allowed_scripts_contract_version": _ALLOWED_SCRIPTS_CONTRACT_VERSION,
-                "confirm_medium_risk": bool(
-                    getattr(policy, "confirm_medium_risk", False)
-                ),
-                "allowed_apps": allowed_apps,
-                "allowed_shortcuts": allowed_shortcuts,
-                "allowed_scripts": allowed_scripts,
-                "allowed_path_roots": allowed_path_roots,
-                "wechat_enabled": bool(getattr(policy, "wechat_enabled", False)),
-                "allowed_wechat_contacts": allowed_wechat_contacts,
-                "permission_hints": self.computer_control_service.permission_hints(),
-                "adapter_error_present": bool(
-                    getattr(self.computer_control_service, "adapter_error", None)
-                ),
-            },
-        }
-        return {
-            "workspace_restricted": permission_profile["exec"]["workspace_restricted"],
-            "web_search_enabled": permission_profile["web"]["search_enabled"],
-            "web_fetch_enabled": permission_profile["web"]["fetch_enabled"],
-            "mcp_enabled": permission_profile["mcp"]["enabled"],
-            "cron_enabled": permission_profile["cron"]["enabled"],
-            "exec_timeout_s": exec_timeout,
-            "permission_profile": permission_profile,
-        }
+        return self.runtime_projection_service.agent_runtime_summary()
 
     def _capabilities(self) -> dict[str, Any]:
-        desktop = self._desktop_voice_runtime()
-        return {
-            "chat": True,
-            "device_control": True,
-            "device_commands": True,
-            "voice_pipeline": bool(self.device_channel.asr and desktop.get("ready")),
-            "desktop_voice": {
-                "http_path": "/api/desktop-voice/v1/state",
-                "ws_path": "/ws/desktop-voice",
-                "desktop_client_ready": bool(desktop.get("ready")),
-                "capture_source": "desktop_mic",
-                "device_feedback_available": bool(self.device_channel.connected),
-                "local_speaker_output": False,
-            },
-            "wake_word": False,
-            "auto_listen": False,
-            "whatsapp_bridge": bool(self.cfg.get("whatsapp", {}).get("enabled", False)),
-            "settings": True,
-            "tasks": True,
-            "events": True,
-            "notifications": True,
-            "reminders": True,
-            "reminder_actions": True,
-            "planning": True,
-            "planning_bundle": True,
-            "planning_overview": True,
-            "planning_timeline": True,
-            "planning_conflicts": True,
-            "todo_summary": True,
-            "calendar_summary": True,
-            "computer_control": self.computer_control_service.is_available(),
-            "computer_actions": self.computer_control_service.supported_actions(),
-            "experience": True,
-            "app_events": True,
-            "event_replay": True,
-            "app_auth_enabled": bool(self.auth_token),
-            "agent_runtime": self._agent_runtime_summary(),
-        }
+        return self.runtime_projection_service.capabilities()
 
     def _build_device_pairing_bundle(
         self,
@@ -3912,7 +3505,7 @@ class AppRuntimeService:
         return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
     def _latest_event_id(self) -> str | None:
-        return self._event_history[-1]["event_id"] if self._event_history else None
+        return self.realtime_hub.latest_event_id()
 
     @staticmethod
     def _coerce_positive_int(raw: Any, *, default: int) -> int:

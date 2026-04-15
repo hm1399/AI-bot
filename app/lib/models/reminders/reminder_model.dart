@@ -20,6 +20,8 @@ class ReminderModel {
     this.linkedTaskId,
     this.linkedEventId,
     this.linkedReminderId,
+    this.scheduledActionKind,
+    this.scheduledActionTarget,
     this.normalizedTime,
     this.normalizedTimes = const <String, dynamic>{},
     this.conflictSummaries = const <String>[],
@@ -54,6 +56,8 @@ class ReminderModel {
   final String? linkedTaskId;
   final String? linkedEventId;
   final String? linkedReminderId;
+  final String? scheduledActionKind;
+  final String? scheduledActionTarget;
   final String? normalizedTime;
   final Map<String, dynamic> normalizedTimes;
   final List<String> conflictSummaries;
@@ -109,6 +113,11 @@ class ReminderModel {
 
   String? get deliveryModeLabel => _humanizeDeliveryMode(effectiveDeliveryMode);
 
+  String? get scheduledActionLabel => _humanizeScheduledAction(
+    scheduledActionKind,
+    scheduledActionTarget,
+  );
+
   ReminderModel copyWith({
     String? title,
     String? message,
@@ -135,6 +144,8 @@ class ReminderModel {
       linkedTaskId: linkedTaskId,
       linkedEventId: linkedEventId,
       linkedReminderId: linkedReminderId,
+      scheduledActionKind: scheduledActionKind,
+      scheduledActionTarget: scheduledActionTarget,
       normalizedTime: normalizedTime,
       normalizedTimes: normalizedTimes,
       conflictSummaries: conflictSummaries,
@@ -195,6 +206,12 @@ class ReminderModel {
       ]),
       linkedReminderId: _readNullableString(planningMetadata, const <String>[
         'linked_reminder_id',
+      ]),
+      scheduledActionKind: _readNullableString(planningMetadata, const <String>[
+        'scheduled_action_kind',
+      ]),
+      scheduledActionTarget: _readNullableString(planningMetadata, const <String>[
+        'scheduled_action_target',
       ]),
       normalizedTime: _readNullableString(planningMetadata, const <String>[
         'normalized_time',
@@ -257,6 +274,10 @@ class ReminderModel {
       if (linkedTaskId != null) 'linked_task_id': linkedTaskId,
       if (linkedEventId != null) 'linked_event_id': linkedEventId,
       if (linkedReminderId != null) 'linked_reminder_id': linkedReminderId,
+      if (scheduledActionKind != null)
+        'scheduled_action_kind': scheduledActionKind,
+      if (scheduledActionTarget != null)
+        'scheduled_action_target': scheduledActionTarget,
       if (normalizedTime != null) 'normalized_time': normalizedTime,
       if (normalizedTimes.isNotEmpty) 'normalized_times': normalizedTimes,
       if (planningSurface != null) 'planning_surface': planningSurface,
@@ -290,6 +311,8 @@ Map<String, dynamic> _extractPlanningMetadata(Map<String, dynamic> json) {
     'linked_task_id',
     'linked_event_id',
     'linked_reminder_id',
+    'scheduled_action_kind',
+    'scheduled_action_target',
     'normalized_time',
     'normalized_times',
     'conflict_summary',
@@ -437,6 +460,39 @@ String? _humanizeDeliveryMode(String value) {
     'device_voice_and_notification' => 'Device voice + notification',
     _ => _humanizeToken(value),
   };
+}
+
+String? _humanizeScheduledAction(String? kind, String? target) {
+  final normalizedKind = _normalizeDeliveryMode(kind);
+  if (normalizedKind == null) {
+    return null;
+  }
+  if (normalizedKind == 'open_app') {
+    final cleanTarget = target?.trim();
+    if (cleanTarget != null && cleanTarget.isNotEmpty) {
+      return 'Action Open $cleanTarget';
+    }
+    return 'Action Open app';
+  }
+  if (normalizedKind == 'open_path') {
+    final cleanTarget = target?.trim();
+    if (cleanTarget != null && cleanTarget.isNotEmpty) {
+      return 'Action Open path';
+    }
+    return 'Action Open path';
+  }
+  if (normalizedKind == 'open_url') {
+    final cleanTarget = target?.trim();
+    if (cleanTarget != null && cleanTarget.isNotEmpty) {
+      return 'Action Open url';
+    }
+    return 'Action Open url';
+  }
+  final cleanTarget = target?.trim();
+  if (cleanTarget != null && cleanTarget.isNotEmpty) {
+    return 'Action ${_humanizeToken(normalizedKind)} $cleanTarget';
+  }
+  return 'Action ${_humanizeToken(normalizedKind)}';
 }
 
 String _humanizeToken(String value) {

@@ -16,6 +16,7 @@ from nanobot.session.jsonl_importer import JSONLSessionImporter
 from nanobot.session.manager import Session
 from nanobot.session.sqlite_backend import SQLiteSessionBackend
 from nanobot.storage.sqlite_db import get_user_version
+from services.app_api.sqlite_store import SQLitePlanningStore
 
 
 class SQLiteSessionBackendTests(unittest.TestCase):
@@ -71,13 +72,26 @@ class SQLiteSessionBackendTests(unittest.TestCase):
                 for row in connection.execute("PRAGMA table_info(import_manifest);").fetchall()
             }
 
-        self.assertEqual(user_version, 1)
+        self.assertEqual(user_version, 2)
         self.assertIn("manifest_key", columns)
         self.assertIn("domain", columns)
         self.assertIn("details_json", columns)
         self.assertNotIn("source_key", columns)
         self.assertNotIn("record_count", columns)
         self.assertNotIn("message_count", columns)
+
+    def test_backend_accepts_shared_database_already_marked_at_schema_v2(self) -> None:
+        sqlite_store = SQLitePlanningStore(self.db_path)
+        self.assertEqual(sqlite_store.schema_version(), 2)
+
+        backend = SQLiteSessionBackend(self.db_path)
+        session = self._build_session("app:shared")
+        backend.save(session)
+
+        reloaded = backend.get("app:shared")
+        self.assertIsNotNone(reloaded)
+        assert reloaded is not None
+        self.assertEqual(reloaded.messages[0]["message_id"], "msg_user_1")
 
     def test_save_round_trip_preserves_raw_messages_summary_and_page_queries(self) -> None:
         session = self._build_session()

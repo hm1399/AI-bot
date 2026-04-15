@@ -199,7 +199,7 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(routed[0][1]["source"], "hold")
         self.assertEqual(routed[0][1]["feedback_mode"], "record_only")
         channel._send_voice_reply.assert_not_awaited()
-        channel.send_json.assert_not_awaited()
+        self.assertGreaterEqual(channel.send_json.await_count, 2)
 
     async def test_physical_feedback_routes_voice_and_led_hints(self) -> None:
         sent: list[dict] = []
@@ -268,6 +268,33 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(channel._weather_city, "Hong Kong")
         fallback.assert_awaited_once()
 
+    async def test_weather_push_loop_updates_app_snapshot_without_status_bar_capability(
+        self,
+    ) -> None:
+        channel = DeviceChannel(MessageBus())
+        channel.connected = True
+        channel._mark_device_activity()
+        channel._status_bar_state["capability"] = False
+        channel._status_bar_state["weather_capability"] = False
+
+        with patch.object(
+            channel,
+            "_fetch_weather",
+            AsyncMock(return_value=("26°C", "ready")),
+        ) as fetch_weather, patch(
+            "channels.device_channel.asyncio.sleep",
+            AsyncMock(side_effect=asyncio.CancelledError()),
+        ):
+            await channel._weather_push_loop()
+
+        snapshot = channel.get_snapshot()
+        self.assertEqual(snapshot["status_bar"]["weather"], "26°C")
+        self.assertEqual(snapshot["status_bar"]["weather_status"], "ready")
+        self.assertTrue(snapshot["status_bar"]["weather_capability"])
+        self.assertTrue(snapshot["display_capabilities"]["weather_available"])
+        self.assertEqual(snapshot["display_capabilities"]["weather_validity"], "valid")
+        fetch_weather.assert_awaited_once()
+
     async def test_merge_status_bar_state_preserves_weather_when_payload_omits_it(self) -> None:
         channel = DeviceChannel(MessageBus())
         channel._status_bar_state["time"] = "19:05"
@@ -285,6 +312,50 @@ class DeviceChannelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["status_bar"]["time"], "19:06")
         self.assertEqual(snapshot["status_bar"]["weather"], "26°C")
         self.assertEqual(snapshot["status_bar"]["weather_status"], "ready")
+
+    async def test_send_voice_reply_serializes_overlapping_playback_requests(self) -> None:
+        channel = DeviceChannel(MessageBus())
+        channel.connected = True
+        channel.tts = object()
+
+        order: list[tuple[str, str]] = []
+        first_started = asyncio.Event()
+        allow_first_finish = asyncio.Event()
+
+        async def fake_stream(
+            text: str,
+            *,
+            display_text: str | None = None,
+            update_display: bool = True,
+        ) -> None:
+            order.append(("start", text))
+            if text == "first":
+                first_started.set()
+                await allow_first_finish.wait()
+            order.append(("end", text))
+
+        channel._stream_voice_reply = fake_stream  # type: ignore[method-assign]
+
+        first = asyncio.create_task(channel._send_voice_reply("first"))
+        await first_started.wait()
+        second = asyncio.create_task(channel._send_voice_reply("second"))
+
+        await asyncio.sleep(0.01)
+        self.assertEqual(order, [("start", "first")])
+
+        allow_first_finish.set()
+        await first
+        await second
+
+        self.assertEqual(
+            order,
+            [
+                ("start", "first"),
+                ("end", "first"),
+                ("start", "second"),
+                ("end", "second"),
+            ],
+        )
 
     async def test_get_snapshot_marks_connection_offline_when_activity_is_stale(self) -> None:
         channel = DeviceChannel(MessageBus())

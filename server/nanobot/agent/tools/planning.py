@@ -166,7 +166,11 @@ class PlanningTool(Tool):
             "scheduled outings. For 'remind me' or 'wake me at' requests, prefer "
             "a task with owner_kind=assistant plus a reminder with "
             "planning_surface=hidden and delivery_mode=device_voice_and_notification "
-            "instead of an agenda event. When the user "
+            "instead of an agenda event. For future computer-action requests such as "
+            "'open WeChat in one minute', 'open Downloads in ten minutes', or "
+            "'open this webpage later', keep the reminder pattern but also set "
+            "scheduled_action_kind plus scheduled_action_target for low-risk "
+            "computer actions like open_app, open_path, or open_url. When the user "
             "asks what is due today, tomorrow, or on a "
             "specific date, call list_today before answering."
         )
@@ -253,6 +257,21 @@ class PlanningTool(Tool):
                     "enum": sorted(self._SUPPORTED_DELIVERY_MODES),
                     "description": (
                         "Optional delivery mode. Use none, device_voice, or device_voice_and_notification."
+                    ),
+                },
+                "scheduled_action_kind": {
+                    "type": "string",
+                    "description": (
+                        "Optional future computer action for reminders. "
+                        "Supported values: open_app, open_path, open_url."
+                    ),
+                },
+                "scheduled_action_target": {
+                    "type": "string",
+                    "description": (
+                        "Optional target for scheduled reminder action. "
+                        "For open_app use the canonical desktop app name such as WeChat; "
+                        "for open_path use the absolute path; for open_url use the full URL."
                     ),
                 },
                 "linked_task_id": {"type": "string", "description": "Optional linked task id."},
@@ -517,6 +536,8 @@ class PlanningTool(Tool):
         planning_surface: str | None = None,
         owner_kind: str | None = None,
         delivery_mode: str | None = None,
+        scheduled_action_kind: str | None = None,
+        scheduled_action_target: str | None = None,
         scene_mode: str | None = None,
         persona_profile_id: str | None = None,
         persona_voice_style: str | None = None,
@@ -555,6 +576,12 @@ class PlanningTool(Tool):
             )
             if default_delivery_mode is not None:
                 request_metadata["delivery_mode"] = default_delivery_mode
+        normalized_action_kind, normalized_action_target = (
+            self._normalize_scheduled_reminder_action(
+                kind=scheduled_action_kind,
+                target=scheduled_action_target,
+            )
+        )
         metadata = self._build_creation_metadata(
             resource_type="reminder",
             bundle_id=bundle_id,
@@ -562,6 +589,9 @@ class PlanningTool(Tool):
             linked_task_id=linked_task_id,
             linked_event_id=linked_event_id,
         )
+        if normalized_action_kind is not None:
+            metadata["scheduled_action_kind"] = normalized_action_kind
+            metadata["scheduled_action_target"] = normalized_action_target
         reminder = await self._backend.create_reminder(
             {
                 "title": clean_title,
@@ -1032,6 +1062,24 @@ class PlanningTool(Tool):
         if "T" in normalized_time:
             return "once"
         return "daily"
+
+    def _normalize_scheduled_reminder_action(
+        self,
+        *,
+        kind: Any,
+        target: Any,
+    ) -> tuple[str | None, str | None]:
+        clean_kind = self._clean_optional_text(kind)
+        clean_target = self._clean_optional_text(target)
+        if clean_kind is None and clean_target is None:
+            return None, None
+        if clean_kind not in {"open_app", "open_path", "open_url"}:
+            raise ValueError(
+                "scheduled_action_kind must be one of: open_app, open_path, open_url"
+            )
+        if clean_target is None:
+            raise ValueError("scheduled_action_target is required when scheduled_action_kind is set")
+        return clean_kind, clean_target
 
     @staticmethod
     def _normalize_optional_enum(

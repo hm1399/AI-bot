@@ -14,6 +14,7 @@ import '../models/planning/planning_timeline_item_model.dart';
 import '../models/reminders/reminder_model.dart';
 import '../models/settings/settings_model.dart';
 import '../models/tasks/task_model.dart';
+import '../models/voice/voice_activity_model.dart';
 
 enum FeatureStatus { idle, loading, ready, notReady, error, demo }
 
@@ -58,6 +59,7 @@ class AppState {
     required this.planningConflicts,
     required this.planningConflictsMessage,
     required this.physicalInteractionDebugPendingKey,
+    required this.voiceActivity,
     required this.themeMode,
     required this.globalMessage,
   });
@@ -99,6 +101,7 @@ class AppState {
   final List<PlanningConflictModel> planningConflicts;
   final String? planningConflictsMessage;
   final String? physicalInteractionDebugPendingKey;
+  final VoiceActivityModel voiceActivity;
   final ThemeMode themeMode;
   final String? globalMessage;
 
@@ -212,6 +215,7 @@ class AppState {
     List<PlanningConflictModel>? planningConflicts,
     Object? planningConflictsMessage = _unset,
     Object? physicalInteractionDebugPendingKey = _unset,
+    VoiceActivityModel? voiceActivity,
     ThemeMode? themeMode,
     Object? globalMessage = _unset,
   }) {
@@ -282,6 +286,7 @@ class AppState {
           identical(physicalInteractionDebugPendingKey, _unset)
           ? this.physicalInteractionDebugPendingKey
           : physicalInteractionDebugPendingKey as String?,
+      voiceActivity: voiceActivity ?? this.voiceActivity,
       themeMode: themeMode ?? this.themeMode,
       globalMessage: identical(globalMessage, _unset)
           ? this.globalMessage
@@ -329,6 +334,7 @@ class AppState {
       planningConflicts: const <PlanningConflictModel>[],
       planningConflictsMessage: null,
       physicalInteractionDebugPendingKey: null,
+      voiceActivity: VoiceActivityModel.empty(),
       themeMode: ThemeMode.dark,
       globalMessage: null,
     );

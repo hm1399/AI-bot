@@ -1,6 +1,7 @@
 import 'package:ai_bot_app/models/connect/connection_config_model.dart';
 import 'package:ai_bot_app/models/planning/planning_conflict_model.dart';
 import 'package:ai_bot_app/models/planning/planning_timeline_item_model.dart';
+import 'package:ai_bot_app/models/reminders/reminder_model.dart';
 import 'package:ai_bot_app/models/tasks/task_model.dart';
 import 'package:ai_bot_app/providers/app_providers.dart';
 import 'package:ai_bot_app/providers/app_state.dart';
@@ -58,6 +59,84 @@ void main() {
     expect(find.text('Assistant-owned'), findsOneWidget);
     expect(find.text('Tasks surface'), findsOneWidget);
   });
+
+  testWidgets(
+    'tasks screen shows linked reminder schedule for reminder-backed tasks',
+    (WidgetTester tester) async {
+      final reminderTrigger = DateTime(2026, 4, 15, 14, 26).toIso8601String();
+      final state = AppState.initial().copyWith(
+        tasksStatus: FeatureStatus.ready,
+        tasks: <TaskModel>[
+          TaskModel.fromJson(<String, dynamic>{
+            'task_id': 'task_exam_followup',
+            'title': '去考试',
+            'description': '提醒去考试',
+            'priority': 'medium',
+            'completed': false,
+            'created_via': 'agent',
+            'planning_surface': 'tasks',
+            'owner_kind': 'assistant',
+            'delivery_mode': 'device_voice_and_notification',
+            'linked_reminder_id': 'rem_exam_001',
+          }),
+        ],
+        reminders: <ReminderModel>[
+          ReminderModel.fromJson(<String, dynamic>{
+            'reminder_id': 'rem_exam_001',
+            'title': '去考试',
+            'message': '该去考试了！加油！',
+            'time': reminderTrigger,
+            'repeat': 'once',
+            'enabled': true,
+            'next_trigger_at': reminderTrigger,
+            'planning_surface': 'hidden',
+            'delivery_mode': 'device_voice_and_notification',
+            'scheduled_action_kind': 'open_app',
+            'scheduled_action_target': 'WeChat',
+          }),
+        ],
+        planningTimelineStatus: FeatureStatus.ready,
+        planningTimeline: const <PlanningTimelineItemModel>[],
+        planningConflictsStatus: FeatureStatus.ready,
+        planningConflicts: const <PlanningConflictModel>[],
+      );
+
+      await tester.pumpWidget(_buildTestApp(state));
+      await tester.pumpAndSettle();
+      final reminderLabel =
+          'Reminder ${_formatTestDateTimeLabel(DateTime.parse(reminderTrigger))}';
+      await tester.scrollUntilVisible(
+        find.text(reminderLabel),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('去考试'), findsAtLeastNWidgets(1));
+      expect(find.text(reminderLabel), findsOneWidget);
+      expect(find.text('Action Open WeChat'), findsOneWidget);
+    },
+  );
+}
+
+String _formatTestDateTimeLabel(DateTime value) {
+  const monthNames = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '${monthNames[value.month - 1]} ${value.day} · $hour:$minute';
 }
 
 Widget _buildTestApp(AppState state) {

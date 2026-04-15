@@ -86,6 +86,9 @@ class DeviceStatusBarModel {
     required this.weatherStatus,
     required this.updatedAt,
     required this.weatherMeta,
+    this.validity = 'unavailable',
+    this.timeValidity = 'unavailable',
+    this.weatherValidity = 'unavailable',
   });
 
   final String? time;
@@ -93,18 +96,50 @@ class DeviceStatusBarModel {
   final String weatherStatus;
   final String? updatedAt;
   final DeviceWeatherMetaModel weatherMeta;
+  final String validity;
+  final String timeValidity;
+  final String weatherValidity;
 
   factory DeviceStatusBarModel.fromJson(Map<String, dynamic> json) {
+    final time = _runtimeReadNullableString(json, const <String>['time']);
+    final weather = _runtimeReadNullableString(json, const <String>['weather']);
+    final weatherStatus =
+        _runtimeReadNullableString(json, const <String>['weather_status']) ??
+        'idle';
+    final statusBarCapability =
+        _runtimeReadNullableBool(json, const <String>['capability']) ??
+        time != null ||
+            weather != null ||
+            _runtimeReadNullableString(json, const <String>['updated_at']) !=
+                null;
+    final weatherCapability =
+        _runtimeReadNullableBool(json, const <String>['weather_capability']) ??
+        (statusBarCapability &&
+            (weather != null ||
+                weatherStatus == 'ready' ||
+                weatherStatus == 'fetch_failed' ||
+                weatherStatus == 'missing_api_key'));
     return DeviceStatusBarModel(
-      time: _runtimeReadNullableString(json, const <String>['time']),
-      weather: _runtimeReadNullableString(json, const <String>['weather']),
-      weatherStatus:
-          _runtimeReadNullableString(json, const <String>['weather_status']) ??
-          'idle',
+      time: time,
+      weather: weather,
+      weatherStatus: weatherStatus,
       updatedAt: _runtimeReadNullableString(json, const <String>['updated_at']),
       weatherMeta: DeviceWeatherMetaModel.fromJson(
         _extractNestedRuntimePayload(json, const <String>['weather_meta']),
       ),
+      validity:
+          _runtimeReadNullableString(json, const <String>['validity']) ??
+          (statusBarCapability ? 'valid' : 'unavailable'),
+      timeValidity:
+          _runtimeReadNullableString(json, const <String>['time_validity']) ??
+          (statusBarCapability && time != null ? 'valid' : 'unavailable'),
+      weatherValidity:
+          _runtimeReadNullableString(json, const <String>[
+            'weather_validity',
+          ]) ??
+          (weatherCapability && weatherStatus == 'ready' && weather != null
+              ? 'valid'
+              : 'unavailable'),
     );
   }
 
@@ -112,7 +147,7 @@ class DeviceStatusBarModel {
     return const DeviceStatusBarModel(
       time: null,
       weather: null,
-      weatherStatus: 'idle',
+      weatherStatus: 'unsupported',
       updatedAt: null,
       weatherMeta: DeviceWeatherMetaModel.empty(),
     );
@@ -199,6 +234,138 @@ class DeviceCommandModel {
   }
 }
 
+class DeviceDisplayCapabilitiesModel {
+  const DeviceDisplayCapabilitiesModel({
+    required this.textReplyAvailable,
+    required this.displayUpdateHintAvailable,
+    required this.statusBarAvailable,
+    required this.weatherAvailable,
+    required this.batteryTelemetryAvailable,
+    required this.chargingTelemetryAvailable,
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final bool textReplyAvailable;
+  final bool displayUpdateHintAvailable;
+  final bool statusBarAvailable;
+  final bool weatherAvailable;
+  final bool batteryTelemetryAvailable;
+  final bool chargingTelemetryAvailable;
+  final Map<String, dynamic> metadata;
+
+  factory DeviceDisplayCapabilitiesModel.fromJson(Map<String, dynamic> json) {
+    return DeviceDisplayCapabilitiesModel(
+      textReplyAvailable:
+          _runtimeReadBool(json, const <String>['text_reply_available']) ||
+          _runtimeReadBool(json, const <String>['text_reply']),
+      displayUpdateHintAvailable:
+          _runtimeReadBool(json, const <String>[
+            'display_update_hint_available',
+            'display_update_available',
+          ]) ||
+          _runtimeReadBool(json, const <String>['display_update']),
+      statusBarAvailable:
+          _runtimeReadBool(json, const <String>['status_bar_available']) ||
+          _runtimeReadBool(json, const <String>['status_bar']),
+      weatherAvailable:
+          _runtimeReadBool(json, const <String>['weather_available']) ||
+          _runtimeReadBool(json, const <String>['weather']),
+      batteryTelemetryAvailable: _runtimeReadBool(json, const <String>[
+        'battery_telemetry_available',
+        'battery_available',
+        'battery_valid',
+      ]),
+      chargingTelemetryAvailable: _runtimeReadBool(json, const <String>[
+        'charging_telemetry_available',
+        'charging_available',
+        'charging_valid',
+      ]),
+      metadata: Map<String, dynamic>.from(json),
+    );
+  }
+
+  factory DeviceDisplayCapabilitiesModel.fromParentJson(
+    Map<String, dynamic> json,
+  ) {
+    final payload = _extractNestedRuntimePayload(json, const <String>[
+      'display_capabilities',
+      'capabilities',
+    ]);
+    final explicit = payload.isNotEmpty
+        ? DeviceDisplayCapabilitiesModel.fromJson(payload)
+        : null;
+    final statusBar = _extractNestedRuntimePayload(json, const <String>[
+      'status_bar',
+    ]);
+    final weatherMeta = _extractNestedRuntimePayload(statusBar, const <String>[
+      'weather_meta',
+    ]);
+    final battery = _runtimeReadNullableInt(json, const <String>['battery']);
+    final charging = _runtimeReadNullableBool(json, const <String>['charging']);
+    final inferredStatusBarAvailable =
+        _runtimeReadNullableBool(statusBar, const <String>['capability']) ??
+        _runtimeReadNullableBool(json, const <String>[
+          'status_bar_capability',
+        ]) ??
+        (statusBar.isNotEmpty &&
+            (_runtimeReadNullableString(statusBar, const <String>['time']) !=
+                    null ||
+                _runtimeReadNullableString(statusBar, const <String>[
+                      'weather',
+                    ]) !=
+                    null));
+    final weatherStatus =
+        _runtimeReadNullableString(statusBar, const <String>[
+          'weather_status',
+        ]) ??
+        'unsupported';
+    final inferredWeatherAvailable =
+        _runtimeReadNullableBool(statusBar, const <String>[
+          'weather_capability',
+        ]) ??
+        _runtimeReadNullableBool(json, const <String>['weather_capability']) ??
+        (inferredStatusBarAvailable &&
+            (_runtimeReadNullableString(statusBar, const <String>['weather']) !=
+                    null ||
+                weatherStatus == 'ready' ||
+                weatherStatus == 'fetch_failed' ||
+                weatherStatus == 'missing_api_key' ||
+                weatherMeta.isNotEmpty));
+    final inferredBatteryTelemetryAvailable =
+        _runtimeReadNullableBool(json, const <String>['battery_capability']) ??
+        battery != null;
+    final inferredChargingTelemetryAvailable =
+        _runtimeReadNullableBool(json, const <String>['charging_capability']) ??
+        charging != null;
+    return DeviceDisplayCapabilitiesModel(
+      textReplyAvailable: explicit?.textReplyAvailable ?? true,
+      displayUpdateHintAvailable: explicit?.displayUpdateHintAvailable ?? true,
+      statusBarAvailable:
+          (explicit?.statusBarAvailable ?? false) || inferredStatusBarAvailable,
+      weatherAvailable:
+          (explicit?.weatherAvailable ?? false) || inferredWeatherAvailable,
+      batteryTelemetryAvailable:
+          (explicit?.batteryTelemetryAvailable ?? false) ||
+          inferredBatteryTelemetryAvailable,
+      chargingTelemetryAvailable:
+          (explicit?.chargingTelemetryAvailable ?? false) ||
+          inferredChargingTelemetryAvailable,
+      metadata: explicit?.metadata ?? const <String, dynamic>{},
+    );
+  }
+
+  factory DeviceDisplayCapabilitiesModel.empty() {
+    return const DeviceDisplayCapabilitiesModel(
+      textReplyAvailable: true,
+      displayUpdateHintAvailable: true,
+      statusBarAvailable: false,
+      weatherAvailable: false,
+      batteryTelemetryAvailable: false,
+      chargingTelemetryAvailable: false,
+    );
+  }
+}
+
 class DeviceStatusModel {
   const DeviceStatusModel({
     required this.connected,
@@ -212,6 +379,9 @@ class DeviceStatusModel {
     required this.controls,
     required this.statusBar,
     required this.lastCommand,
+    required this.displayCapabilities,
+    this.batteryValidity = 'unavailable',
+    this.chargingValidity = 'unavailable',
   });
 
   final bool connected;
@@ -225,6 +395,9 @@ class DeviceStatusModel {
   final DeviceControlsModel controls;
   final DeviceStatusBarModel statusBar;
   final DeviceCommandModel lastCommand;
+  final DeviceDisplayCapabilitiesModel displayCapabilities;
+  final String batteryValidity;
+  final String chargingValidity;
 
   factory DeviceStatusModel.fromJson(Map<String, dynamic> json) {
     final wifiRssi = json['wifi_rssi'] is int
@@ -233,15 +406,33 @@ class DeviceStatusModel {
     final normalized = wifiRssi == 0
         ? 0
         : _clampPercentInt((((wifiRssi + 100) / 60) * 100).round());
+    final rawBattery = _runtimeReadNullableInt(json, const <String>['battery']);
+    final batteryCapability =
+        _runtimeReadNullableBool(json, const <String>['battery_capability']) ??
+        rawBattery != null;
+    final batteryValidity =
+        _runtimeReadNullableString(json, const <String>['battery_validity']) ??
+        (batteryCapability && rawBattery != null ? 'valid' : 'unavailable');
+    final rawCharging = _runtimeReadNullableBool(json, const <String>[
+      'charging',
+    ]);
+    final chargingCapability =
+        _runtimeReadNullableBool(json, const <String>['charging_capability']) ??
+        rawCharging != null;
+    final chargingValidity =
+        _runtimeReadNullableString(json, const <String>['charging_validity']) ??
+        (chargingCapability && rawCharging != null ? 'valid' : 'unavailable');
     return DeviceStatusModel(
       connected: json['connected'] == true,
       state: (json['state']?.toString() ?? 'unknown').toLowerCase(),
-      battery: json['battery'] is int
-          ? json['battery'] as int
-          : int.tryParse(json['battery']?.toString() ?? '') ?? -1,
+      battery: batteryValidity == 'valid' && rawBattery != null
+          ? rawBattery
+          : -1,
       wifiRssi: wifiRssi,
       wifiSignal: normalized,
-      charging: json['charging'] == true,
+      charging: chargingValidity == 'valid' && rawCharging != null
+          ? rawCharging
+          : false,
       reconnectCount: json['reconnect_count'] is int
           ? json['reconnect_count'] as int
           : int.tryParse(json['reconnect_count']?.toString() ?? '') ?? 0,
@@ -257,6 +448,9 @@ class DeviceStatusModel {
       lastCommand: DeviceCommandModel.fromJson(
         _extractNestedRuntimePayload(json, const <String>['last_command']),
       ),
+      displayCapabilities: DeviceDisplayCapabilitiesModel.fromParentJson(json),
+      batteryValidity: batteryValidity,
+      chargingValidity: chargingValidity,
     );
   }
 
@@ -273,6 +467,7 @@ class DeviceStatusModel {
       controls: DeviceControlsModel.empty(),
       statusBar: DeviceStatusBarModel.empty(),
       lastCommand: DeviceCommandModel.empty(),
+      displayCapabilities: DeviceDisplayCapabilitiesModel.empty(),
     );
   }
 }
@@ -534,6 +729,7 @@ class ReminderRuntimeStateModel {
         'running',
       ]),
       nextTriggerAt: _runtimeReadNullableString(json, const <String>[
+        'next_fire_at',
         'next_trigger_at',
         'next_due_at',
       ]),
@@ -601,6 +797,155 @@ class PlanningRuntimeStateModel {
   }
 }
 
+class RuntimeStorageDiagnosticsModel {
+  const RuntimeStorageDiagnosticsModel({
+    this.reportedByBackend = false,
+    this.sessionMode = 'json',
+    this.planningMode = 'json',
+    this.experienceMode = 'json',
+    this.computerActionMode = 'json',
+    this.sqlitePath,
+    this.schemaVersion = 0,
+    this.latestImportedAt,
+    this.shadowFailures = 0,
+    this.mismatchCount = 0,
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final bool reportedByBackend;
+  final String sessionMode;
+  final String planningMode;
+  final String experienceMode;
+  final String computerActionMode;
+  final String? sqlitePath;
+  final int schemaVersion;
+  final String? latestImportedAt;
+  final int shadowFailures;
+  final int mismatchCount;
+  final Map<String, dynamic> metadata;
+
+  factory RuntimeStorageDiagnosticsModel.fromParentJson(
+    Map<String, dynamic> json,
+  ) {
+    final payload = _extractNestedRuntimePayload(json, const <String>[
+      'storage',
+    ]);
+    if (payload.isEmpty) {
+      return const RuntimeStorageDiagnosticsModel();
+    }
+    return RuntimeStorageDiagnosticsModel(
+      reportedByBackend: true,
+      sessionMode:
+          _runtimeReadNullableString(payload, const <String>['session_mode']) ??
+          'json',
+      planningMode:
+          _runtimeReadNullableString(payload, const <String>[
+            'planning_mode',
+          ]) ??
+          'json',
+      experienceMode:
+          _runtimeReadNullableString(payload, const <String>[
+            'experience_mode',
+          ]) ??
+          'json',
+      computerActionMode:
+          _runtimeReadNullableString(payload, const <String>[
+            'computer_action_mode',
+          ]) ??
+          'json',
+      sqlitePath: _runtimeReadNullableString(payload, const <String>[
+        'sqlite_path',
+      ]),
+      schemaVersion: _runtimeReadInt(payload, const <String>['schema_version']),
+      latestImportedAt: _runtimeReadNullableString(payload, const <String>[
+        'latest_imported_at',
+      ]),
+      shadowFailures: _runtimeReadInt(payload, const <String>[
+        'shadow_failures',
+      ]),
+      mismatchCount: _runtimeReadInt(payload, const <String>['mismatch_count']),
+      metadata: Map<String, dynamic>.from(payload),
+    );
+  }
+}
+
+class RuntimeTransportDiagnosticsModel {
+  const RuntimeTransportDiagnosticsModel({
+    this.reportedByBackend = false,
+    this.busInboundDepth = 0,
+    this.busOutboundDepth = 0,
+    this.wsClientCount = 0,
+    this.slowClientDrops = 0,
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final bool reportedByBackend;
+  final int busInboundDepth;
+  final int busOutboundDepth;
+  final int wsClientCount;
+  final int slowClientDrops;
+  final Map<String, dynamic> metadata;
+
+  factory RuntimeTransportDiagnosticsModel.fromParentJson(
+    Map<String, dynamic> json,
+  ) {
+    final payload = _extractNestedRuntimePayload(json, const <String>[
+      'transport',
+    ]);
+    if (payload.isEmpty) {
+      return const RuntimeTransportDiagnosticsModel();
+    }
+    return RuntimeTransportDiagnosticsModel(
+      reportedByBackend: true,
+      busInboundDepth: _runtimeReadInt(payload, const <String>[
+        'bus_inbound_depth',
+      ]),
+      busOutboundDepth: _runtimeReadInt(payload, const <String>[
+        'bus_outbound_depth',
+      ]),
+      wsClientCount: _runtimeReadInt(payload, const <String>[
+        'ws_client_count',
+      ]),
+      slowClientDrops: _runtimeReadInt(payload, const <String>[
+        'slow_client_drops',
+      ]),
+      metadata: Map<String, dynamic>.from(payload),
+    );
+  }
+}
+
+class ComputerControlRuntimeDiagnosticsModel {
+  const ComputerControlRuntimeDiagnosticsModel({
+    this.reportedByBackend = false,
+    this.allowedScriptsContractVersion = 'legacy',
+    this.metadata = const <String, dynamic>{},
+  });
+
+  final bool reportedByBackend;
+  final String allowedScriptsContractVersion;
+  final Map<String, dynamic> metadata;
+
+  factory ComputerControlRuntimeDiagnosticsModel.fromParentJson(
+    Map<String, dynamic> json,
+  ) {
+    final payload = _extractNestedRuntimePayload(json, const <String>[
+      'computer_control',
+    ]);
+    if (payload.isEmpty) {
+      return const ComputerControlRuntimeDiagnosticsModel();
+    }
+    return ComputerControlRuntimeDiagnosticsModel(
+      reportedByBackend: true,
+      allowedScriptsContractVersion:
+          _runtimeReadNullableString(payload, const <String>[
+            'allowed_scripts_contract_version',
+          ]) ??
+          'legacy',
+      metadata: Map<String, dynamic>.from(payload),
+    );
+  }
+}
+
 class RuntimeStateModel {
   const RuntimeStateModel({
     required this.currentTask,
@@ -636,6 +981,9 @@ class RuntimeStateModel {
     required this.calendarSummary,
     this.reminders = const ReminderRuntimeStateModel(),
     this.planning = const PlanningRuntimeStateModel(),
+    this.storage = const RuntimeStorageDiagnosticsModel(),
+    this.transport = const RuntimeTransportDiagnosticsModel(),
+    this.computerControl = const ComputerControlRuntimeDiagnosticsModel(),
   });
 
   final RuntimeTaskModel? currentTask;
@@ -647,6 +995,9 @@ class RuntimeStateModel {
   final CalendarSummaryModel calendarSummary;
   final ReminderRuntimeStateModel reminders;
   final PlanningRuntimeStateModel planning;
+  final RuntimeStorageDiagnosticsModel storage;
+  final RuntimeTransportDiagnosticsModel transport;
+  final ComputerControlRuntimeDiagnosticsModel computerControl;
 
   RuntimeStateModel copyWithCurrentTask(RuntimeTaskModel? currentTask) {
     return RuntimeStateModel(
@@ -659,6 +1010,9 @@ class RuntimeStateModel {
       calendarSummary: calendarSummary,
       reminders: reminders,
       planning: planning,
+      storage: storage,
+      transport: transport,
+      computerControl: computerControl,
     );
   }
 
@@ -673,6 +1027,26 @@ class RuntimeStateModel {
       calendarSummary: calendarSummary,
       reminders: reminders,
       planning: planning,
+      storage: storage,
+      transport: transport,
+      computerControl: computerControl,
+    );
+  }
+
+  RuntimeStateModel copyWithVoice(VoiceStatusModel voice) {
+    return RuntimeStateModel(
+      currentTask: currentTask,
+      taskQueue: taskQueue,
+      device: device,
+      voice: voice,
+      experience: experience,
+      todoSummary: todoSummary,
+      calendarSummary: calendarSummary,
+      reminders: reminders,
+      planning: planning,
+      storage: storage,
+      transport: transport,
+      computerControl: computerControl,
     );
   }
 
@@ -714,6 +1088,11 @@ class RuntimeStateModel {
       ),
       reminders: ReminderRuntimeStateModel.fromParentJson(json),
       planning: PlanningRuntimeStateModel.fromParentJson(json),
+      storage: RuntimeStorageDiagnosticsModel.fromParentJson(json),
+      transport: RuntimeTransportDiagnosticsModel.fromParentJson(json),
+      computerControl: ComputerControlRuntimeDiagnosticsModel.fromParentJson(
+        json,
+      ),
     );
   }
 
@@ -728,6 +1107,9 @@ class RuntimeStateModel {
       calendarSummary: CalendarSummaryModel.empty(),
       reminders: const ReminderRuntimeStateModel(),
       planning: const PlanningRuntimeStateModel(),
+      storage: const RuntimeStorageDiagnosticsModel(),
+      transport: const RuntimeTransportDiagnosticsModel(),
+      computerControl: const ComputerControlRuntimeDiagnosticsModel(),
     );
   }
 }
@@ -785,6 +1167,23 @@ int _clampPercentInt(int value) {
   return value.clamp(0, 100).toInt();
 }
 
+bool? _runtimeReadNullableBool(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is bool) {
+      return value;
+    }
+    final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == 'true') {
+      return true;
+    }
+    if (normalized == 'false') {
+      return false;
+    }
+  }
+  return null;
+}
+
 bool _runtimeReadBool(Map<String, dynamic> json, List<String> keys) {
   for (final key in keys) {
     final value = json[key];
@@ -800,6 +1199,20 @@ bool _runtimeReadBool(Map<String, dynamic> json, List<String> keys) {
     }
   }
   return false;
+}
+
+int? _runtimeReadNullableInt(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is int) {
+      return value;
+    }
+    final parsed = int.tryParse(value?.toString() ?? '');
+    if (parsed != null) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
 int _runtimeReadInt(Map<String, dynamic> json, List<String> keys) {

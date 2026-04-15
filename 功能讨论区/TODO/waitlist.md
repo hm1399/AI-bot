@@ -12,6 +12,14 @@
 
 ## P1：中优先级（热点文件 / 性能风险 / 用户可见行为偏差）
 
+### Checkpoint 2026-04-15-08 控制中心与 demo bundle 仍未完全消费新的 capability / validity 语义
+
+- 发现来源：本轮 `P1 Task 3 契约收口` 复核。
+- 当前状态：`app/lib/screens/control_center/control_center_screen.dart` 仍直接把 `statusBar.time / weatherStatus` 拼成可见文案；`app/lib/services/demo/demo_service_bundle.dart` 仍提供 `battery=85 / weather=26°C` 且 capability 全为可用的演示数据。
+- 影响：即使 runtime 主链路已经把 demo 固件标成 `unavailable`，控制中心与本地 demo 数据源仍可能继续把状态栏 / 电量 / 天气展示成正式能力，造成 UI 口径不一致。
+- 建议动作：主线程后续单独收口 `control_center_screen` 与 `demo_service_bundle` 的 capability / validity 消费逻辑，避免首页与其他入口出现双口径。
+- 本轮处理：仅记录，未处理。
+
 ### Checkpoint 2026-04-15-01 后端全量 unittest 仍被 `device_channel` 长按记录模式用例阻塞
 
 - 发现来源：本轮执行 `server/.venv/bin/python -m unittest discover server/tests`。
@@ -84,13 +92,13 @@
 - 建议动作：后续单独立项把出站路由拆成更清晰的 lanes，至少区分 `app_realtime / device_voice / external_channels`。
 - 本轮处理：仅复核，未处理。
 
-### Checkpoint 2026-04-11-05 Reminder 调度仍是固定间隔全量轮询
+### Checkpoint 2026-04-15-02 `planning_inputs()` 在 dual 模式下仍默认直读 SQLite shadow
 
-- 发现来源：本轮 reminder 调度复核。
-- 当前状态：`server/services/reminder_scheduler.py` 仍按固定 `poll_interval_s=15.0` 周期轮询全部 reminder。
-- 影响：提醒数量增长后仍会出现无谓空转，到点精度也继续受轮询间隔限制。
-- 建议动作：后续单独立项改成基于 `next_trigger_at` 的 next-fire 调度模型。
-- 本轮处理：仅复核，未处理。
+- 发现来源：本轮 P1 Task 5/6 存储观测扩展复核。
+- 当前状态：`server/services/app_api/resource_service.py` 已补齐 `planning_store_diagnostics()` 与 shadow/runtime 统计，但 `planning_inputs()` 在 `dual` 模式下仍直接返回 SQLite items，没有根据 shadow mismatch / error 自动降级到 JSON primary。
+- 影响：如果 dual shadow 已出现 drift，后续 runtime / planning overview 若直接接这条读路径，仍可能出现“默认口径看起来已切到 sqlite，实际 shadow 不健康”的偏差。
+- 建议动作：后续单独立项把 planning read path 和 runtime 汇总一起接到新 diag/health gate，再决定是否继续默认读 shadow。
+- 本轮处理：仅补观测接口，未改默认 planning 读取口径。
 
 ### Checkpoint 2026-04-10-02 `ControlCenterScreen` 仍在 `build()` 中回写设备控制草稿值
 
@@ -261,3 +269,19 @@
 - 影响：后续如果只看配置层，仍可能误判“打开 experimental_ui 就能自动化发送微信”。
 - 建议动作：后续单独立项决定删除该占位开关，或补真正可验证的 UI 自动化适配器。
 - 本轮处理：仅复核，未处理。
+
+### Checkpoint 2026-04-15-10 根 `README.md` 对当前 demo 主路径和完成度描述仍明显过时
+
+- 发现来源：本轮“上次 demo 与当前状态对比说明”调研。
+- 当前状态：仓库根 `README.md` 仍把 WhatsApp 放在主展示链路里，并写着 `Flutter App (开发中)`；但当前仓库实际已经有完整 Flutter 多页面桌面工作台，且 `server/config.yaml` 里 `whatsapp.enabled` 默认是 `false`。
+- 影响：外部读者如果先看根 README，会低估当前 demo 的真实进展，也容易误以为最新主流程仍然是“设备 + WhatsApp”。
+- 建议动作：后续单独立项更新根 README 的系统架构、核心功能和 demo 口径，让文档与当前产品主路径对齐。
+- 本轮处理：仅记录，未处理。
+
+### Checkpoint 2026-04-15-11 `server/nanobot` 与 `nanobot-src` 已显著分叉，但仓库里缺少正式的“分叉口径”说明
+
+- 发现来源：本轮 `nanobot-src` 与当前项目差异调研。
+- 当前状态：当前项目 vendored 的 `server/nanobot` 已经新增 `planning` / `computer_control` / `sqlite` / `atomic_write` / 更重的 bus 与 session 改造，同时又裁掉了原版 CLI、templates、skills、heartbeat 和部分 provider；但仓库里没有一份正式文档明确说明“这里只是基于 nanobot 深改后的产品内核，不等于原版 nanobot”。
+- 影响：后续如果有人想同步上游、排查行为差异，或者直接把原版 README 当成本项目能力说明，会非常容易误判。
+- 建议动作：后续单独立项补一份 `server/nanobot` 分叉说明，至少写清楚保留了什么、改了什么、为什么不再按原版口径维护。
+- 本轮处理：仅记录，未处理。

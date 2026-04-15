@@ -88,3 +88,24 @@
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-P1-Task5-6-hot-path存储观测与提醒调度实现计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-P1-Task5-6-hot-path存储观测与提醒调度实现计划.md)
 - [2026-04-15-P1-Task4-transport背压与outbound-lanes实施计划](./2026-04-15-P1-Task4-transport背压与outbound-lanes实施计划.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-P1-Task4-transport背压与outbound-lanes实施计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-P1-Task4-transport背压与outbound-lanes实施计划.md)
+- [2026-04-15-上次demo与当前项目状态对比说明计划](./2026-04-15-上次demo与当前项目状态对比说明计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-上次demo与当前项目状态对比说明计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-上次demo与当前项目状态对比说明计划.md)
+- 状态：2026-04-15 已完成旧 demo 与当前项目状态的对比调研，并输出大白话版说明；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-nanobot-src与当前项目差异说明计划](./2026-04-15-nanobot-src与当前项目差异说明计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-nanobot-src与当前项目差异说明计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-nanobot-src与当前项目差异说明计划.md)
+- 状态：2026-04-15 已完成 nanobot-src 与当前项目差异调研，并输出大白话版说明；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-设备断服后长按重配恢复实施计划](./2026-04-15-设备断服后长按重配恢复实施计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-设备断服后长按重配恢复实施计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-设备断服后长按重配恢复实施计划.md)
+- 状态：2026-04-15 已完成设备断服后长按重配入口修复；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-定时打开应用任务执行修复计划](./2026-04-15-定时打开应用任务执行修复计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-定时打开应用任务执行修复计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-定时打开应用任务执行修复计划.md)
+- 状态：2026-04-15 已完成“未来打开应用 / 文件 / 网页”定时电脑动作落地，覆盖结构化落库、到点执行与 Tasks 可见性补充；按当前用户约束，测试与 git 提交待确认后执行。
+- [2026-04-15-Chat页面体验与状态区折叠收口实施计划](./2026-04-15-Chat页面体验与状态区折叠收口实施计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-Chat页面体验与状态区折叠收口实施计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-Chat页面体验与状态区折叠收口实施计划.md)
+- 状态：2026-04-15 已完成 Chat 页面体验区与状态区折叠收口，默认收起并释放更多消息区高度；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-首页Device Snapshot天气与遥测可见性修复计划](./2026-04-15-首页Device Snapshot天气与遥测可见性修复计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-首页Device Snapshot天气与遥测可见性修复计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-首页Device Snapshot天气与遥测可见性修复计划.md)
+- 状态：2026-04-15 已完成首页 Device Snapshot 的天气可见性与 Battery/Charging 语义修复，恢复 App 侧天气展示并区分 `Unknown / Not Wired`；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-最新demo流程-导师展示版计划](./2026-04-15-最新demo流程-导师展示版计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-最新demo流程-导师展示版计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-最新demo流程-导师展示版计划.md)
+- 状态：2026-04-15 已完成基于当前项目进度的导师 demo 流程文档；按当前用户约束，未跑测试，git 提交待确认后执行。

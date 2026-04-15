@@ -144,6 +144,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               final stacked = constraints.maxWidth < 1080;
               final taskPanel = _TaskWorkbenchPanel(
                 tasks: filteredTasks,
+                reminders: state.reminders,
                 status: state.tasksStatus,
                 onEdit: (TaskModel task) => showPlanningEditorDialog(
                   context,
@@ -710,6 +711,7 @@ class _OverviewMetric extends StatelessWidget {
 class _TaskWorkbenchPanel extends StatelessWidget {
   const _TaskWorkbenchPanel({
     required this.tasks,
+    required this.reminders,
     required this.status,
     required this.onEdit,
     required this.onToggleComplete,
@@ -717,6 +719,7 @@ class _TaskWorkbenchPanel extends StatelessWidget {
   });
 
   final List<TaskModel> tasks;
+  final List<ReminderModel> reminders;
   final FeatureStatus status;
   final ValueChanged<TaskModel> onEdit;
   final ValueChanged<TaskModel> onToggleComplete;
@@ -761,6 +764,9 @@ class _TaskWorkbenchPanel extends StatelessWidget {
           _TaskList(
             status: status,
             tasks: tasks,
+            remindersById: <String, ReminderModel>{
+              for (final reminder in reminders) reminder.id: reminder,
+            },
             onEdit: onEdit,
             onToggleComplete: onToggleComplete,
             onDelete: onDelete,
@@ -1196,6 +1202,7 @@ class _TaskList extends StatelessWidget {
   const _TaskList({
     required this.status,
     required this.tasks,
+    required this.remindersById,
     required this.onEdit,
     required this.onToggleComplete,
     required this.onDelete,
@@ -1203,6 +1210,7 @@ class _TaskList extends StatelessWidget {
 
   final FeatureStatus status;
   final List<TaskModel> tasks;
+  final Map<String, ReminderModel> remindersById;
   final ValueChanged<TaskModel> onEdit;
   final ValueChanged<TaskModel> onToggleComplete;
   final ValueChanged<TaskModel> onDelete;
@@ -1220,6 +1228,9 @@ class _TaskList extends StatelessWidget {
       children: tasks.map((TaskModel task) {
         return _TaskRow(
           task: task,
+          linkedReminder: task.linkedReminderId == null
+              ? null
+              : remindersById[task.linkedReminderId!],
           onEdit: () => onEdit(task),
           onToggleComplete: () => onToggleComplete(task),
           onDelete: () => onDelete(task),
@@ -1232,12 +1243,14 @@ class _TaskList extends StatelessWidget {
 class _TaskRow extends StatelessWidget {
   const _TaskRow({
     required this.task,
+    required this.linkedReminder,
     required this.onEdit,
     required this.onToggleComplete,
     required this.onDelete,
   });
 
   final TaskModel task;
+  final ReminderModel? linkedReminder;
   final VoidCallback onEdit;
   final VoidCallback onToggleComplete;
   final VoidCallback onDelete;
@@ -1308,6 +1321,12 @@ class _TaskRow extends StatelessWidget {
               _MetaTag(label: task.completed ? 'Completed' : 'Open'),
               if (task.dueAt?.isNotEmpty == true)
                 _MetaTag(label: 'Due ${_formatDateTime(task.dueDateTime)}'),
+              if (_linkedReminderScheduleLabel(linkedReminder)
+                  case final String reminderLabel)
+                _MetaTag(label: reminderLabel),
+              if (_linkedReminderActionLabel(linkedReminder)
+                  case final String actionLabel)
+                _MetaTag(label: actionLabel),
               _MetaTag(label: task.ownerLabel),
               _MetaTag(label: task.planningSurfaceLabel),
               if (task.deliveryModeLabel != null)
@@ -1329,6 +1348,26 @@ class _TaskRow extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _linkedReminderScheduleLabel(ReminderModel? reminder) {
+  if (reminder == null) {
+    return null;
+  }
+  final nextTrigger =
+      reminder.nextTriggerDateTime ?? DateTime.tryParse(reminder.time);
+  if (nextTrigger != null) {
+    return 'Reminder ${_formatDateTime(nextTrigger)}';
+  }
+  final rawTime = reminder.time.trim();
+  if (rawTime.isEmpty) {
+    return 'Reminder linked';
+  }
+  return 'Reminder $rawTime';
+}
+
+String? _linkedReminderActionLabel(ReminderModel? reminder) {
+  return reminder?.scheduledActionLabel;
 }
 
 class _MetaTag extends StatelessWidget {

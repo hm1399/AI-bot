@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import tempfile
@@ -123,6 +124,14 @@ class FakeComputerAdapter:
         self.calls.append(("open_app", {"app": app}))
         return {"opened": app}
 
+    async def open_path(self, *, path: str) -> dict[str, Any]:
+        self.calls.append(("open_path", {"path": path}))
+        return {"opened_path": path}
+
+    async def open_url(self, *, url: str) -> dict[str, Any]:
+        self.calls.append(("open_url", {"url": url}))
+        return {"opened_url": url}
+
     async def run_script(
         self,
         *,
@@ -183,7 +192,7 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
             {
                 "computer_control": {
                     "enabled": True,
-                    "allowed_apps": ["Safari"],
+                    "allowed_apps": ["Safari", "WeChat"],
                     "allowed_scripts": {
                         "project-healthcheck": {
                             "command": ["/bin/echo", "ok"],
@@ -204,7 +213,7 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
                 },
                 "computer_control": {
                     "enabled": True,
-                    "allowed_apps": ["Safari"],
+                    "allowed_apps": ["Safari", "WeChat"],
                 },
                 "whatsapp": {"enabled": True},
             },
@@ -1397,7 +1406,12 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reminder_triggered_delivers_device_voice_when_requested(self) -> None:
         ws = FakeWebSocket()
-        self.service._ws_clients.add(ws)
+        await self.service.realtime_hub.attach_client(
+            ws,
+            last_event_id=None,
+            replay_limit=0,
+        )
+        ws.sent.clear()
         self.device.connected = True
         self.device._snapshot["connected"] = True
 
@@ -1415,6 +1429,7 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
                 "metadata": {"reminder_id": "rem_001"},
             },
         )
+        await asyncio.sleep(0.05)
 
         self.assertEqual(self.device.delivered_voice_texts, ["Stand up"])
         self.assertEqual(
@@ -1424,7 +1439,12 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reminder_triggered_skips_device_voice_when_device_offline(self) -> None:
         ws = FakeWebSocket()
-        self.service._ws_clients.add(ws)
+        await self.service.realtime_hub.attach_client(
+            ws,
+            last_event_id=None,
+            replay_limit=0,
+        )
+        ws.sent.clear()
 
         await self.service.on_reminder_triggered(
             reminder={
@@ -1442,11 +1462,73 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
                 },
             },
         )
+        await asyncio.sleep(0.05)
 
         self.assertEqual(self.device.delivered_voice_texts, [])
         self.assertEqual(
             [event["event_type"] for event in ws.sent[:3]],
             ["reminder.updated", "notification.created", "reminder.triggered"],
+        )
+
+    async def test_reminder_triggered_executes_scheduled_open_app_action(self) -> None:
+        await self.service.on_reminder_triggered(
+            reminder={
+                "reminder_id": "rem_003",
+                "title": "打开微信",
+                "message": "时间到！帮你打开微信。",
+                "scheduled_action_kind": "open_app",
+                "scheduled_action_target": "微信",
+                "source_channel": "desktop_voice",
+                "source_session_id": "desktop_voice:desktop",
+                "linked_task_id": "task_open_wechat",
+                "bundle_id": "bundle_open_wechat",
+            },
+            notification={
+                "notification_id": "notif_003",
+                "title": "打开微信",
+                "message": "时间到！帮你打开微信。",
+                "metadata": {"reminder_id": "rem_003"},
+            },
+        )
+        await asyncio.sleep(0.05)
+
+        self.assertTrue(self.computer_adapter.calls)
+        self.assertEqual(self.computer_adapter.calls[-1][0], "open_app")
+        self.assertEqual(
+            self.computer_adapter.calls[-1][1],
+            {"app": "WeChat"},
+        )
+        recent_actions = self.computer_control.list_recent_actions()
+        self.assertTrue(recent_actions)
+        self.assertEqual(recent_actions[0]["kind"], "open_app")
+        self.assertEqual(
+            recent_actions[0]["metadata"]["linked_reminder_id"],
+            "rem_003",
+        )
+
+    async def test_reminder_triggered_executes_scheduled_open_url_action(self) -> None:
+        await self.service.on_reminder_triggered(
+            reminder={
+                "reminder_id": "rem_004",
+                "title": "打开网页",
+                "message": "时间到，打开网页。",
+                "scheduled_action_kind": "open_url",
+                "scheduled_action_target": "https://example.com",
+            },
+            notification={
+                "notification_id": "notif_004",
+                "title": "打开网页",
+                "message": "时间到，打开网页。",
+                "metadata": {"reminder_id": "rem_004"},
+            },
+        )
+        await asyncio.sleep(0.05)
+
+        self.assertTrue(self.computer_adapter.calls)
+        self.assertEqual(self.computer_adapter.calls[-1][0], "open_url")
+        self.assertEqual(
+            self.computer_adapter.calls[-1][1],
+            {"url": "https://example.com"},
         )
 
     async def test_device_pairing_bundle_requires_auth(self) -> None:

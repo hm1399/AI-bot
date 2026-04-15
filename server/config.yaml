@@ -77,6 +77,20 @@ whatsapp:
   self_only: true
   allow_from: ["*"]
 
+transport:
+  bus:
+    inbound_maxsize: 128
+    outbound_maxsize: 128
+    inbound_reserved_slots: 8
+    outbound_reserved_slots: 8
+  app_events:
+    client_queue_maxsize: 64
+  outbound_lanes:
+    device_voice_lane: 32
+    desktop_voice_lane: 32
+    external_channels_lane: 64
+    app_realtime_lane: 64
+
 tools:
   restrict_to_workspace: false
   exec:

@@ -233,6 +233,8 @@ class FakePlanningBackend:
             "linked_task_id": payload.get("linked_task_id"),
             "linked_event_id": payload.get("linked_event_id"),
             "linked_reminder_id": payload.get("linked_reminder_id"),
+            "scheduled_action_kind": payload.get("scheduled_action_kind"),
+            "scheduled_action_target": payload.get("scheduled_action_target"),
             "updated_at": "2026-04-09T08:13:00+08:00",
         }
         self.reminders.append(reminder)
@@ -509,6 +511,32 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(payload["result"]["reminder"]["bundle_id"], payload["bundle_id"])
         self.assertEqual(payload["result"]["reminder"]["created_via"], "agent")
+
+    async def test_planning_tool_create_reminder_passes_scheduled_open_app_metadata(self) -> None:
+        result = await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "create_reminder",
+                "title": "打开微信",
+                "time": "2026-04-09T20:15:00+08:00",
+                "repeat": "once",
+                "scheduled_action_kind": "open_app",
+                "scheduled_action_target": "WeChat",
+            },
+        )
+
+        payload = json.loads(result)
+        reminder = payload["result"]["reminder"]
+        self.assertEqual(reminder["scheduled_action_kind"], "open_app")
+        self.assertEqual(reminder["scheduled_action_target"], "WeChat")
+        self.assertEqual(
+            self.backend.create_reminder_payloads[-1]["scheduled_action_kind"],
+            "open_app",
+        )
+        self.assertEqual(
+            self.backend.create_reminder_payloads[-1]["scheduled_action_target"],
+            "WeChat",
+        )
 
     async def test_planning_tool_create_reminder_defaults_once_for_absolute_datetime(self) -> None:
         result = await self.agent.tools.execute(

@@ -12,7 +12,11 @@ class DeviceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final chrome = context.linear;
-    final batteryTelemetryMissing = status.battery < 0;
+    final capabilities = status.displayCapabilities;
+    final batteryMetric = _buildBatteryMetric(status, capabilities);
+    final chargingMetric = _buildChargingMetric(status, capabilities);
+    final statusBarMissing = !capabilities.statusBarAvailable;
+    final weatherVisible = _shouldShowWeatherMetric(status, capabilities);
     final lastSeenValue = _formatSnapshotTime(
       status.lastSeenAt,
       fallback: status.connected ? 'Waiting' : 'Offline',
@@ -23,6 +27,10 @@ class DeviceCard extends StatelessWidget {
     final weatherFreshness = _buildWeatherFreshnessLabel(
       status.statusBar.weatherMeta,
     );
+    final weatherDetail = !weatherVisible
+        ? 'Weather not exposed'
+        : weatherSource ??
+              (capabilities.weatherAvailable ? null : 'App snapshot');
     return Container(
       padding: const EdgeInsets.all(LinearSpacing.md),
       decoration: BoxDecoration(
@@ -66,10 +74,8 @@ class DeviceCard extends StatelessWidget {
               _MetricChip(label: 'State', value: status.state),
               _MetricChip(
                 label: 'Battery',
-                value: batteryTelemetryMissing
-                    ? 'Unknown'
-                    : '${status.battery}%',
-                detail: batteryTelemetryMissing ? 'Telemetry not wired' : null,
+                value: batteryMetric.key,
+                detail: batteryMetric.value,
               ),
               _MetricChip(
                 label: 'Wi-Fi',
@@ -78,10 +84,8 @@ class DeviceCard extends StatelessWidget {
               ),
               _MetricChip(
                 label: 'Charging',
-                value: batteryTelemetryMissing
-                    ? 'Unknown'
-                    : (status.charging ? 'Yes' : 'No'),
-                detail: batteryTelemetryMissing ? 'Demo placeholder' : null,
+                value: chargingMetric.key,
+                detail: chargingMetric.value,
               ),
               _MetricChip(
                 label: 'Connected',
@@ -108,20 +112,29 @@ class DeviceCard extends StatelessWidget {
               ),
               _MetricChip(
                 label: 'Clock',
-                value: status.statusBar.time ?? '--:--',
-                detail: status.statusBar.updatedAt == null ? null : 'Updated',
-                caption: _formatSnapshotTimeOrNull(status.statusBar.updatedAt),
+                value: statusBarMissing
+                    ? 'Unavailable'
+                    : (status.statusBar.time ?? '--:--'),
+                detail: statusBarMissing
+                    ? 'Status bar unavailable'
+                    : (status.statusBar.updatedAt == null ? null : 'Updated'),
+                caption: statusBarMissing
+                    ? null
+                    : _formatSnapshotTimeOrNull(status.statusBar.updatedAt),
               ),
               _MetricChip(
                 label: 'Weather',
-                value: switch (status.statusBar.weatherStatus) {
-                  'ready' => status.statusBar.weather ?? 'Ready',
-                  'missing_api_key' => 'Key missing',
-                  'fetch_failed' => 'Retry needed',
-                  _ => 'Waiting',
-                },
-                detail: weatherSource,
-                caption: weatherFreshness,
+                value: !weatherVisible
+                    ? 'Unavailable'
+                    : switch (status.statusBar.weatherStatus) {
+                        'ready' => status.statusBar.weather ?? 'Ready',
+                        'missing_api_key' => 'Key missing',
+                        'fetch_failed' => 'Retry needed',
+                        'unsupported' => 'Unavailable',
+                        _ => 'Waiting',
+                      },
+                detail: weatherDetail,
+                caption: weatherVisible ? weatherFreshness : null,
               ),
               _MetricChip(
                 label: 'Last Command',
@@ -148,6 +161,54 @@ class DeviceCard extends StatelessWidget {
       ),
     );
   }
+}
+
+MapEntry<String, String?> _buildBatteryMetric(
+  DeviceStatusModel status,
+  DeviceDisplayCapabilitiesModel capabilities,
+) {
+  if (!capabilities.batteryTelemetryAvailable) {
+    return const MapEntry<String, String?>('Not Wired', 'Capability not wired');
+  }
+  if (status.batteryValidity != 'valid' || status.battery < 0) {
+    return const MapEntry<String, String?>('Unknown', 'Telemetry unavailable');
+  }
+  return MapEntry<String, String?>('${status.battery}%', null);
+}
+
+MapEntry<String, String?> _buildChargingMetric(
+  DeviceStatusModel status,
+  DeviceDisplayCapabilitiesModel capabilities,
+) {
+  if (!capabilities.chargingTelemetryAvailable) {
+    return const MapEntry<String, String?>('Not Wired', 'Capability not wired');
+  }
+  if (status.chargingValidity != 'valid') {
+    return const MapEntry<String, String?>('Unknown', 'Telemetry unavailable');
+  }
+  return MapEntry<String, String?>(
+    status.charging == true ? 'Yes' : 'No',
+    null,
+  );
+}
+
+bool _shouldShowWeatherMetric(
+  DeviceStatusModel status,
+  DeviceDisplayCapabilitiesModel capabilities,
+) {
+  if (capabilities.weatherAvailable) {
+    return true;
+  }
+  if (status.statusBar.weather?.trim().isNotEmpty == true) {
+    return true;
+  }
+  if (status.statusBar.weatherMeta.provider?.trim().isNotEmpty == true) {
+    return true;
+  }
+  return switch (status.statusBar.weatherStatus) {
+    'ready' || 'fetch_failed' || 'missing_api_key' || 'idle' => true,
+    _ => false,
+  };
 }
 
 class _MetricChip extends StatelessWidget {

@@ -105,6 +105,12 @@ class SessionManager:
         self.legacy_sessions_dir = Path(legacy_sessions_dir) if legacy_sessions_dir is not None else Path.home() / ".nanobot" / "sessions"
         self._cache: dict[str, Session] = {}
         self._sqlite_saved_message_counts: dict[str, int] = {}
+        self._shadow_failure_count = 0
+        self._shadow_last_error: str | None = None
+        self._shadow_last_error_at: str | None = None
+        self._import_failure_count = 0
+        self._import_last_error: str | None = None
+        self._import_last_error_at: str | None = None
 
         configured_mode = (
             (
@@ -292,7 +298,10 @@ class SessionManager:
             if self._sqlite_backend is not None:
                 try:
                     self._save_sqlite(session)
-                except Exception:
+                except Exception as exc:
+                    self._shadow_failure_count += 1
+                    self._shadow_last_error = str(exc)
+                    self._shadow_last_error_at = datetime.now().isoformat()
                     logger.exception("Failed to shadow-save session {} to SQLite", session.key)
             self._cache[session.key] = session
             return
@@ -493,7 +502,10 @@ class SessionManager:
                 if session is not None:
                     self._remember_sqlite_message_count(session)
             return imported
-        except Exception:
+        except Exception as exc:
+            self._import_failure_count += 1
+            self._import_last_error = str(exc)
+            self._import_last_error_at = datetime.now().isoformat()
             logger.exception("Failed to import session {} into SQLite", key)
             return False
 
@@ -502,24 +514,88 @@ class SessionManager:
             return
         try:
             self._jsonl_importer.import_all()
-        except Exception:
+        except Exception as exc:
+            self._import_failure_count += 1
+            self._import_last_error = str(exc)
+            self._import_last_error_at = datetime.now().isoformat()
             logger.exception("Failed to import JSONL sessions into SQLite")
 
-    def storage_runtime_state(self) -> dict[str, Any]:
+    def session_store_diagnostics(self) -> dict[str, Any]:
         schema_version = 0
         latest_imported_at = None
+        sqlite_stats = {
+            "sessions": 0,
+            "messages": 0,
+            "app_sessions": 0,
+            "archived_sessions": 0,
+            "import_manifest_entries": 0,
+            "imported_sessions": 0,
+        }
         if self._sqlite_backend is not None:
             try:
                 schema_version = self._sqlite_backend.schema_version()
                 latest_imported_at = self._sqlite_backend.latest_imported_at()
+                sqlite_stats = self._sqlite_backend.storage_stats()
             except Exception:
                 logger.exception("Failed to read session SQLite runtime state")
+
+        json_session_count = len(self._list_json_sessions())
         return {
             "mode": self.storage_mode,
+            "primary_backend": "sqlite" if self.storage_mode == "sqlite" else "jsonl",
+            "shadow_backend": "sqlite" if self.storage_mode == "dual" else None,
             "sqlite_path": str(self.sqlite_path),
             "sqlite_ready": bool(self._sqlite_backend and self.sqlite_path.exists()),
             "schema_version": schema_version,
             "latest_imported_at": latest_imported_at,
+            "paths": {
+                "workspace_sessions_dir": str(self.sessions_dir),
+                "legacy_sessions_dir": str(self.legacy_sessions_dir),
+            },
+            "stats": {
+                "cached_sessions": len(self._cache),
+                "json_sessions": json_session_count,
+                "sqlite_sessions": int(sqlite_stats.get("sessions", 0) or 0),
+                "sqlite_messages": int(sqlite_stats.get("messages", 0) or 0),
+                "app_sessions": int(sqlite_stats.get("app_sessions", 0) or 0),
+                "archived_sessions": int(sqlite_stats.get("archived_sessions", 0) or 0),
+                "import_manifest_entries": int(sqlite_stats.get("import_manifest_entries", 0) or 0),
+                "imported_sessions": int(sqlite_stats.get("imported_sessions", 0) or 0),
+                "sqlite_pending_backfill_estimate": max(
+                    0,
+                    json_session_count - int(sqlite_stats.get("sessions", 0) or 0),
+                ),
+            },
+            "shadow": {
+                "enabled": self.storage_mode == "dual",
+                "failure_count": self._shadow_failure_count,
+                "last_error": self._shadow_last_error,
+                "last_error_at": self._shadow_last_error_at,
+            },
+            "imports": {
+                "enabled": self._jsonl_importer is not None,
+                "failure_count": self._import_failure_count,
+                "last_error": self._import_last_error,
+                "last_error_at": self._import_last_error_at,
+                "latest_imported_at": latest_imported_at,
+            },
+        }
+
+    def storage_runtime_state(self) -> dict[str, Any]:
+        diagnostics = self.session_store_diagnostics()
+        return {
+            "mode": diagnostics["mode"],
+            "primary_backend": diagnostics["primary_backend"],
+            "shadow_backend": diagnostics["shadow_backend"],
+            "sqlite_path": diagnostics["sqlite_path"],
+            "sqlite_ready": diagnostics["sqlite_ready"],
+            "schema_version": diagnostics["schema_version"],
+            "latest_imported_at": diagnostics["latest_imported_at"],
+            "shadow_failures": self._shadow_failure_count,
+            "imports": deepcopy(diagnostics["imports"]),
+            "shadow": deepcopy(diagnostics["shadow"]),
+            "stats": deepcopy(diagnostics["stats"]),
+            "paths": deepcopy(diagnostics["paths"]),
         }
 
     def _save_sqlite(self, session: Session) -> None:

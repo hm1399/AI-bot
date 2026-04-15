@@ -122,6 +122,7 @@ String translateFaceStatusHint(const char* text);
 void clearFaceStatusHint();
 void setFaceStatusHint(const char* text);
 void setFaceReplySubtitle(const char* text);
+bool protocolValidityIsValid(const char* value);
 
 int currentVolume = 70;
 bool currentMuted = false;
@@ -130,6 +131,10 @@ bool ledEnabled = true;
 int ledBrightness = 50;
 String ledColor = "#2563eb";
 const bool LED_HARDWARE_AVAILABLE = false;
+const bool STATUS_BAR_HARDWARE_AVAILABLE = false;
+const bool WEATHER_STATUS_BAR_AVAILABLE = false;
+const bool BATTERY_TELEMETRY_AVAILABLE = false;
+const bool CHARGING_TELEMETRY_AVAILABLE = false;
 
 // ===== 屏幕显示（通过 face_display 模块） =====
 
@@ -140,10 +145,20 @@ void displayInit() {
 void updateStatusBar() {
   const bool wifiOk = WiFi.status() == WL_CONNECTED;
   faceSetStatusBar(
-      lastStatusBarTime.isEmpty() ? nullptr : lastStatusBarTime.c_str(),
+      STATUS_BAR_HARDWARE_AVAILABLE && !lastStatusBarTime.isEmpty()
+          ? lastStatusBarTime.c_str()
+          : nullptr,
       wifiOk,
       wsConnected);
-  faceSetWeather(lastStatusWeather.isEmpty() ? nullptr : lastStatusWeather.c_str());
+  faceSetWeather(
+      STATUS_BAR_HARDWARE_AVAILABLE && WEATHER_STATUS_BAR_AVAILABLE &&
+              !lastStatusWeather.isEmpty()
+          ? lastStatusWeather.c_str()
+          : nullptr);
+}
+
+bool protocolValidityIsValid(const char* value) {
+  return value != nullptr && strcmp(value, "valid") == 0;
 }
 
 String translateFaceStatusHint(const char* text) {
@@ -356,7 +371,12 @@ bool canArmPairingFromTouch() {
   if (voiceTouchActive || playbackActive) {
     return false;
   }
-  return !currentConfig.provisioned || pairingPhase == PAIRING_IDLE;
+  if (!currentConfig.provisioned || pairingPhase == PAIRING_IDLE) {
+    return true;
+  }
+  // Allow a long-press recovery path when a provisioned device lost its server
+  // connection and would otherwise be stuck outside pairing mode.
+  return pairingPhase == PAIRING_DISABLED && !wsConnected;
 }
 
 bool writeMpu6050Byte(uint8_t reg, uint8_t value) {
@@ -642,9 +662,13 @@ void sendDeviceStatus() {
   JsonDocument doc;
   doc["type"] = "device_status";
   JsonObject data = doc["data"].to<JsonObject>();
-  data["battery"] = -1;
+  data["battery_capability"] = BATTERY_TELEMETRY_AVAILABLE;
+  data["battery_validity"] =
+      BATTERY_TELEMETRY_AVAILABLE ? "valid" : "unavailable";
   data["wifi_rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
-  data["charging"] = false;
+  data["charging_capability"] = CHARGING_TELEMETRY_AVAILABLE;
+  data["charging_validity"] =
+      CHARGING_TELEMETRY_AVAILABLE ? "valid" : "unavailable";
   data["volume"] = currentVolume;
   data["muted"] = currentMuted;
   data["sleeping"] = currentSleeping;
@@ -653,10 +677,24 @@ void sendDeviceStatus() {
   led["brightness"] = ledBrightness;
   led["color"] = ledColor;
   JsonObject statusBar = data["status_bar"].to<JsonObject>();
-  if (!lastStatusBarTime.isEmpty()) {
+  const bool weatherCapability =
+      STATUS_BAR_HARDWARE_AVAILABLE && WEATHER_STATUS_BAR_AVAILABLE;
+  statusBar["capability"] = STATUS_BAR_HARDWARE_AVAILABLE;
+  statusBar["validity"] =
+      STATUS_BAR_HARDWARE_AVAILABLE ? "valid" : "unavailable";
+  statusBar["weather_capability"] = weatherCapability;
+  statusBar["weather_validity"] =
+      (weatherCapability && !lastStatusWeather.isEmpty())
+          ? "valid"
+          : "unavailable";
+  statusBar["time_validity"] =
+      (STATUS_BAR_HARDWARE_AVAILABLE && !lastStatusBarTime.isEmpty())
+          ? "valid"
+          : "unavailable";
+  if (STATUS_BAR_HARDWARE_AVAILABLE && !lastStatusBarTime.isEmpty()) {
     statusBar["time"] = lastStatusBarTime;
   }
-  if (!lastStatusWeather.isEmpty()) {
+  if (weatherCapability && !lastStatusWeather.isEmpty()) {
     statusBar["weather"] = lastStatusWeather;
   }
 
@@ -903,23 +941,42 @@ void handleServerMessage(uint8_t* payload, size_t length) {
     const char* timeStr = data["time"] | nullptr;
     int battery = data["battery"] | -1;
     const char* weather = data["weather"] | nullptr;
+    const bool statusBarCapability = data["capability"] | false;
+    const bool weatherCapability = data["weather_capability"] | false;
+    const char* statusBarValidity = data["validity"] | "unavailable";
+    const char* timeValidity = data["time_validity"] | "unavailable";
+    const char* weatherValidity = data["weather_validity"] | "unavailable";
     Serial.printf(
-        "[status_bar_update] time=%s battery=%d weather=%s\n",
+        "[status_bar_update] cap=%d valid=%s time=%s battery=%d weather=%s weather_cap=%d weather_valid=%s\n",
+        statusBarCapability ? 1 : 0,
+        statusBarValidity,
         timeStr ? timeStr : "null",
         battery,
-        weather ? weather : "null");
-    if (timeStr) {
-      lastStatusBarTime = String(timeStr);
+        weather ? weather : "null",
+        weatherCapability ? 1 : 0,
+        weatherValidity);
+    if (!statusBarCapability || !protocolValidityIsValid(statusBarValidity)) {
+      lastStatusBarTime = "";
+      lastStatusWeather = "";
+      updateStatusBar();
+      return;
     }
-    if (weather) {
+    if (timeStr && protocolValidityIsValid(timeValidity)) {
+      lastStatusBarTime = String(timeStr);
+    } else {
+      lastStatusBarTime = "";
+    }
+    if (weatherCapability && weather && protocolValidityIsValid(weatherValidity)) {
       lastStatusWeather = String(weather);
+    } else {
+      lastStatusWeather = "";
     }
     faceSetStatusBar(timeStr, WiFi.status() == WL_CONNECTED, wsConnected);
-    if (battery >= 0) {
+    if (BATTERY_TELEMETRY_AVAILABLE && battery >= 0) {
       faceSetBattery(battery);
     }
-    if (weather) {
-      faceSetWeather(weather);
+    if (weatherCapability && !lastStatusWeather.isEmpty()) {
+      faceSetWeather(lastStatusWeather.c_str());
     }
 
   } else if (strcmp(type, "device_command") == 0) {
