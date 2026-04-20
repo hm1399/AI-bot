@@ -246,16 +246,13 @@
 
 ### 页内要点
 
-- inherited from `nanobot`
-- `AgentLoop`
-- tool calling
-- session memory
-- built for `AI-Bot`
-- local backend for both the desktop app and the device
-- ESP32 WebSocket channel and audio pipeline
-- desktop app APIs and realtime sync
-- planning, reminders, calendar, and scheduler
-- computer control and experience layer
+- Started from a `nanobot`-based demo backend
+- Reused `AgentLoop`, tool calling, and session memory as the initial core
+- Expanded into a local backend for both the desktop app and the device
+- Added the ESP32 WebSocket channel and audio pipeline
+- Added desktop app APIs and realtime state sync
+- Added planning, reminders, calendar, and scheduler
+- Added computer control and the experience layer
 
 ### 建议展示素材
 
