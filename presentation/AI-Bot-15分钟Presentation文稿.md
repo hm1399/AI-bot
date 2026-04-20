@@ -192,6 +192,7 @@
 - display: 1.54-inch ST7789, on-device status and text feedback
 - touch input: capacitive touch, press-to-talk and lightweight interaction
 - 6-axis sensor: MPU6050, motion sensing and gesture-based input such as shake detection
+- battery: 1200mAh Li-ion battery, portable standalone power supply
 - power management: TP4056 + TPS631000, battery charging and voltage regulation
 
 ### 建议展示素材
