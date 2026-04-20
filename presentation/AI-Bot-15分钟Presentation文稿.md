@@ -502,15 +502,8 @@
 
 ### 页内要点
 
-- One lesson was that early technical conclusions can be wrong:
 - the speaker issue finally traced back to `IO8`, where the `SUBSPI` line conflicted with the system `SPI` path
-- Another lesson was that a demo shortcut is not the same as the product path:
-- `WhatsApp` helped us during an unstable demo stage, but it was not the right long-term product channel
-- We also learned to reduce scope instead of keeping every idea:
-- the project moved from a phone-app assumption to a desktop-first local product
-- The most important reflection is that system integration matters more than isolated features:
-- once hardware, backend, and desktop app were connected, the real work became stability, data flow, and usable workflow
-- So the next step is not to add more channels, but to keep closing the real product loop we already have
+- the power issue came from early design miscalculation: voltage could drop to around `2.6V`, and the original `AMS1117` regulator was not strong enough for the system
 
 ### 建议展示素材
 
