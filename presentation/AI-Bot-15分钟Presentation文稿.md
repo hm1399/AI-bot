@@ -334,25 +334,25 @@
 
 ### 页内要点
 
-#### Section 1: App Shell and Navigation
+#### Section 1: Desktop App Structure
 
-- `GoRouter` + shared app shell for `Connect / Home / Chat / Agenda / Tasks / Control Center / Settings`
-- One desktop interface with unified navigation, header, and connection state
+- One desktop app with `Connect / Home / Chat / Agenda / Tasks / Control Center / Settings`
+- Shared navigation and layout across all core pages
 
-#### Section 2: State and Realtime
+#### Section 2: Frontend State
 
-- `Riverpod`-based app state for sessions, runtime state, planning data, and settings
-- WebSocket event sync keeps chat, device status, and backend runtime updated in real time
+- The frontend keeps chat, device state, planning data, and settings in one app state
+- Realtime sync keeps the desktop app updated with backend changes
 
-#### Section 3: Feature Modules
+#### Section 3: Page Modules
 
-- `Chat / Agenda / Tasks / Control Center / Settings` are organized as independent frontend modules
-- Each module has its own screen, widgets, models, and service layer
+- `Chat / Agenda / Tasks / Control Center / Settings` are built as separate frontend modules
+- Each module focuses on one product capability
 
-#### Section 4: Integrated Workflow
+#### Section 4: Product Workflow
 
-- The desktop app connects AI chat, planning, device control, and computer actions in one workflow
-- It is not just a UI layer; it is the operational hub for monitoring, editing, and execution
+- The desktop app connects AI chat, planning, device control, and computer actions
+- It works as the main operating hub of the whole product
 
 ### 建议展示素材
 
