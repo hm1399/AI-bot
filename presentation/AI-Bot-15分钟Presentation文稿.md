@@ -246,23 +246,24 @@
 
 ### 页内要点
 
-- backend runtime: aiohttp, local service hosting and request handling
-- agent orchestration: AgentLoop, dialogue management and tool execution
-- device channel: DeviceChannel, hardware connection and status updates
-- voice pipeline: ASR + TTS, speech recognition and reply synthesis
-- app interface: app-v1 API + WebSocket events, desktop app state sync
-- planning runtime: PlanningRuntimeService, tasks, reminders, and calendar state
-- computer control: ComputerControlService, structured desktop actions and approvals
+- backend host: aiohttp + bootstrap runtime, local service lifecycle and dependency wiring
+- inherited agent core: nanobot AgentLoop + MessageBus + SessionManager, dialogue orchestration, tool execution, and session persistence
+- model and tool runtime: LiteLLMProvider + ToolRegistry + MCP/cron hooks, LLM access and extensible agent capabilities
+- app service layer: AppRuntimeService, desktop app APIs, auth, and shared task routing
+- realtime state sync: AppRealtimeHub + RuntimeProjectionService, app-v1 events, replay, and runtime snapshots
+- voice and device bridge: DeviceChannel + DesktopVoiceService + ASR/TTS, ESP32 connection and desktop voice pipeline
+- planning data layer: AppResourceService + PlanningRuntimeService + ReminderScheduler, tasks, events, reminders, and derived summaries
+- product extensions: ExperienceService + ComputerControlService, scene/persona logic and structured desktop actions
 
 ### 建议展示素材
 
-- a clean backend module diagram
-- or a component table showing service name and responsibility
+- a two-layer backend diagram: nanobot foundation vs product-specific services
+- or a component table showing inherited modules and added modules
 
 ### 讲稿提示
 
-- Present this page like the hardware component page: what the backend is made of, and what each part does.
-- Keep it concise and product-oriented instead of going too deep into implementation details.
+- Explain that the backend started from a nanobot-based agent skeleton, then grew into a local product backend with app runtime, planning, realtime sync, and desktop control.
+- Present it as an evolution of architecture, not just a list of modules.
 
 ### 建议时长
 
