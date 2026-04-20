@@ -246,24 +246,24 @@
 
 ### 页内要点
 
-- backend host: aiohttp + bootstrap runtime, local service lifecycle and dependency wiring
-- inherited agent core: nanobot AgentLoop + MessageBus + SessionManager, dialogue orchestration, tool execution, and session persistence
-- model and tool runtime: LiteLLMProvider + ToolRegistry + MCP/cron hooks, LLM access and extensible agent capabilities
-- app service layer: AppRuntimeService, desktop app APIs, auth, and shared task routing
-- realtime state sync: AppRealtimeHub + RuntimeProjectionService, app-v1 events, replay, and runtime snapshots
-- voice and device bridge: DeviceChannel + DesktopVoiceService + ASR/TTS, ESP32 connection and desktop voice pipeline
-- planning data layer: AppResourceService + PlanningRuntimeService + ReminderScheduler, tasks, events, reminders, and derived summaries
-- product extensions: ExperienceService + ComputerControlService, scene/persona logic and structured desktop actions
+- deployment: local LAN backend, desktop app and device connect to the same server
+- connection: aiohttp + WebSocket, HTTP APIs for app data and WebSocket for realtime updates
+- device channel: `/ws/device`, ESP32 status, text, and audio streaming
+- desktop app channel: `/ws/app/v1/events`, realtime state sync for the desktop client
+- llm: OpenRouter, `x-ai/grok-4.1-fast` for dialogue and reasoning
+- asr: `FunAudioLLM/SenseVoiceSmall`, server-side speech-to-text
+- tts: `edge-tts`, default voice `en-US-AriaNeural` for reply synthesis
+- agent and services: `nanobot AgentLoop` + planning + computer control, task handling and desktop actions
 
 ### 建议展示素材
 
-- a two-layer backend diagram: nanobot foundation vs product-specific services
-- or a component table showing inherited modules and added modules
+- a simple system diagram: Desktop App / Device / Local Backend / LLM / ASR / TTS
+- or a short table with module, protocol, and model
 
 ### 讲稿提示
 
-- Explain that the backend started from a nanobot-based agent skeleton, then grew into a local product backend with app runtime, planning, realtime sync, and desktop control.
-- Present it as an evolution of architecture, not just a list of modules.
+- Keep this page simple: where the backend runs, how the desktop app and device connect, and which models are used.
+- Avoid going too deep into internal service names unless someone asks.
 
 ### 建议时长
 
