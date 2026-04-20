@@ -112,3 +112,6 @@
 - [2026-04-15-20次tool-call上限代码出处排查](./2026-04-15-20次tool-call上限代码出处排查.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-20次tool-call上限代码出处排查.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-20次tool-call上限代码出处排查.md)
 - 状态：2026-04-15 已完成 `I reached the maximum number of tool call iterations (20)` 代码出处排查；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-20-presentation要求中文整理计划](./2026-04-20-presentation要求中文整理计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-20-presentation要求中文整理计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-20-presentation要求中文整理计划.md)
+- 状态：2026-04-20 已完成 presentation 要求中文整理，并新增 `presentation/这次Presentation要求-中文版.md`；按当前用户约束，未跑测试。
