@@ -242,7 +242,35 @@
 
 ---
 
-## Slide 08 端到端交互主链路
+## Slide 08 Backend Architecture
+
+### 页内要点
+
+- backend runtime: aiohttp, local service hosting and request handling
+- agent orchestration: AgentLoop, dialogue management and tool execution
+- device channel: DeviceChannel, hardware connection and status updates
+- voice pipeline: ASR + TTS, speech recognition and reply synthesis
+- app interface: app-v1 API + WebSocket events, desktop app state sync
+- planning runtime: PlanningRuntimeService, tasks, reminders, and calendar state
+- computer control: ComputerControlService, structured desktop actions and approvals
+
+### 建议展示素材
+
+- a clean backend module diagram
+- or a component table showing service name and responsibility
+
+### 讲稿提示
+
+- Present this page like the hardware component page: what the backend is made of, and what each part does.
+- Keep it concise and product-oriented instead of going too deep into implementation details.
+
+### 建议时长
+
+- `60 秒`
+
+---
+
+## Slide 09 端到端交互主链路
 
 ### 页内要点
 
@@ -265,40 +293,6 @@
 - 这里一定要口径准确。
 - 不要说成“完全靠设备本地麦克风直采”，当前稳定 demo 主线不是这个。
 - 反而可以把这点讲成：`我们在产品验证阶段优先选了更稳定的主链路。`
-
-### 建议时长
-
-- `60 秒`
-
----
-
-## Slide 09 后端架构
-
-### 页内要点
-
-- 核心后端：`aiohttp + AgentLoop + app-v1 API + WebSocket events`
-- 后端负责：
-- 设备接入
-- AI 对话与 tool use
-- 会话持久化
-- App 接口与实时事件流
-- 任务 / 提醒 / 日历运行态
-- 电脑控制编排
-- 当前后端已经不是纯 demo 脚本，而是可运行的产品内核
-
-### 建议展示素材
-
-- 用模块图展示：
-- `DeviceChannel`
-- `ASR / TTS`
-- `AppRuntimeService`
-- `PlanningRuntimeService`
-- `ComputerControlService`
-- `ExperienceService`
-
-### 讲稿提示
-
-- 可以提一句：`server/services/app_runtime.py` 已经挂出了完整 app-v1 路由和事件流，不只是一个 health check server。`
 
 ### 建议时长
 
