@@ -242,15 +242,45 @@
 
 ---
 
-## Slide 08 Backend Architecture
+## Slide 08 From Nanobot Demo to Product Backend
+
+### 页内要点
+
+- original starting point: a backend demo ported from `nanobot`
+- what nanobot mainly gave us: agent loop, tool calling, session memory, and basic LLM workflow
+- what we added for this project:
+- local LAN product backend instead of a CLI-style demo runtime
+- device-side WebSocket channel for ESP32 state, control, and audio streaming
+- desktop app APIs and realtime event sync for the desktop client
+- planning system with tasks, reminders, calendar data, and scheduler
+- computer control layer with structured actions and confirmation flow
+- experience layer for scene mode, persona, and physical interaction logic
+
+### 建议展示素材
+
+- a simple comparison table: `nanobot base` vs `our backend upgrades`
+- or a left-right diagram: inherited core on the left, product features on the right
+
+### 讲稿提示
+
+- State clearly that the first backend version was not built from zero; it was ported from nanobot to accelerate the demo.
+- Then emphasize that the current system is no longer just a nanobot wrapper, because it already includes device integration, desktop app runtime, planning, and structured computer control.
+
+### 建议时长
+
+- `45 秒`
+
+---
+
+## Slide 09 Backend Architecture
 
 ### 页内要点
 
 - deployment: local LAN backend, desktop app and device connect to the same server
 - connection: aiohttp + WebSocket, HTTP APIs for app data and WebSocket for realtime updates
-- device channel: `/ws/device`, ESP32 status, text, and audio streaming
-- desktop app channel: `/ws/app/v1/events`, realtime state sync for the desktop client
-- llm: OpenRouter, `x-ai/grok-4.1-fast` for dialogue and reasoning
+- device channel: backend-to-device WebSocket bridge
+- desktop app channel: realtime state sync for the desktop client
+- llm: OpenRouter, `x-ai/grok-4.1-fast` 
 - asr: `FunAudioLLM/SenseVoiceSmall`, server-side speech-to-text
 - tts: `edge-tts`, default voice `en-US-AriaNeural` for reply synthesis
 - agent and services: `nanobot AgentLoop` + planning + computer control, task handling and desktop actions
@@ -271,7 +301,7 @@
 
 ---
 
-## Slide 09 端到端交互主链路
+## Slide 10 端到端交互主链路
 
 ### 页内要点
 
@@ -301,7 +331,7 @@
 
 ---
 
-## Slide 10 Flutter 桌面工作台
+## Slide 11 Flutter 桌面工作台
 
 ### 页内要点
 
@@ -335,7 +365,7 @@
 
 ---
 
-## Slide 11 会话型聊天与体验层
+## Slide 12 会话型聊天与体验层
 
 ### 页内要点
 
@@ -366,7 +396,7 @@
 
 ---
 
-## Slide 12 Planning 能力：任务、提醒、日历
+## Slide 13 Planning 能力：任务、提醒、日历
 
 ### 页内要点
 
@@ -398,7 +428,7 @@
 
 ---
 
-## Slide 13 Reminder Scheduler 与运行态汇总
+## Slide 14 Reminder Scheduler 与运行态汇总
 
 ### 页内要点
 
@@ -429,7 +459,7 @@
 
 ---
 
-## Slide 14 结构化电脑控制与安全设计
+## Slide 15 结构化电脑控制与安全设计
 
 ### 页内要点
 
@@ -465,7 +495,7 @@
 
 ---
 
-## Slide 15 配网流程与物理交互
+## Slide 16 配网流程与物理交互
 
 ### 页内要点
 
@@ -496,7 +526,7 @@
 
 ---
 
-## Slide 16 当前可展示成果
+## Slide 17 当前可展示成果
 
 ### 页内要点
 
@@ -525,7 +555,7 @@
 
 ---
 
-## Slide 17 这次版本相比早期 demo 的进展
+## Slide 18 这次版本相比早期 demo 的进展
 
 ### 页内要点
 
@@ -557,7 +587,7 @@
 
 ---
 
-## Slide 18 当前边界、反思与下一步
+## Slide 19 当前边界、反思与下一步
 
 ### 页内要点
 
