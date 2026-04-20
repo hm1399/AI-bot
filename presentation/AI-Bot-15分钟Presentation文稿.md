@@ -330,135 +330,47 @@
 
 ---
 
-## Slide 11 Flutter 桌面工作台
+## Slide 11 Product Capabilities Overview
 
 ### 页内要点
 
-- 当前 App 已有正式路由和工作台结构：
-- `Connect`
-- `Home`
-- `Chat`
-- `Agenda`
-- `Tasks`
-- `Control Center`
-- `Settings`
-- 它的意义不是“再做一个界面”
-- 而是把机器人、AI、planning、设备控制整合成可操作工作台
+#### Section 1: Desktop Workspace
+
+- `Connect / Home / Chat / Agenda / Tasks / Control Center / Settings`
+- A real desktop workspace that combines AI, planning, and device control
+
+#### Section 2: Chat and Experience
+
+- Multi-session chat with create, rename, pin, archive, and switching
+- Scene and persona support for `Focus / Off Work / Meeting`
+
+#### Section 3: Planning and Execution
+
+- AI output can become `Tasks`, `Events`, and `Reminders`
+- `Agenda` and `Tasks` turn conversation into structured action
+
+#### Section 4: Reminder Runtime
+
+- Reminder lifecycle supports create, schedule, snooze, and complete
+- Runtime summaries and planning state are synced back to the app
 
 ### 建议展示素材
 
-- 一页拼 4 张截图：
-- Connect
-- Home
-- Chat
-- Tasks / Agenda / Control Center 任意两张
+- one 4-section slide with one screenshot or icon per section
+- or a 2x2 layout: workspace, chat, planning, scheduler
 
 ### 讲稿提示
 
-- 这页是“从硬件样机走向产品”的关键证据。
-- 可以直接说：`这次和上一次 demo 最大不同，就是我们已经不再只有硬件和聊天结果，而是有一个真正的桌面工作台。`
+- Present this page as the strongest proof that the project has moved from demo features to a product system.
+- The key message is that hardware, chat, planning, and runtime logic are already connected in one workflow.
 
 ### 建议时长
 
-- `55 秒`
+- `90 秒`
 
 ---
 
-## Slide 12 会话型聊天与体验层
-
-### 页内要点
-
-- Chat 已不只是单轮问答：
-- 多会话列表
-- 新建 / 改名 / 置顶 / 归档
-- 当前会话切换
-- Experience 层已经接入：
-- `scene`
-- `persona`
-- `physical interaction readiness`
-- 当前场景包括：
-- `Focus / Off Work / Meeting`
-
-### 建议展示素材
-
-- Chat 页面截图
-- 或者会话列表 + scene/persona chip bar 的组合图
-
-### 讲稿提示
-
-- 强调 AI 不再是“固定一个说话风格”。
-- 项目已经在往“同一个 AI，根据场景和人格切换交互方式”发展。
-
-### 建议时长
-
-- `55 秒`
-
----
-
-## Slide 13 Planning 能力：任务、提醒、日历
-
-### 页内要点
-
-- 当前系统不只会回答问题，也会把事情落进系统：
-- `Tasks`
-- `Events`
-- `Reminders`
-- planning 相关能力包括：
-- overview
-- timeline
-- conflicts
-- bundle create
-- 前端已经有 `Agenda` 和 `Tasks` 两个核心工作页面
-
-### 建议展示素材
-
-- Agenda 页面截图
-- Tasks 页面截图
-- 再配一个 “chat -> planning item” 的箭头示意
-
-### 讲稿提示
-
-- 这页一定要突出“从聊天到事情管理”的升级。
-- 你可以说：`我们希望 AI 不只是回答一句“好的”，而是真的把事情组织起来。`
-
-### 建议时长
-
-- `60 秒`
-
----
-
-## Slide 14 Reminder Scheduler 与运行态汇总
-
-### 页内要点
-
-- 提醒现在不只是存一条数据
-- 后端已经有真实调度器：
-- `sync`
-- `snooze`
-- `complete`
-- `reconcile`
-- 同时系统会生成：
-- `todo summary`
-- `calendar summary`
-- planning overview 和 runtime state 会推送到 App
-
-### 建议展示素材
-
-- 一张 reminder 生命周期图
-- 或者用 4 个词直接画流程：`create -> schedule -> trigger/snooze -> complete`
-
-### 讲稿提示
-
-- 这页体现“系统性”。
-- 老师听到这里会感觉你们不是只做界面，而是在做后台运行逻辑。
-
-### 建议时长
-
-- `50 秒`
-
----
-
-## Slide 15 结构化电脑控制与安全设计
+## Slide 12 结构化电脑控制与安全设计
 
 ### 页内要点
 
@@ -494,7 +406,7 @@
 
 ---
 
-## Slide 16 配网流程与物理交互
+## Slide 13 配网流程与物理交互
 
 ### 页内要点
 
@@ -525,7 +437,7 @@
 
 ---
 
-## Slide 17 当前可展示成果
+## Slide 14 当前可展示成果
 
 ### 页内要点
 
@@ -554,7 +466,7 @@
 
 ---
 
-## Slide 18 这次版本相比早期 demo 的进展
+## Slide 15 这次版本相比早期 demo 的进展
 
 ### 页内要点
 
@@ -586,7 +498,7 @@
 
 ---
 
-## Slide 19 当前边界、反思与下一步
+## Slide 16 当前边界、反思与下一步
 
 ### 页内要点
 
