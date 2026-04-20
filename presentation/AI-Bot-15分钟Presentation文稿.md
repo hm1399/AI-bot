@@ -185,20 +185,13 @@
 
 ### 页内要点
 
-- `ESP32-S3-WROOM-1-N16R8` as the main controller
-  - chosen for Wi-Fi connectivity, sufficient memory, and embedded control flexibility
-- `INMP441` as the digital microphone
-  - chosen for stable I2S audio capture and simple integration
-- `MAX98357A` with a `3W` speaker for audio output
-  - chosen for compact digital audio playback without a complex analog stage
-- `ST7789` color display for on-device feedback
-  - chosen to show status, text replies, and runtime information directly on the device
-- Capacitive touch for physical interaction
-  - chosen to support press-to-talk and lightweight on-device input
-- `MPU6050` for motion sensing
-  - chosen to support gesture-based interaction such as shake detection
-- `TP4056` and `AP2114H-3.3` for power management
-  - chosen to support rechargeable battery operation and stable 3.3V output
+- main controller: `ESP32-S3-WROOM-1-N16R8` for Wi-Fi, memory capacity, and embedded control
+- digital microphone: `INMP441` for stable I2S audio capture
+- audio output: `MAX98357A` + `3W speaker` for compact digital playback
+- display: `ST7789` for on-device status and text feedback
+- touch input: capacitive touch for press-to-talk and lightweight interaction
+- motion sensing: `MPU6050` for gesture-based input such as shake detection
+- power management: `TP4056` + `AP2114H-3.3` for battery charging and stable 3.3V supply
 
 ### 建议展示素材
 
