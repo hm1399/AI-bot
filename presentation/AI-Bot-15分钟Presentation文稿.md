@@ -502,29 +502,27 @@
 
 ### 页内要点
 
-- 我们当前不会夸太满，仍有边界：
-- App 原生语音采集链路还未完全闭环
-- wake word / auto listen 还不能按已完成能力宣传
-- 外部日历同步、推送通知等更高层能力还没完全打通
-- 个别硬件外围项仍在收尾
-- 但当前已经完成最重要的事：
-- 软硬件一体主链路跑通
-- 产品核心模块成型
-- 后续迭代方向明确
+- One lesson was that early technical conclusions can be wrong:
+- we first blamed the speaker issue on `IO8`, but later found the real root cause was the power design
+- Another lesson was that a demo shortcut is not the same as the product path:
+- `WhatsApp` helped us during an unstable demo stage, but it was not the right long-term product channel
+- We also learned to reduce scope instead of keeping every idea:
+- the project moved from a phone-app assumption to a desktop-first local product
+- The most important reflection is that system integration matters more than isolated features:
+- once hardware, backend, and desktop app were connected, the real work became stability, data flow, and usable workflow
+- So the next step is not to add more channels, but to keep closing the real product loop we already have
 
 ### 建议展示素材
 
-- 三列结构：
-- `What works now`
-- `What is still limited`
-- `What we will do next`
+- a timeline-style reflection slide with 3 milestones:
+- `wrong assumption corrected`
+- `demo shortcut replaced`
+- `product direction narrowed`
 
 ### 讲稿提示
 
-- 最后一页一定要诚实。
-- 老师往往更认可“知道自己做到哪、还差哪”的团队。
-- 收尾句建议用：
-- `我们认为这个项目已经从功能验证进入产品成型阶段，下一步重点是把未闭环能力继续收口，而不是推翻重来。`
+- This page should sound honest and specific, because every point comes from the real build process.
+- The closing message is: we did not just add functions; we kept correcting wrong assumptions until the product direction became clearer.
 
 ### 建议时长
 
