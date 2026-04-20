@@ -246,25 +246,26 @@
 
 ### 页内要点
 
-- original starting point: a backend demo ported from `nanobot`
-- what nanobot mainly gave us: agent loop, tool calling, session memory, and basic LLM workflow
-- what we added for this project:
-- local LAN product backend instead of a CLI-style demo runtime
-- device-side WebSocket channel for ESP32 state, control, and audio streaming
-- desktop app APIs and realtime event sync for the desktop client
-- planning system with tasks, reminders, calendar data, and scheduler
-- computer control layer with structured actions and confirmation flow
-- experience layer for scene mode, persona, and physical interaction logic
+- inherited from `nanobot`
+- `AgentLoop`
+- tool calling
+- session memory
+- built for `AI-Bot`
+- local backend for both the desktop app and the device
+- ESP32 WebSocket channel and audio pipeline
+- desktop app APIs and realtime sync
+- planning, reminders, calendar, and scheduler
+- computer control and experience layer
 
 ### 建议展示素材
 
-- a simple comparison table: `nanobot base` vs `our backend upgrades`
-- or a left-right diagram: inherited core on the left, product features on the right
+- a two-column slide: `Inherited from nanobot` on the left, `Built for AI-Bot` on the right
+- or a simple evolution arrow: `nanobot demo -> AI-Bot product backend`
 
 ### 讲稿提示
 
-- State clearly that the first backend version was not built from zero; it was ported from nanobot to accelerate the demo.
-- Then emphasize that the current system is no longer just a nanobot wrapper, because it already includes device integration, desktop app runtime, planning, and structured computer control.
+- Explain this page as an evolution path, not as a technical deep dive.
+- The key message is that nanobot gave us a fast starting point, but the current backend already includes substantial product-specific extensions.
 
 ### 建议时长
 
