@@ -301,18 +301,17 @@
 
 ---
 
-## Slide 10 端到端交互主链路
+## Slide 10 End-to-End Interaction Flow
 
 ### 页内要点
 
-- 当前稳定主线：
-- 用户按住设备说话
-- 电脑麦克风代采音频
-- 服务端完成 ASR -> Agent -> TTS
-- 设备负责状态反馈、屏幕显示和结果播报
-- 这样做的原因：
-- 当前阶段优先保证整条链路稳定
-- 设备继续保留“主交互入口 + 状态反馈终端”的角色
+- Stable demo path for the current version
+- Press and speak on the device
+- Audio is captured by the desktop microphone
+- The backend runs `ASR -> AgentLoop -> TTS`
+- The device provides status feedback, screen updates, and voice playback
+- This architecture prioritizes reliability during product validation
+- The device remains the primary interaction entry point and feedback terminal
 
 ### 建议展示素材
 
