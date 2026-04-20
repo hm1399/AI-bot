@@ -503,7 +503,7 @@
 ### 页内要点
 
 - One lesson was that early technical conclusions can be wrong:
-- the speaker issue finally traced back to `IO8`, where the `SUBSPI` line conflicted with the screen `SPI` path
+- the speaker issue finally traced back to `IO8`, where the `SUBSPI` line conflicted with the system `SPI` path
 - Another lesson was that a demo shortcut is not the same as the product path:
 - `WhatsApp` helped us during an unstable demo stage, but it was not the right long-term product channel
 - We also learned to reduce scope instead of keeping every idea:
