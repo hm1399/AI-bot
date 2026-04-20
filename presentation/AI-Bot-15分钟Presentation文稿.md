@@ -191,7 +191,7 @@
 - display: `1.54-inch ST7789` for on-device status and text feedback
 - touch input: capacitive touch for press-to-talk and lightweight interaction
 - motion sensing: `MPU6050` for gesture-based input such as shake detection
-- power management: `TP4056` for battery charging and basic power management
+- power management: `TP4056` + `TPS631000` for battery charging and voltage regulation
 
 ### 建议展示素材
 
