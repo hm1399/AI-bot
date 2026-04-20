@@ -316,7 +316,7 @@
 ### 建议展示素材
 
 - 流程图：
-- `Press on device -> Desktop mic capture -> ASR -> AgentLoop -> TTS -> Device display & speaker -> App sync`
+- `Press on device -> Device audio capture -> ASR -> AgentLoop -> TTS -> Device display & speaker -> App sync`
 
 ### 讲稿提示
 
