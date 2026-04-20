@@ -181,33 +181,34 @@
 
 ---
 
-## Slide 06 Hardware Architecture
+## Slide 06 Selected Hardware Components
 
 ### 页内要点
 
-- Core controller: `ESP32-S3-WROOM-1-N16R8`
-- The hardware was selected by function:
-- Voice input: `INMP441` digital microphone
-- Voice output: `MAX98357A` amplifier + `3W` speaker
-- Visual feedback: `ST7789` color display
-- Physical interaction: capacitive touch + `MPU6050`
-- Power subsystem: Li-ion battery + `TP4056` + `AP2114H-3.3`
-- Selection criteria:
-- compact form factor
-- low integration complexity
-- stable desktop use
-- support for voice, display, sensing, and battery power in one custom board
+- `ESP32-S3-WROOM-1-N16R8` as the main controller
+  - chosen for Wi-Fi connectivity, sufficient memory, and embedded control flexibility
+- `INMP441` as the digital microphone
+  - chosen for stable I2S audio capture and simple integration
+- `MAX98357A` with a `3W` speaker for audio output
+  - chosen for compact digital audio playback without a complex analog stage
+- `ST7789` color display for on-device feedback
+  - chosen to show status, text replies, and runtime information directly on the device
+- Capacitive touch for physical interaction
+  - chosen to support press-to-talk and lightweight on-device input
+- `MPU6050` for motion sensing
+  - chosen to support gesture-based interaction such as shake detection
+- `TP4056` and `AP2114H-3.3` for power management
+  - chosen to support rechargeable battery operation and stable 3.3V output
 
 ### 建议展示素材
 
-- a labeled component map
-- a compact BOM-style diagram
-- or a clean exploded view showing the major modules around the ESP32-S3
+- a clean labeled hardware block diagram
+- or a component table with function and reason for selection
 
 ### 讲稿提示
 
-- This page should explain why these components were chosen, not just list part numbers.
-- Emphasize that the board was designed as an integrated desktop AI device, not a loose collection of breakout modules.
+- This page should clearly answer one question: what hardware did we choose, and why?
+- Keep the explanation short and practical, focusing on function, integration, and product fit.
 
 ### 建议时长
 
