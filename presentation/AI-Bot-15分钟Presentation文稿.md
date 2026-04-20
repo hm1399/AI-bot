@@ -283,6 +283,7 @@
 - desktop app channel: realtime state sync for the desktop client
 - llm: OpenRouter, `x-ai/grok-4.1-fast`
 - local task execution: CLI tools, the LLM can help users execute tasks on the computer
+- database: SQLite + dual storage, sessions and planning data persistence
 - asr: `FunAudioLLM/SenseVoiceSmall`, server-side speech-to-text
 - tts: `edge-tts`, default voice `en-US-AriaNeural` for reply synthesis
 - agent and services: `nanobot AgentLoop` + planning + computer control, task handling and desktop actions
