@@ -342,7 +342,7 @@
 #### Section 2: Chat and Experience
 
 - Multi-session chat with create, rename, pin, archive, and switching
-- Scene and persona support for `Focus / Off Work / Meeting`
+- Structured chat results with task, reminder, and action feedback
 
 #### Section 3: Planning and Execution
 
