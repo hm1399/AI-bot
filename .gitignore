@@ -10,7 +10,9 @@ app/dist/
 # Server runtime data
 server/workspace/sessions/
 server/workspace/memory/
+server/workspace/runtime/
 server/workspace/config.json
+server/workspace/state.sqlite3*
 server/logs/
 
 # WhatsApp Bridge
@@ -23,6 +25,11 @@ server/bridge/dist/
 *.env
 venv/
 server/.venv/
+
+# Local runtime state
+.claude/
+.manager/
+.pytest_cache/
 
 # IDE
 .vscode/

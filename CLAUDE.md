@@ -148,8 +148,6 @@ AI-bot/
 ├── README.md              # 项目简介与功能说明
 ├── CLAUDE.md              # 本文件 - Claude Code项目指南
 ├── CHANGELOG.md           # 工作日志（每次项目更新必须记录）
-├── DEMO/                  # Demo 启动指南与文档
-│   └── 启动指南.md
 ├── server/                # Python 服务端（核心）
 │   ├── main.py            # 入口，启动 aiohttp + AgentLoop
 │   ├── config.py          # 配置加载 + nanobot config 生成
@@ -181,7 +179,6 @@ AI-bot/
 │       └── test4_tts/     # TTS 语音播放测试
 ├── software/              # 手机 App
 │   └── flutter_application_1/  # Flutter 项目
-├── Project_proposal/      # EE3070课程项目提案
 ├── 元件资料区/             # 元件PDF数据手册
 ├── 元件TXT/               # 元件数据手册文本版
 ├── 功能讨论区/             # 功能设计与调研文档

@@ -99,12 +99,19 @@ Optional side channels
 | `app/` | Flutter app used to connect to the backend and operate the system |
 | `server/` | Python backend, agent runtime, voice pipeline, app API, and workspace data |
 | `firmware/` | Arduino firmware and hardware test sketches |
-| `DEMO/` | Demo runbooks and presentation-oriented material |
 | `功能讨论区/` | Internal planning and implementation notes |
 | `presentation/` | Presentation drafts and requirement material |
 | `原理图设计/`, `硬件设计文件/`, `元件资料区/` | Hardware design exports and component references |
 | `nanobot-src/` | Upstream/reference snapshot, not the current runtime path |
-| `App Builder (Copy)/`, `APP for BASS 44/` | Older prototype/reference directories, not the current app |
+
+## Local-Only Directories
+
+Some repository-root directories are intentionally machine-local and should not be uploaded to GitHub:
+
+- `.claude/` stores local Claude command metadata used on a specific workstation
+- `.manager/` stores local manager runtime state such as PID and log files
+
+These directories are not part of the runtime source of truth. For active development and execution, use `app/`, `server/`, `firmware/arduino/demo/`, and `manager.sh`.
 
 ## Runtime Defaults In This Checkout
 
@@ -262,7 +269,6 @@ cd server
 Some repository content reflects earlier prototypes or upstream reference code:
 
 - `nanobot-src/` is useful as an upstream/reference snapshot
-- `App Builder (Copy)/` and `APP for BASS 44/` point to older web/prototype work
 - several planning and hardware directories use Chinese names because they are internal project artifacts
 
 When in doubt, use `app/`, `server/`, `firmware/arduino/demo/`, and `manager.sh` as the current source of truth for the running system.

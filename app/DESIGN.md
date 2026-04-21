@@ -15,7 +15,7 @@ This project is not a clone of Linear's information architecture. The visual lan
 ### Keep
 
 - A separate connection entry flow before the main app shell.
-- The current in-app five-tab structure: `home`, `chat`, `tasks`, `control`, `settings`.
+- The current in-app six-area structure: `home`, `chat`, `agenda`, `tasks`, `control`, `settings`.
 - Direct visibility of connection, demo, and backend readiness states.
 - Explicit product copy that tells the user what is ready, what is simulated, and what is not yet available.
 - Dense, tool-like interaction patterns centered on lists, panels, inline actions, dialogs, and bottom sheets.
@@ -23,7 +23,7 @@ This project is not a clone of Linear's information architecture. The visual lan
 ### Do Not Introduce
 
 - A marketing hero layout.
-- A left issue-tracker sidebar unless the product IA is intentionally redesigned later.
+- An issue-tracker-style navigation model that displaces the current AI-bot workspace semantics.
 - Large decorative gradients, ambient blobs, glassmorphism, or bright chromatic backgrounds.
 - Web landing-page navigation patterns such as top-level marketing nav, social proof, pricing-style cards, or big dual CTA hero sections.
 - Notion-style paper surfaces, beige backgrounds, or editorial notebook styling.
@@ -151,8 +151,10 @@ In Flutter, where true `510` and `590` may not exist without variable font suppo
 The UI must preserve the current app structure:
 
 - `Connect` remains a dedicated entry screen outside the main shell.
-- The main shell keeps the current five areas: `Home`, `Chat`, `Tasks`, `Control`, `Settings`.
+- `Demo` remains a separate non-primary route outside the main shell.
+- The main shell keeps the current six areas: `Home`, `Chat`, `Agenda`, `Tasks`, `Control`, `Settings`.
 - The app-wide connection state must stay visible at shell level.
+- On wide screens, the current shell may use a left sidebar. On compact screens, it may collapse to the bottom dock. Both are valid expressions of the same information architecture.
 
 ### Density
 
@@ -237,7 +239,7 @@ Not with:
 - Keep the shell compact and dark.
 - The top connection status bar must remain immediately visible and high-contrast.
 - The bottom navigation may remain structurally the same, but should visually move toward a compact dark dock with subtle active indication and less default Material pill behavior.
-- Do not replace the current shell with a Linear-style left sidebar unless the product IA changes explicitly.
+- The current wide-screen sidebar is valid because it already exists in the active product shell; future redesigns should preserve the same AI-bot information architecture instead of drifting into a generic issue tracker.
 
 ### Buttons
 
