@@ -12,6 +12,14 @@
 
 ## P1：中优先级（热点文件 / 性能风险 / 用户可见行为偏差）
 
+### Checkpoint 2026-04-15-09 规划冲突回复仍缺少“具体冲突对象”直出说明
+
+- 发现来源：本轮 Agenda 时间本地化与跨天冲突可见性修复。
+- 当前状态：`server/nanobot/agent/tools/planning.py` 的 `_detect_event_conflicts()` 已返回冲突 event 的 `title / start_at / end_at`，但当前用户回复仍主要只说“有冲突，确认吗”，没有直接把冲突的是哪条行程讲出来。
+- 影响：即使后端判定正确，只要前端当天视图里还有跨天 / 长事件等理解门槛，用户仍容易把提示理解成误报。
+- 建议动作：后续单独立项把冲突回复文案升级为“与某条现有行程冲突”的具名说明，并在前端结构化摘要里同步展示冲突对象。
+- 本轮处理：仅记录，未处理。
+
 ### Checkpoint 2026-04-15-08 控制中心与 demo bundle 仍未完全消费新的 capability / validity 语义
 
 - 发现来源：本轮 `P1 Task 3 契约收口` 复核。
@@ -276,7 +284,7 @@
 - 当前状态：仓库根 `README.md` 仍把 WhatsApp 放在主展示链路里，并写着 `Flutter App (开发中)`；但当前仓库实际已经有完整 Flutter 多页面桌面工作台，且 `server/config.yaml` 里 `whatsapp.enabled` 默认是 `false`。
 - 影响：外部读者如果先看根 README，会低估当前 demo 的真实进展，也容易误以为最新主流程仍然是“设备 + WhatsApp”。
 - 建议动作：后续单独立项更新根 README 的系统架构、核心功能和 demo 口径，让文档与当前产品主路径对齐。
-- 本轮处理：仅记录，未处理。
+- 本轮处理：2026-04-21 已在“README 英文更新与全项目调研”任务中完成根 README 重写；后续清理 waitlist 历史条目时可移除本 checkpoint。
 
 ### Checkpoint 2026-04-15-11 `server/nanobot` 与 `nanobot-src` 已显著分叉，但仓库里缺少正式的“分叉口径”说明
 
@@ -284,4 +292,20 @@
 - 当前状态：当前项目 vendored 的 `server/nanobot` 已经新增 `planning` / `computer_control` / `sqlite` / `atomic_write` / 更重的 bus 与 session 改造，同时又裁掉了原版 CLI、templates、skills、heartbeat 和部分 provider；但仓库里没有一份正式文档明确说明“这里只是基于 nanobot 深改后的产品内核，不等于原版 nanobot”。
 - 影响：后续如果有人想同步上游、排查行为差异，或者直接把原版 README 当成本项目能力说明，会非常容易误判。
 - 建议动作：后续单独立项补一份 `server/nanobot` 分叉说明，至少写清楚保留了什么、改了什么、为什么不再按原版口径维护。
+- 本轮处理：仅记录，未处理。
+
+### Checkpoint 2026-04-21-01 `BACKEND_INTEGRATION_GUIDE.md` 仍停留在旧 React / 旧端口口径
+
+- 发现来源：本轮根 README 英文重写前的仓库级文档复核。
+- 当前状态：`BACKEND_INTEGRATION_GUIDE.md` 仍描述 React web app、`8000` 端口和旧 `/api/config`、`/ws/app` 接口；但当前真实主路径已经是 `aiohttp` + Flutter `app-v1`，默认端口为 `8765`，主入口为 `/api/app/v1/bootstrap` 与 `/ws/app/v1/events`。
+- 影响：后续如果有人参考这份文档接线前后端，会直接得到过时契约，增加排查成本。
+- 建议动作：后续单独立项决定是重写为当前 `app-v1` 集成说明，还是明确标注为历史文档。
+- 本轮处理：仅记录，未处理。
+
+### Checkpoint 2026-04-21-02 仓库根目录仍保留多个旧原型 / 参考目录，生命周期标识不够清晰
+
+- 发现来源：本轮根 README 英文重写与目录结构复核。
+- 当前状态：根目录同时保留 `App Builder (Copy)/`、`APP for BASS 44/`、`nanobot-src/` 等旧原型或参考目录；虽然新版根 README 已补充“不是当前主路径”的说明，但仓库内仍缺少更正式的生命周期标识或归档约定。
+- 影响：新读者或后续协作者仍可能把这些目录误判为当前运行路径的一部分，导致读错技术栈或启动方式。
+- 建议动作：后续单独立项决定这些目录是继续保留为参考、集中迁入 archive 区，还是补更明确的归档说明。
 - 本轮处理：仅记录，未处理。

@@ -972,6 +972,10 @@ String? _actionLabel(String? action) {
       return 'Created event';
     case 'create_reminder':
       return 'Created reminder';
+    case 'delete_event':
+      return 'Deleted event';
+    case 'delete_reminder':
+      return 'Deleted reminder';
     case 'complete_task':
       return 'Completed task';
     case 'snooze_reminder':

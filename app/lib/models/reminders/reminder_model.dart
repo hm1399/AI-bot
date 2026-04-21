@@ -113,10 +113,8 @@ class ReminderModel {
 
   String? get deliveryModeLabel => _humanizeDeliveryMode(effectiveDeliveryMode);
 
-  String? get scheduledActionLabel => _humanizeScheduledAction(
-    scheduledActionKind,
-    scheduledActionTarget,
-  );
+  String? get scheduledActionLabel =>
+      _humanizeScheduledAction(scheduledActionKind, scheduledActionTarget);
 
   ReminderModel copyWith({
     String? title,
@@ -210,9 +208,10 @@ class ReminderModel {
       scheduledActionKind: _readNullableString(planningMetadata, const <String>[
         'scheduled_action_kind',
       ]),
-      scheduledActionTarget: _readNullableString(planningMetadata, const <String>[
-        'scheduled_action_target',
-      ]),
+      scheduledActionTarget: _readNullableString(
+        planningMetadata,
+        const <String>['scheduled_action_target'],
+      ),
       normalizedTime: _readNullableString(planningMetadata, const <String>[
         'normalized_time',
       ]),
@@ -391,7 +390,11 @@ DateTime? _tryParseDateTime(String? value) {
   if (value == null || value.trim().isEmpty) {
     return null;
   }
-  return DateTime.tryParse(value);
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) {
+    return null;
+  }
+  return parsed.isUtc ? parsed.toLocal() : parsed;
 }
 
 String? _normalizePlanningSurface(String? value) {

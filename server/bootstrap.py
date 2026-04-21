@@ -168,6 +168,11 @@ class AppPlanningBackend:
         await self._emit("event.updated", {"event": event})
         return event
 
+    async def delete_event(self, event_id: str) -> dict[str, Any]:
+        event = self.resources.delete_event(event_id)
+        await self._emit("event.deleted", {"event": event})
+        return event
+
     async def create_reminder(self, payload: dict[str, Any]) -> dict[str, Any]:
         reminder = self._merge_passthrough_fields(self.resources.create_reminder(payload), payload)
         if self.reminder_scheduler is None:
@@ -188,6 +193,13 @@ class AppPlanningBackend:
             return reminder
         reminder = await self.reminder_scheduler.sync_reminder(reminder["reminder_id"]) or reminder
         await self._emit("reminder.updated", {"reminder": reminder})
+        return reminder
+
+    async def delete_reminder(self, reminder_id: str) -> dict[str, Any]:
+        reminder = self.resources.delete_reminder(reminder_id)
+        if self.reminder_scheduler is not None:
+            await self.reminder_scheduler.sync_all()
+        await self._emit("reminder.deleted", {"reminder": reminder})
         return reminder
 
     async def snooze_reminder(

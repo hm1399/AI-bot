@@ -19,6 +19,56 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 void main() {
+  testWidgets(
+    'agenda screen localizes offset timestamps before rendering event time labels',
+    (WidgetTester tester) async {
+      final now = DateTime.now();
+      final day = DateTime(now.year, now.month, now.day);
+      final localStart = DateTime(day.year, day.month, day.day, 15);
+      final localEnd = DateTime(day.year, day.month, day.day, 17);
+      final state = AppState.initial().copyWith(
+        eventsStatus: FeatureStatus.ready,
+        events: const <EventModel>[],
+        remindersStatus: FeatureStatus.ready,
+        reminders: const <ReminderModel>[],
+        planningTimelineStatus: FeatureStatus.ready,
+        planningTimeline: <PlanningTimelineItemModel>[
+          PlanningTimelineItemModel.fromJson(<String, dynamic>{
+            'timeline_item_id': 'timeline_exam',
+            'resource_type': 'event',
+            'resource_id': 'event_exam',
+            'title': '考试',
+            'start_at': _isoWithLocalOffset(localStart),
+            'end_at': _isoWithLocalOffset(localEnd),
+            'status': 'scheduled',
+            'planning_surface': 'agenda',
+            'owner_kind': 'assistant',
+          }),
+        ],
+        planningTimelineMessage: null,
+        planningConflictsStatus: FeatureStatus.ready,
+        planningConflicts: const <PlanningConflictModel>[],
+      );
+
+      await tester.pumpWidget(_buildTestApp(state));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('考试'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('考试'), findsWidgets);
+      expect(
+        find.text(
+          '${_formatAgendaTime(localStart)} - ${_formatAgendaTime(localEnd)}',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('agenda screen keeps tasks-surface items out of agenda lane', (
     WidgetTester tester,
   ) async {
@@ -90,6 +140,70 @@ void main() {
     expect(find.text('Hidden Delivery'), findsOneWidget);
     expect(find.textContaining('hidden delivery reminders'), findsOneWidget);
   });
+
+  testWidgets(
+    'agenda screen shows events that started earlier but still cover the selected day',
+    (WidgetTester tester) async {
+      final now = DateTime.now();
+      final day = DateTime(now.year, now.month, now.day);
+      final spanningStart = DateTime(day.year, day.month, day.day - 1, 20, 52);
+      final spanningEnd = DateTime(day.year, day.month, day.day + 1, 20, 52);
+
+      final state = AppState.initial().copyWith(
+        eventsStatus: FeatureStatus.ready,
+        events: <EventModel>[
+          EventModel.fromJson(<String, dynamic>{
+            'event_id': 'event_span',
+            'title': '跨天考试周',
+            'start_at': spanningStart.toIso8601String(),
+            'end_at': spanningEnd.toIso8601String(),
+            'planning_surface': 'agenda',
+            'owner_kind': 'user',
+          }),
+        ],
+        remindersStatus: FeatureStatus.ready,
+        reminders: const <ReminderModel>[],
+        planningTimelineStatus: FeatureStatus.notReady,
+        planningTimeline: const <PlanningTimelineItemModel>[],
+        planningTimelineMessage: null,
+        planningConflictsStatus: FeatureStatus.ready,
+        planningConflicts: const <PlanningConflictModel>[],
+      );
+
+      await tester.pumpWidget(_buildTestApp(state));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('跨天考试周'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('跨天考试周'), findsWidgets);
+    },
+  );
+}
+
+String _isoWithLocalOffset(DateTime value) {
+  final offset = value.timeZoneOffset;
+  final sign = offset.isNegative ? '-' : '+';
+  final totalMinutes = offset.inMinutes.abs();
+  final hours = (totalMinutes ~/ 60).toString().padLeft(2, '0');
+  final minutes = (totalMinutes % 60).toString().padLeft(2, '0');
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  final second = value.second.toString().padLeft(2, '0');
+  return '$year-$month-${day}T$hour:$minute:$second$sign$hours:$minutes';
+}
+
+String _formatAgendaTime(DateTime value) {
+  final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+  final suffix = value.hour >= 12 ? 'PM' : 'AM';
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$hour:$minute $suffix';
 }
 
 Widget _buildTestApp(AppState state) {

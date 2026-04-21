@@ -175,6 +175,12 @@ class FakePlanningBackend:
                 return event
         raise KeyError(event_id)
 
+    async def delete_event(self, event_id: str) -> dict[str, object]:
+        for index, event in enumerate(self.events):
+            if event["event_id"] == event_id:
+                return self.events.pop(index)
+        raise KeyError(event_id)
+
     async def list_events(self, *, limit: int | None = None) -> dict[str, object]:
         items = list(self.events)
         if limit is not None:
@@ -246,6 +252,12 @@ class FakePlanningBackend:
                 reminder.update(payload)
                 reminder["updated_at"] = "2026-04-09T08:14:00+08:00"
                 return reminder
+        raise KeyError(reminder_id)
+
+    async def delete_reminder(self, reminder_id: str) -> dict[str, object]:
+        for index, reminder in enumerate(self.reminders):
+            if reminder["reminder_id"] == reminder_id:
+                return self.reminders.pop(index)
         raise KeyError(reminder_id)
 
     async def snooze_reminder(
@@ -689,6 +701,49 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["resource_ids"]["task_id"], "task_today")
         self.assertFalse(payload["confirmation_needed"])
         self.assertTrue(payload["result"]["task"]["completed"])
+
+    async def test_planning_tool_delete_event_returns_deleted_event_id(self) -> None:
+        result = await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "delete_event",
+                "event_id": "event_existing",
+            },
+        )
+
+        payload = json.loads(result)
+        self.assertEqual(payload["action"], "delete_event")
+        self.assertEqual(payload["resource_ids"]["event_id"], "event_existing")
+        self.assertEqual(payload["result"]["event"]["event_id"], "event_existing")
+        self.assertFalse(
+            any(
+                event["event_id"] == "event_existing"
+                for event in self.backend.events
+            )
+        )
+
+    async def test_planning_tool_delete_reminder_returns_deleted_reminder_id(self) -> None:
+        result = await self.agent.tools.execute(
+            "planning",
+            {
+                "action": "delete_reminder",
+                "reminder_id": "rem_today",
+            },
+        )
+
+        payload = json.loads(result)
+        self.assertEqual(payload["action"], "delete_reminder")
+        self.assertEqual(payload["resource_ids"]["reminder_id"], "rem_today")
+        self.assertEqual(
+            payload["result"]["reminder"]["reminder_id"],
+            "rem_today",
+        )
+        self.assertFalse(
+            any(
+                reminder["reminder_id"] == "rem_today"
+                for reminder in self.backend.reminders
+            )
+        )
 
     async def test_planning_tool_snooze_reminder_returns_updated_time(self) -> None:
         result = await self.agent.tools.execute(

@@ -38,10 +38,16 @@ class PlanningBackend(Protocol):
     async def update_event(self, event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         ...
 
+    async def delete_event(self, event_id: str) -> dict[str, Any]:
+        ...
+
     async def create_reminder(self, payload: dict[str, Any]) -> dict[str, Any]:
         ...
 
     async def update_reminder(self, reminder_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    async def delete_reminder(self, reminder_id: str) -> dict[str, Any]:
         ...
 
     async def snooze_reminder(
@@ -67,6 +73,8 @@ class PlanningTool(Tool):
         "create_task",
         "create_event",
         "create_reminder",
+        "delete_event",
+        "delete_reminder",
         "complete_task",
         "snooze_reminder",
         "list_today",
@@ -161,7 +169,8 @@ class PlanningTool(Tool):
     def description(self) -> str:
         return (
             "Manage lightweight planning data. Actions: create_task, create_event, "
-            "create_reminder, complete_task, snooze_reminder, list_today. "
+            "create_reminder, delete_event, delete_reminder, complete_task, "
+            "snooze_reminder, list_today. "
             "Use create_event for calendar items like trips, appointments, and "
             "scheduled outings. For 'remind me' or 'wake me at' requests, prefer "
             "a task with owner_kind=assistant plus a reminder with "
@@ -172,7 +181,10 @@ class PlanningTool(Tool):
             "scheduled_action_kind plus scheduled_action_target for low-risk "
             "computer actions like open_app, open_path, or open_url. When the user "
             "asks what is due today, tomorrow, or on a "
-            "specific date, call list_today before answering."
+            "specific date, call list_today before answering. When the user says "
+            "to cancel or delete a known itinerary/reminder item, call delete_event "
+            "or delete_reminder with its event_id/reminder_id from planning context "
+            "instead of only replying in natural language."
         )
 
     @property
@@ -186,7 +198,9 @@ class PlanningTool(Tool):
                     "description": (
                         "Planning action to execute. Use create_event for itinerary/calendar "
                         "items. Use create_task plus create_reminder for reminder-style "
-                        "requests. Use list_today for today/tomorrow/date queries."
+                        "requests. Use delete_event or delete_reminder when the user "
+                        "asks to cancel/delete an existing planning item. Use list_today "
+                        "for today/tomorrow/date queries."
                     ),
                 },
                 "title": {"type": "string", "description": "Resource title."},
@@ -219,6 +233,7 @@ class PlanningTool(Tool):
                     "description": "Reminder repeat cadence.",
                 },
                 "task_id": {"type": "string", "description": "Task id for updates."},
+                "event_id": {"type": "string", "description": "Event id for deletes or updates."},
                 "reminder_id": {"type": "string", "description": "Reminder id for updates."},
                 "until": {
                     "type": "string",
@@ -326,6 +341,10 @@ class PlanningTool(Tool):
                 result = await self._create_event(bundle_id=bundle_id, **kwargs)
             elif action == "create_reminder":
                 result = await self._create_reminder(bundle_id=bundle_id, **kwargs)
+            elif action == "delete_event":
+                result = await self._delete_event(bundle_id=bundle_id, **kwargs)
+            elif action == "delete_reminder":
+                result = await self._delete_reminder(bundle_id=bundle_id, **kwargs)
             elif action == "complete_task":
                 result = await self._complete_task(bundle_id=bundle_id, **kwargs)
             elif action == "snooze_reminder":
@@ -649,6 +668,52 @@ class PlanningTool(Tool):
             normalized_times={"due_at": task.get("due_at")},
             result={"task": task},
             message=f"Completed task '{task.get('title') or clean_task_id}'.",
+            request_metadata=request_metadata,
+        )
+
+    async def _delete_event(
+        self,
+        *,
+        bundle_id: str,
+        event_id: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        clean_event_id = self._require_text(event_id, "event_id")
+        event = await self._backend.delete_event(clean_event_id)
+        request_metadata = self._build_request_metadata()
+        return self._result_payload(
+            bundle_id=bundle_id,
+            action="delete_event",
+            resource_ids={"event_id": clean_event_id},
+            normalized_times={
+                "start_at": event.get("start_at"),
+                "end_at": event.get("end_at"),
+            },
+            result={"event": event},
+            message=f"Deleted event '{event.get('title') or clean_event_id}'.",
+            request_metadata=request_metadata,
+        )
+
+    async def _delete_reminder(
+        self,
+        *,
+        bundle_id: str,
+        reminder_id: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        clean_reminder_id = self._require_text(reminder_id, "reminder_id")
+        reminder = await self._backend.delete_reminder(clean_reminder_id)
+        request_metadata = self._build_request_metadata()
+        return self._result_payload(
+            bundle_id=bundle_id,
+            action="delete_reminder",
+            resource_ids={"reminder_id": clean_reminder_id},
+            normalized_times={
+                "time": reminder.get("time"),
+                "next_trigger_at": reminder.get("next_trigger_at"),
+            },
+            result={"reminder": reminder},
+            message=f"Deleted reminder '{reminder.get('title') or clean_reminder_id}'.",
             request_metadata=request_metadata,
         )
 

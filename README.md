@@ -1,145 +1,268 @@
-# AI-Bot - 桌面AI助手
+# AI-Bot
 
-一款软硬件结合的桌面AI助手，通过语音与用户交互，支持AI对话、电脑控制、智能待办等功能。
+AI-Bot is a hardware-plus-software desktop assistant project built around an ESP32-S3 device, a Python backend, and a Flutter control app. The current main path in this repository is:
 
-## 项目简介
+- `firmware/arduino/demo/` for the robot firmware
+- `server/` for the Python runtime, app API, voice pipeline, and agent logic
+- `app/` for the Flutter operator app
 
-硬件设备（ESP32-S3）通过WiFi连接电脑服务端，服务端运行AI对话引擎（基于Nanobot + Claude API）、语音识别（faster-whisper）和语音合成（Edge-TTS）。用户对设备说话，AI理解后回复语音并显示在屏幕上，同时支持通过WhatsApp和手机App交互。
+The repository also contains course artifacts, hardware design files, planning documents, and older reference snapshots. Those are useful for context, but they are not the current runtime entry path.
 
-## 系统架构
+## What Is Implemented Now
 
-```
-┌─────────────────┐     WiFi/WebSocket     ┌──────────────────────────┐
-│   ESP32-S3 设备  │◄─────────────────────►│     Python 服务端         │
-│                 │                        │                          │
-│  INMP441 麦克风  │   PCM音频 / JSON消息   │  Nanobot AgentLoop (AI)  │
-│  MAX98357A 功放  │                        │  faster-whisper (ASR)    │
-│  ST7789 屏幕    │                        │  Edge-TTS (TTS)          │
-│  触摸感应 IO7   │                        │  设备状态机               │
-│  MPU6050 陀螺仪  │                        │  WhatsApp Bridge         │
-│  WS2812B 灯带   │                        │                          │
-└─────────────────┘                        └──────────────────────────┘
-                                                      │
-                                           ┌──────────┴──────────┐
-                                           │   WhatsApp (self-chat)│
-                                           │   Flutter App (开发中) │
-                                           └─────────────────────┘
-```
+### Flutter app
 
-## 交互流程
+The Flutter app is no longer just a placeholder. The current app ships a multi-page desktop workspace backed by the `app-v1` HTTP and WebSocket contract.
 
-```
-用户说话 → INMP441采集 → PCM音频通过WebSocket发送
-    → faster-whisper语音识别 → Nanobot AI处理（Claude API）
-    → Edge-TTS语音合成 → PCM音频回传设备播放
-    → 同时更新屏幕显示 + WhatsApp转发
-```
+- `Connect`: backend connection form, HTTPS/WSS toggle, and desktop USB pairing flow for the robot
+- `Home`: runtime overview, quick actions, device status, queue state, todo/calendar summaries, and capability snapshots
+- `Chat`: session-based chat, scene/persona switching, voice trigger entry points, and session management
+- `Agenda`: month calendar plus day schedule for agenda-facing events and reminder slots
+- `Tasks`: planning workbench for tasks, events, reminders, conflicts, and timeline editing
+- `Control`: device controls, reminder and notification panels, physical interaction history, and computer-action approvals
+- `Settings`: theme mode, LLM settings, voice/device options, runtime flags, and scene/persona settings
+- `Demo mode`: separate from the live backend flow
 
-## 硬件规格
+### Python backend
 
-| 模块 | 型号 | 用途 |
-|------|------|------|
-| 主控 | ESP32-S3-WROOM-1-N16R8 | WiFi/蓝牙双核主控 (16MB Flash + 8MB PSRAM) |
-| 麦克风 | INMP441 (I2S) | 24bit数字语音采集 |
-| 功放 | MAX98357A (I2S) | D类音频功放 |
-| 喇叭 | 3W 4Ω | 语音播放 |
-| 屏幕 | 1.69" IPS ST7789 (SPI) | 状态/文字显示 |
-| 传感器 | MPU6050 (I2C) | 摇一摇检测 |
-| 触摸 | ESP32-S3内置电容触摸 | 单击/双击/长按交互 |
-| 灯带 | WS2812B | 氛围灯/状态指示 |
-| 充电 | TP4056 | 锂电池充电管理 |
-| 稳压 | AP2114H-3.3 | 3.3V LDO（低压差） |
-| 电池 | 3.7V 锂电池 | 便携供电 |
+The backend is an `aiohttp` application, not a React/Node app server and not FastAPI. It currently provides:
 
-## 软件技术栈
+- `app-v1` REST endpoints for bootstrap, settings, sessions, chat messages, tasks, events, reminders, planning, runtime state, computer control, device pairing, and capabilities
+- WebSocket event streaming at `/ws/app/v1/events`
+- Device WebSocket handling for the ESP32 at `/ws/device`
+- Embedded desktop microphone support in the main backend process when enabled
+- A Nanobot-derived agent runtime backed by LiteLLM-compatible providers
+- Local planning/task/reminder/event storage under `server/workspace/`
+- Optional computer control with allowlists and macOS-focused permission guidance
+- Optional weather, web search, MCP server wiring, cron wiring, and WhatsApp bridge integration
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 固件 | Arduino (C++) | ESP32-S3固件，使用TFT_eSPI、arduinoWebSockets等 |
-| AI引擎 | Nanobot AgentLoop | 精简移植，LiteLLM → Claude API |
-| 语音识别 | faster-whisper (medium) | 本地部署，支持中英文 |
-| 语音合成 | Edge-TTS | 微软在线TTS，zh-CN-XiaoxiaoNeural |
-| 消息通道 | WhatsApp Bridge (Node.js) | self-chat模式，防止他人触发 |
-| 手机App | Flutter | 开发中 |
+### Firmware and hardware
 
-## 核心功能
+The firmware directory contains the active Arduino demo sketch and a set of hardware test sketches:
 
-### 已实现
-- 语音对话：对设备说话 → AI回复 → 语音播放 + 屏幕显示
-- 触摸交互：单击录音/停止、双击取消、长按录音
-- 摇一摇：触发AI讲笑话/冷知识
-- WhatsApp转发：AI回复同步到WhatsApp self-chat
-- 设备状态机：IDLE → LISTENING → PROCESSING → SPEAKING 自动流转
-- 电脑控制：通过AI语音指令操控电脑（Nanobot exec工具）
+- `firmware/arduino/demo/`: the current demo firmware
+- `firmware/arduino/test*`: focused diagnostic sketches used during bring-up
 
-### 规划中
-- 电脑文件管理与应用控制
-- 手机App远程控制
-- 桌面摆件模式（时间/天气/日历显示）
-- AI智能待办与日程管理
-- AI人格系统（多种预设人格）
-- 智能场景模式（专注/下班/会议）
-- WS2812B灯效联动
+Hardware design and reference material are kept in:
 
-## 项目进度
+- `原理图设计/`
+- `硬件设计文件/`
+- `元件资料区/`
+- `images/`
 
-- [x] 功能规划与元件选型
-- [x] 原理图v2.0 + PCB设计（ERC/DRC通过）
-- [x] 嘉立创PCB打样 + 全部元件采购
-- [x] PCB焊接 + 硬件测试（8/10模块通过）
-- [x] 服务端开发 Phase 1~6 完成
-- [x] Demo联调完成（语音全链路 + 屏幕 + WhatsApp）
-- [ ] AP2114H-3.3 LDO更换（解决电源压差问题）
-- [ ] WS2812B灯带焊接与灯效控制
-- [ ] Flutter手机App开发
-- [ ] 3D打印外壳（Autodesk Fusion）
-- [ ] ASR升级评估（SenseVoice替代faster-whisper）
+## Current Architecture
 
-## 目录结构
+```text
+ESP32-S3 device
+  -> streams audio/events over WebSocket
+Python backend (server/)
+  -> ASR + agent loop + planning/runtime services + device/app APIs
+Flutter app (app/)
+  -> connects over HTTP + WebSocket to monitor and control the system
 
-```
-AI-bot/
-├── server/                # Python 服务端
-│   ├── main.py            # 入口
-│   ├── config.yaml        # 配置
-│   ├── nanobot/           # AI 引擎（Nanobot 精简移植）
-│   ├── channels/          # 设备 WebSocket 通道
-│   ├── services/          # ASR + TTS 服务
-│   ├── models/            # 数据模型与协议
-│   ├── bridge/            # WhatsApp Bridge (Node.js)
-│   └── workspace/         # AI 人格 + 技能
-├── firmware/arduino/      # ESP32-S3 固件
-│   ├── demo/              # Demo 固件
-│   └── test*/             # 各模块测试固件
-├── software/              # Flutter 手机 App
-├── DEMO/                  # Demo 启动指南
-├── 功能讨论区/             # 设计文档与调研
-├── 原理图设计/             # 嘉立创EDA设计教程
-├── 元件资料区/             # 元件数据手册
-├── 硬件设计文件/           # EDA 导出文件
-└── images/                # 截图与照片
+Optional side channels
+  -> desktop microphone path
+  -> WhatsApp bridge
+  -> computer control
 ```
 
-## 快速开始
+## Tech Stack
 
-详见 [`DEMO/启动指南.md`](DEMO/启动指南.md)
+### App
 
-**环境要求：** Python 3.11+、Node.js 20+
+- Flutter
+- Hook Riverpod
+- GoRouter
+- `http`
+- `web_socket_channel`
+- `flutter_libserialport` for desktop pairing
+
+### Backend
+
+- Python 3
+- `aiohttp`
+- LiteLLM-backed agent provider integration
+- FunASR / SenseVoice for ASR
+- `edge-tts` and `miniaudio` for speech synthesis/playback handling
+- JSON + SQLite-backed workspace persistence
+
+### Optional bridge
+
+- Node.js 20+
+- TypeScript
+- Baileys-based WhatsApp bridge
+
+## Repository Layout
+
+| Path | Purpose |
+| --- | --- |
+| `app/` | Flutter app used to connect to the backend and operate the system |
+| `server/` | Python backend, agent runtime, voice pipeline, app API, and workspace data |
+| `firmware/` | Arduino firmware and hardware test sketches |
+| `DEMO/` | Demo runbooks and presentation-oriented material |
+| `功能讨论区/` | Internal planning and implementation notes |
+| `presentation/` | Presentation drafts and requirement material |
+| `原理图设计/`, `硬件设计文件/`, `元件资料区/` | Hardware design exports and component references |
+| `nanobot-src/` | Upstream/reference snapshot, not the current runtime path |
+| `App Builder (Copy)/`, `APP for BASS 44/` | Older prototype/reference directories, not the current app |
+
+## Runtime Defaults In This Checkout
+
+The checked `server/config.yaml` currently uses:
+
+- backend host `0.0.0.0`
+- backend port `8765`
+- LLM provider `openrouter`
+- model `x-ai/grok-4.1-fast`
+- ASR model `FunAudioLLM/SenseVoiceSmall`
+- TTS voice `en-US-AriaNeural`
+- `computer_control.enabled = true`
+- `whatsapp.enabled = false`
+- `cron.enabled = false`
+- `storage.session_storage_mode = dual`
+- `storage.planning_storage_mode = dual`
+
+Treat those as the repository defaults, not as hard architectural limits.
+
+## Prerequisites
+
+### Main local workflow
+
+The repository ships a macOS-first manager script at `./manager.sh`. That is the most complete local workflow right now.
+
+Required for the standard path:
+
+- Python 3
+- Flutter
+- macOS for `./manager.sh`
+
+Optional depending on features you enable:
+
+- Node.js 20+ for the WhatsApp bridge
+- valid provider/API tokens in `server/.env` or `server/config.yaml`
+
+Common environment-backed values in the current server config include:
+
+- `OPENROUTER_API_KEY`
+- `APP_AUTH_TOKEN`
+- `DEVICE_AUTH_TOKEN`
+- `OPENWEATHERMAP_API_KEY`
+- `BRAVE_API_KEY`
+
+## Quick Start
+
+### Recommended: macOS manager flow
 
 ```bash
-# 1. 安装 Python 依赖
-cd server && pip install -r requirements.txt
-
-# 2. 安装 WhatsApp Bridge 依赖
-cd bridge && npm install && npm run build
-
-# 3. 启动 Bridge（终端1）
-cd server/bridge && node dist/index.js
-
-# 4. 启动服务端（终端2）
-cd server && python main.py
+./manager.sh doctor
+./manager.sh update
+./manager.sh dev
 ```
 
-## 许可证
+Useful manager commands:
 
-本项目为 EE3070 课程项目。
+- `./manager.sh app-dev`
+- `./manager.sh server-dev`
+- `./manager.sh server-start`
+- `./manager.sh backend-restart`
+- `./manager.sh bridge-start`
+- `./manager.sh logs server`
+- `./manager.sh stop`
+- `./manager.sh build-macos`
+
+The manager script:
+
+- creates and uses `server/.venv`
+- installs Python dependencies from `server/requirements.txt`
+- runs `flutter pub get` in `app/`
+- treats the WhatsApp bridge as optional
+- waits for `/api/health` to report `ready=true`
+
+### Manual backend startup
+
+```bash
+cd server
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+Important backend endpoints:
+
+- health: `http://127.0.0.1:8765/api/health`
+- app bootstrap: `http://127.0.0.1:8765/api/app/v1/bootstrap`
+- app events: `ws://127.0.0.1:8765/ws/app/v1/events`
+- device socket: `ws://127.0.0.1:8765/ws/device`
+
+### Manual Flutter app startup
+
+```bash
+cd app
+flutter pub get
+flutter run -d macos
+```
+
+Other desktop targets are scaffolded in the Flutter project as well:
+
+```bash
+flutter run -d windows
+flutter run -d linux
+```
+
+The desktop USB pairing workflow is currently the most complete operator flow.
+
+### Optional WhatsApp bridge
+
+```bash
+cd server/bridge
+npm install
+npm run build
+npm start
+```
+
+This bridge is optional. The repository's current main path does not depend on WhatsApp being enabled.
+
+## Configuration Notes
+
+- Main backend config lives in `server/config.yaml`
+- `server/.env` is loaded before config placeholders are resolved
+- Startup validation also expects `server/workspace/SOUL.md`
+- Session, planning, and runtime data are stored under `server/workspace/`
+- The checked configuration uses dual storage for sessions and planning, so JSON/JSONL files and SQLite can coexist
+
+Relevant workspace areas:
+
+- `server/workspace/sessions/`
+- `server/workspace/runtime/`
+- `server/workspace/state.sqlite3`
+- `server/workspace/config.json`
+
+## Testing
+
+Test suites exist, even though this README update did not run them:
+
+- Flutter tests: `app/test/`
+- Backend tests: `server/tests/`
+
+Typical commands:
+
+```bash
+cd app
+flutter test
+```
+
+```bash
+cd server
+.venv/bin/python -m unittest discover tests
+```
+
+## Notes About Legacy Material
+
+Some repository content reflects earlier prototypes or upstream reference code:
+
+- `nanobot-src/` is useful as an upstream/reference snapshot
+- `App Builder (Copy)/` and `APP for BASS 44/` point to older web/prototype work
+- several planning and hardware directories use Chinese names because they are internal project artifacts
+
+When in doubt, use `app/`, `server/`, `firmware/arduino/demo/`, and `manager.sh` as the current source of truth for the running system.

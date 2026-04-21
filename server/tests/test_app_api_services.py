@@ -209,6 +209,76 @@ class ResourceServiceTests(unittest.TestCase):
                             }
                         )
 
+    def test_create_event_rejects_invalid_datetime_strings(self) -> None:
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    service = AppResourceService(Path(tmpdir), storage_mode=mode)
+
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "start_at must be a valid ISO 8601 datetime",
+                    ):
+                        service.create_event(
+                            {
+                                "title": "Broken event",
+                                "start_at": "1",
+                                "end_at": "2026-04-10T10:00:00+08:00",
+                            }
+                        )
+
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "end_at must be a valid ISO 8601 datetime",
+                    ):
+                        service.create_event(
+                            {
+                                "title": "Broken event",
+                                "start_at": "2026-04-10T09:00:00+08:00",
+                                "end_at": "2",
+                            }
+                        )
+
+    def test_create_event_rejects_end_before_start(self) -> None:
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    service = AppResourceService(Path(tmpdir), storage_mode=mode)
+
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "end_at must be later than start_at",
+                    ):
+                        service.create_event(
+                            {
+                                "title": "Backwards event",
+                                "start_at": "2026-04-10T10:00:00+08:00",
+                                "end_at": "2026-04-10T09:00:00+08:00",
+                            }
+                        )
+
+    def test_update_event_rejects_partial_patch_that_inverts_window(self) -> None:
+        for mode in self._RESOURCE_MODES:
+            with self.subTest(storage_mode=mode):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    service = AppResourceService(Path(tmpdir), storage_mode=mode)
+                    event = service.create_event(
+                        {
+                            "title": "Team review",
+                            "start_at": "2026-04-10T09:00:00+08:00",
+                            "end_at": "2026-04-10T10:00:00+08:00",
+                        }
+                    )
+
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "end_at must be later than start_at",
+                    ):
+                        service.update_event(
+                            event["event_id"],
+                            {"end_at": "2026-04-10T08:30:00+08:00"},
+                        )
+
     def test_notification_normalization_preserves_metadata_and_origin_links(self) -> None:
         for mode in self._RESOURCE_MODES:
             with self.subTest(storage_mode=mode):

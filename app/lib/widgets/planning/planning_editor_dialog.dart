@@ -771,7 +771,10 @@ class _PlanningEditorDialogState extends ConsumerState<PlanningEditorDialog> {
             _endAtController.text.trim().isEmpty) {
           return 'Event start and end time are required.';
         }
-        return null;
+        return validatePlanningEventWindow(
+          startAt: _startAtController.text,
+          endAt: _endAtController.text,
+        );
       case PlanningEditorKind.reminder:
         if (_timeController.text.trim().isEmpty) {
           return 'Reminder time is required.';

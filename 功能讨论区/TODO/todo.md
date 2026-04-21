@@ -103,15 +103,32 @@
 - [2026-04-15-Chat页面体验与状态区折叠收口实施计划](./2026-04-15-Chat页面体验与状态区折叠收口实施计划.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-Chat页面体验与状态区折叠收口实施计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-Chat页面体验与状态区折叠收口实施计划.md)
 - 状态：2026-04-15 已完成 Chat 页面体验区与状态区折叠收口，默认收起并释放更多消息区高度；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-语音删除行程未真正执行修复计划](./2026-04-15-语音删除行程未真正执行修复计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-语音删除行程未真正执行修复计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-语音删除行程未真正执行修复计划.md)
+- 状态：2026-04-15 已完成语音删除行程真实执行链路修复，补齐 planning delete 动作、backend 委托与聊天结构化摘要动作识别；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-Agenda时间本地化与跨天冲突可见性修复计划](./2026-04-15-Agenda时间本地化与跨天冲突可见性修复计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-Agenda时间本地化与跨天冲突可见性修复计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-Agenda时间本地化与跨天冲突可见性修复计划.md)
+- 状态：2026-04-15 已完成 Agenda 时间本地化与跨天事件当天可见性修复，统一前端时间解析并让个人行程与后端冲突口径对齐；按当前用户约束，未跑测试，git 提交待确认后执行。
 - [2026-04-15-首页Device Snapshot天气与遥测可见性修复计划](./2026-04-15-首页Device Snapshot天气与遥测可见性修复计划.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-首页Device Snapshot天气与遥测可见性修复计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-首页Device Snapshot天气与遥测可见性修复计划.md)
 - 状态：2026-04-15 已完成首页 Device Snapshot 的天气可见性与 Battery/Charging 语义修复，恢复 App 侧天气展示并区分 `Unknown / Not Wired`；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-Agenda脏手动行程导致误冲突修复计划](./2026-04-15-Agenda脏手动行程导致误冲突修复计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-Agenda脏手动行程导致误冲突修复计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-Agenda脏手动行程导致误冲突修复计划.md)
+- 状态：2026-04-15 已完成 Agenda 手动脏行程误冲突修复，补齐前端 event 时间校验、后端入库校验并清理当前运行时中的 `12 / 333` 脏事件；按当前用户约束，未跑测试，git 提交待确认后执行。
 - [2026-04-15-最新demo流程-导师展示版计划](./2026-04-15-最新demo流程-导师展示版计划.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-最新demo流程-导师展示版计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-最新demo流程-导师展示版计划.md)
 - 状态：2026-04-15 已完成基于当前项目进度的导师 demo 流程文档；按当前用户约束，未跑测试，git 提交待确认后执行。
 - [2026-04-15-20次tool-call上限代码出处排查](./2026-04-15-20次tool-call上限代码出处排查.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-20次tool-call上限代码出处排查.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-20次tool-call上限代码出处排查.md)
 - 状态：2026-04-15 已完成 `I reached the maximum number of tool call iterations (20)` 代码出处排查；按当前用户约束，未跑测试，git 提交待确认后执行。
+- [2026-04-15-打不开app问题排查计划](./2026-04-15-打不开app问题排查计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-打不开app问题排查计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-15-打不开app问题排查计划.md)
+- 状态：2026-04-15 进行中，正在排查“打不开 app”链路与根因；按当前用户约束，尚未跑测试，git 提交待确认后执行。
 - [2026-04-20-presentation要求中文整理计划](./2026-04-20-presentation要求中文整理计划.md)
 - [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-20-presentation要求中文整理计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-20-presentation要求中文整理计划.md)
 - 状态：2026-04-20 已完成 presentation 要求中文整理，并新增 `presentation/这次Presentation要求-中文版.md`；按当前用户约束，未跑测试。
+- [2026-04-20-15分钟presentation文稿计划](./2026-04-20-15分钟presentation文稿计划.md)
+- [/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-20-15分钟presentation文稿计划.md](/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-20-15分钟presentation文稿计划.md)
+- 状态：2026-04-20 已完成当前项目调研与 15 分钟 presentation 文稿整理，并新增 `presentation/AI-Bot-15分钟Presentation文稿.md`；按当前用户约束，未跑测试，等待确认后再 git 提交。
+/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-21-README英文更新与全项目调研.md
+/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-21-仓库清理候选位调研.md

@@ -159,3 +159,29 @@ class PlanningMetadataDraft {
 String generatePlanningBundleId() {
   return 'bundle_ui_${DateTime.now().millisecondsSinceEpoch}';
 }
+
+String? validatePlanningEventWindow({
+  required String startAt,
+  required String endAt,
+}) {
+  final start = _tryParsePlanningDateTime(startAt);
+  if (start == null) {
+    return 'Event start time must be a valid date and time.';
+  }
+  final end = _tryParsePlanningDateTime(endAt);
+  if (end == null) {
+    return 'Event end time must be a valid date and time.';
+  }
+  if (!end.isAfter(start)) {
+    return 'Event end time must be later than the start time.';
+  }
+  return null;
+}
+
+DateTime? _tryParsePlanningDateTime(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(value);
+}

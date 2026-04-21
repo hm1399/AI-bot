@@ -95,7 +95,7 @@ class PlanningAgendaDataset {
 
   List<PlanningAgendaEntryModel> entriesForDay(DateTime day) {
     return entries.where((PlanningAgendaEntryModel entry) {
-      return _isSameDay(entry.scheduledAt, day);
+      return _entryOccursOnDay(entry, day);
     }).toList();
   }
 
@@ -409,6 +409,16 @@ bool _isSameDay(DateTime left, DateTime right) {
   return left.year == right.year &&
       left.month == right.month &&
       left.day == right.day;
+}
+
+bool _entryOccursOnDay(PlanningAgendaEntryModel entry, DateTime day) {
+  if (entry.kind != PlanningAgendaEntryKind.event || entry.endsAt == null) {
+    return _isSameDay(entry.scheduledAt, day);
+  }
+  final dayStart = DateTime(day.year, day.month, day.day);
+  final nextDayStart = dayStart.add(const Duration(days: 1));
+  return entry.scheduledAt.isBefore(nextDayStart) &&
+      entry.endsAt!.isAfter(dayStart);
 }
 
 String? _nonEmpty(String? value) {

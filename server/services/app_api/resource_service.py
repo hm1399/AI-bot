@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -297,10 +297,23 @@ class AppResourceService:
         return {"items": items}
 
     def create_event(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.event_store.create(self._normalize_event_payload(payload, partial=False))
+        normalized = self._normalize_event_payload(payload, partial=False)
+        self._validate_event_window(
+            start_at=normalized.get("start_at"),
+            end_at=normalized.get("end_at"),
+        )
+        return self.event_store.create(normalized)
 
     def update_event(self, event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         patch = self._normalize_event_payload(payload, partial=True)
+        existing = self.event_store.get(event_id)
+        if existing is None:
+            raise ResourceNotFoundError("EVENT_NOT_FOUND")
+        merged = {**existing, **patch}
+        self._validate_event_window(
+            start_at=merged.get("start_at"),
+            end_at=merged.get("end_at"),
+        )
         updated = self.event_store.update(event_id, patch)
         if updated is None:
             raise ResourceNotFoundError("EVENT_NOT_FOUND")
@@ -742,6 +755,26 @@ class AppResourceService:
             normalized.setdefault("owner_kind", self._default_owner_kind(normalized))
             normalized.setdefault("delivery_mode", "none")
         return normalized
+
+    @classmethod
+    def _validate_event_window(cls, *, start_at: Any, end_at: Any) -> None:
+        start = cls._parse_datetime_for_validation(start_at, field="start_at")
+        end = cls._parse_datetime_for_validation(end_at, field="end_at")
+        if end <= start:
+            raise ResourceValidationError("end_at must be later than start_at")
+
+    @staticmethod
+    def _parse_datetime_for_validation(value: Any, *, field: str) -> datetime:
+        cleaned = AppResourceService._require_string(value, field)
+        try:
+            parsed = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ResourceValidationError(
+                f"{field} must be a valid ISO 8601 datetime"
+            ) from exc
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
 
     def _normalize_notification_payload(self, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
         normalized: dict[str, Any] = {}

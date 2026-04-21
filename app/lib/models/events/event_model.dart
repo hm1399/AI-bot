@@ -279,7 +279,11 @@ DateTime? _tryParseDateTime(String? value) {
   if (value == null || value.trim().isEmpty) {
     return null;
   }
-  return DateTime.tryParse(value);
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) {
+    return null;
+  }
+  return parsed.isUtc ? parsed.toLocal() : parsed;
 }
 
 String? _normalizePlanningSurface(String? value) {
