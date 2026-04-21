@@ -1,4 +1,4 @@
-# AI-Bot
+# AI Desk Helper
 
 AI-Bot is a hardware-plus-software desktop assistant project built around an ESP32-S3 device, a Python backend, and a Flutter control app. The current main path in this repository is:
 

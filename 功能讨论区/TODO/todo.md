@@ -139,3 +139,5 @@
 - 状态：2026-04-21 已完成 `App Builder (Copy)/`、`APP for BASS 44/`、`DEMO/`、`Project_proposal/` 删除与文档索引收口；确认不影响当前主程序运行，未跑测试，等待确认后再 git 提交。
 /Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-21-ignore-claude与manager并更新README.md
 - 状态：2026-04-21 已完成 `.claude/`、`.manager/` ignore 收口与 `README.md` 更新；`.claude/` 已取消 Git 跟踪但本地保留，未跑测试，等待确认后再 git 提交。
+/Users/mandy/Documents/GitHub/AI-bot/功能讨论区/TODO/2026-04-21-README标题改为AI-Desk-Helper.md
+- 状态：2026-04-21 已完成根目录 `README.md` 标题从 `AI-Bot` 改为 `AI Desk Helper`；未跑测试，等待确认后再 git 提交。
