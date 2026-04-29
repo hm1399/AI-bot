@@ -45,6 +45,7 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
             "recent_actions": [],
         }
         self.notifications: list[dict[str, Any]] = []
+        self.planning_context: dict[str, Any] = {}
         self.confirmed_action_ids: list[str] = []
         self.cancelled_action_ids: list[str] = []
         self.active_session_id = "app:main"
@@ -71,6 +72,7 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
             desktop_voice_snapshot_provider=lambda: dict(self.desktop_snapshot),
             computer_state_provider=lambda: dict(self.computer_state),
             notifications_provider=lambda: list(self.notifications),
+            planning_context_provider=lambda: dict(self.planning_context),
             confirm_computer_action=self._confirm_action,
             cancel_computer_action=self._cancel_action,
         )
@@ -119,6 +121,19 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("scene_modes", snapshot)
         self.assertIn("persona_presets", snapshot)
 
+    async def test_inject_message_metadata_includes_persona_style_fields(self) -> None:
+        session = self.sessions.get_or_create("app:main")
+        session.metadata["persona_profile"] = {"preset": "companion_warm"}
+        self.sessions.save(session)
+
+        metadata = self.service.inject_message_metadata({}, session_id="app:main")
+
+        self.assertEqual(metadata["persona_profile_id"], "companion_warm")
+        self.assertEqual(metadata["persona_tone_style"], "warm")
+        self.assertEqual(metadata["persona_reply_length"], "expanded")
+        self.assertEqual(metadata["persona_proactivity"], "high")
+        self.assertEqual(metadata["persona_voice_style"], "bright")
+
     async def test_runtime_override_is_supported_but_lower_priority_than_session_override(self) -> None:
         session = self.sessions.get_or_create("app:main")
         session.metadata["scene_mode"] = "meeting"
@@ -161,6 +176,26 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
             "allow",
         )
 
+    async def test_tap_allow_defaults_to_english_for_device_trigger(self) -> None:
+        self.computer_state["pending_actions"] = [
+            {
+                "action_id": "act_001",
+                "kind": "wechat_prepare_message",
+                "status": "awaiting_confirmation",
+                "title": "Open Safari",
+            }
+        ]
+
+        result = await self.service.handle_interaction(
+            "tap",
+            {"tap_count": 1, "source": "tap", "app_session_id": "app:main"},
+        )
+
+        self.assertEqual(result["title"], "Allow Action")
+        self.assertEqual(result["metadata"]["reply_language"], "English")
+        self.assertNotRegex(result["display_text"], r"[\u4e00-\u9fff]")
+        self.assertNotRegex(result["voice_text"], r"[\u4e00-\u9fff]")
+
     async def test_shake_is_blocked_while_voice_pipeline_is_busy(self) -> None:
         self.desktop_snapshot["status"] = "responding"
 
@@ -172,6 +207,49 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["interaction_kind"], "shake")
         self.assertEqual(result["short_result"], "blocked")
         self.assertEqual(result["metadata"]["blocked_reason"], "voice_busy")
+        self.assertEqual(result["voice_text"], result["display_text"])
+        self.assertIsNone(result.get("feedback_mode"))
+
+    async def test_shake_disabled_device_trigger_records_without_voice_feedback(self) -> None:
+        self.settings.payload["shake_enabled"] = False
+
+        result = await self.service.handle_interaction(
+            "shake",
+            {"source": "shake", "app_session_id": "app:main"},
+        )
+
+        history = self.service.store.list_history(limit=1)
+        snapshot = self.service.get_runtime_snapshot()
+
+        self.assertEqual(result["interaction_kind"], "shake")
+        self.assertEqual(result["short_result"], "blocked")
+        self.assertEqual(result["metadata"]["blocked_reason"], "shake_disabled")
+        self.assertEqual(result["feedback_mode"], "record_only")
+        self.assertNotIn("voice_text", result)
+        self.assertEqual(history[-1]["metadata"]["blocked_reason"], "shake_disabled")
+        self.assertEqual(history[-1]["feedback_mode"], "record_only")
+        self.assertNotIn("voice_text", history[-1])
+        self.assertEqual(
+            snapshot["last_interaction_result"]["metadata"]["blocked_reason"],
+            "shake_disabled",
+        )
+        self.assertEqual(
+            snapshot["last_interaction_result"]["feedback_mode"],
+            "record_only",
+        )
+
+    async def test_shake_defaults_to_english_for_device_trigger(self) -> None:
+        result = await self.service.handle_interaction(
+            "shake",
+            {"source": "shake", "app_session_id": "app:main"},
+        )
+
+        self.assertEqual(result["mode"], "random")
+        self.assertEqual(result["title"], "Context Shake")
+        self.assertEqual(result["short_result"], "context_random_ready")
+        self.assertEqual(result["metadata"]["reply_language"], "English")
+        self.assertNotRegex(result["display_text"], r"[\u4e00-\u9fff]")
+        self.assertNotRegex(result["voice_text"], r"[\u4e00-\u9fff]")
 
     async def test_shake_stays_available_when_desktop_bridge_is_not_ready(self) -> None:
         self.desktop_snapshot["ready"] = False
@@ -184,7 +262,7 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(physical["shake_available"])
         self.assertIsNone(physical["shake_blocked_reason"])
 
-    async def test_pending_confirmation_shake_routes_to_decision_without_consuming_daily_fortune(self) -> None:
+    async def test_pending_confirmation_shake_uses_context_random_reply(self) -> None:
         self.computer_state["pending_actions"] = [
             {
                 "action_id": "act_001",
@@ -202,13 +280,14 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         after = self.service.get_runtime_snapshot()
 
         self.assertTrue(before["physical_interaction"]["shake_available"])
-        self.assertEqual(before["physical_interaction"]["shake_mode"], "decision")
-        self.assertEqual(result["mode"], "decision")
+        self.assertEqual(before["physical_interaction"]["shake_mode"], "random")
+        self.assertEqual(result["mode"], "random")
+        self.assertEqual(result["short_result"], "context_random_ready")
         self.assertIn("Open Safari", result["display_text"])
-        self.assertEqual(after["daily_shake_state"]["valid_shake_count"], 0)
-        self.assertTrue(after["daily_shake_state"]["fortune_available"])
+        self.assertEqual(after["daily_shake_state"]["valid_shake_count"], 1)
+        self.assertFalse(after["daily_shake_state"]["fortune_available"])
 
-    async def test_first_valid_shake_today_routes_to_fortune_then_random_and_updates_daily_state(self) -> None:
+    async def test_valid_shakes_use_context_random_and_update_daily_state(self) -> None:
         first = await self.service.handle_interaction(
             "shake",
             {"app_session_id": "app:main"},
@@ -223,8 +302,9 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         daily_state = snapshot["daily_shake_state"]
 
         self.assertEqual(first["interaction_kind"], "shake")
-        self.assertEqual(first["mode"], "fortune")
+        self.assertEqual(first["mode"], "random")
         self.assertEqual(second["mode"], "random")
+        self.assertEqual(first["short_result"], "context_random_ready")
         self.assertEqual(snapshot["last_interaction_result"]["mode"], "random")
         self.assertTrue(snapshot["physical_interaction"]["ready"])
         self.assertEqual(snapshot["physical_interaction"]["status"], "ready")
@@ -233,6 +313,26 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(snapshot["physical_interaction"]["history"]), 1)
         self.assertEqual(daily_state["valid_shake_count"], 2)
         self.assertFalse(daily_state["fortune_available"])
+
+    async def test_shake_draws_random_reply_from_planning_context(self) -> None:
+        self.planning_context = {
+            "timeline": [
+                {
+                    "resource_type": "event",
+                    "title": "复习考试",
+                    "start_at": "2026-04-30T16:00:00+08:00",
+                }
+            ],
+        }
+
+        result = await self.service.handle_interaction(
+            "shake",
+            {"app_session_id": "app:main", "reply_language": "Chinese"},
+        )
+
+        self.assertEqual(result["mode"], "random")
+        self.assertIn("复习考试", result["display_text"])
+        self.assertEqual(result["metadata"]["context_kind"], "event")
 
     async def test_default_service_persists_runtime_state_via_sqlite_store(self) -> None:
         await self.service.handle_interaction(
@@ -249,6 +349,7 @@ class ExperienceServiceTests(unittest.IsolatedAsyncioTestCase):
             desktop_voice_snapshot_provider=lambda: dict(self.desktop_snapshot),
             computer_state_provider=lambda: dict(self.computer_state),
             notifications_provider=lambda: list(self.notifications),
+            planning_context_provider=lambda: dict(self.planning_context),
             confirm_computer_action=self._confirm_action,
             cancel_computer_action=self._cancel_action,
         )

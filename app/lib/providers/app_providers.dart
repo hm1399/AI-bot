@@ -1274,8 +1274,8 @@ class AppController extends StateNotifier<AppState> {
       ),
       'led_color': SettingApplyResultModel(
         field: 'led_color',
-        mode: 'save_and_apply',
-        status: 'pending',
+        mode: 'config_only',
+        status: 'saved_only',
       ),
       'led_mode': SettingApplyResultModel(
         field: 'led_mode',

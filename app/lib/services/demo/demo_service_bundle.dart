@@ -242,7 +242,7 @@ class DemoServiceBundle {
     sttLanguage: 'en-US',
     ttsProvider: 'server-managed',
     ttsModel: 'demo-tts',
-    ttsVoice: 'alloy',
+    ttsVoice: 'en-US-AriaNeural',
     ttsSpeed: 1,
     deviceVolume: 70,
     ledEnabled: true,

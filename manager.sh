@@ -18,6 +18,7 @@
 # ./manager.sh clean：清理 Flutter 构建、Python 缓存和脚本状态文件
 # ./manager.sh build-macos：构建 macOS release 包
 # ./manager.sh open-build：打开 macOS 构建产物
+# ./manager.sh db-view [port]：在 localhost 打开只读 SQLite 可视化表浏览器
 # dev / app-dev 中按 r：Flutter 热重载
 # dev / app-dev 中按 R：Flutter 热重启
 # dev / app-dev 中按 q：退出 Flutter 会话
@@ -45,6 +46,9 @@ SERVER_CONFIG_FILE="$SERVER_DIR/config.yaml"
 
 SERVER_VENV_DIR="$SERVER_DIR/.venv"
 SERVER_PYTHON="$SERVER_VENV_DIR/bin/python"
+DB_VIEWER_SCRIPT="$SERVER_DIR/tools/sqlite_table_viewer.py"
+DB_VIEWER_DB_PATH="$SERVER_DIR/workspace/state.sqlite3"
+DB_VIEWER_DEFAULT_PORT="8787"
 SERVER_PORT="$(awk '
     /^server:[[:space:]]*$/ { in_server=1; next }
     in_server && /^[^[:space:]]/ { exit }
@@ -103,6 +107,7 @@ Commands:
   clean               Clean Flutter build files, Python caches, and manager pid/log files
   build-macos         Build Flutter macOS release app
   open-build          Open the macOS build output folder or app bundle
+  db-view [port]      Open a read-only SQLite table viewer at localhost
 
 Hot reload / hot restart:
   During \`./manager.sh dev\` or \`./manager.sh app-dev\`:
@@ -511,6 +516,17 @@ start_bridge_background() {
     return 1
 }
 
+is_valid_port_number() {
+    local value="$1"
+    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+        return 1
+    fi
+    return 0
+}
+
 run_server_foreground() {
     ensure_server_venv
     print_info "正在前台启动后端"
@@ -654,6 +670,41 @@ open_build_output() {
 
     print_info "未找到 .app 包，改为打开构建目录"
     open "$release_dir"
+}
+
+run_db_viewer() {
+    ensure_server_venv
+
+    local port="${1:-$DB_VIEWER_DEFAULT_PORT}"
+    if ! is_valid_port_number "$port"; then
+        print_error "db-view 端口无效: $port"
+        print_info "示例: ./manager.sh db-view 8787"
+        exit 1
+    fi
+
+    if [ ! -f "$DB_VIEWER_DB_PATH" ]; then
+        print_error "未找到 SQLite 数据库: $DB_VIEWER_DB_PATH"
+        print_info "请先启动后端，或确认数据库已经生成。"
+        exit 1
+    fi
+
+    if ! command -v open >/dev/null 2>&1; then
+        print_warning "未找到 open 命令，将只启动本地浏览器服务，不自动打开网页"
+        "$SERVER_PYTHON" "$DB_VIEWER_SCRIPT" \
+            --db "$DB_VIEWER_DB_PATH" \
+            --host 127.0.0.1 \
+            --port "$port"
+        return 0
+    fi
+
+    print_info "正在启动只读 SQLite 表浏览器"
+    print_info "数据库: $DB_VIEWER_DB_PATH"
+    print_info "地址: http://127.0.0.1:$port/"
+    "$SERVER_PYTHON" "$DB_VIEWER_SCRIPT" \
+        --db "$DB_VIEWER_DB_PATH" \
+        --host 127.0.0.1 \
+        --port "$port" \
+        --open-browser
 }
 
 doctor() {
@@ -813,6 +864,10 @@ case "$COMMAND" in
         ;;
     open-build)
         open_build_output
+        ;;
+    db-view)
+        print_header
+        run_db_viewer "$TARGET"
         ;;
     *)
         print_error "未知命令: $COMMAND"

@@ -99,7 +99,6 @@ _SUPPORTED_APP_COMMANDS = {
     "wake",
     "sleep",
     "set_volume",
-    "set_led_color",
     "set_led_brightness",
 }
 
@@ -147,6 +146,20 @@ _DEFAULT_LAST_COMMAND_STATE: dict[str, Any] = {
     "updated_at": None,
 }
 
+_DEFAULT_DEVICE_DIAGNOSTICS: dict[str, Any] = {
+    "touch_raw_value": None,
+    "touch_baseline": None,
+    "touch_baseline_ready": False,
+    "touch_press_threshold": None,
+    "touch_release_threshold": None,
+    "touch_pressed": False,
+    "touch_raw_pressed": False,
+    "touch_can_voice": False,
+    "touch_can_tap": False,
+    "voice_touch_active": False,
+    "playback_active": False,
+}
+
 
 class DeviceChannel:
     """ESP32 WebSocket 通信通道，集成 ASR + TTS + 状态机。"""
@@ -184,6 +197,7 @@ class DeviceChannel:
         self._control_state: dict[str, Any] = dict(_DEFAULT_CONTROL_STATE)
         self._status_bar_state: dict[str, Any] = dict(_DEFAULT_STATUS_BAR_STATE)
         self._last_command_state: dict[str, Any] = dict(_DEFAULT_LAST_COMMAND_STATE)
+        self._device_diagnostics: dict[str, Any] = dict(_DEFAULT_DEVICE_DIAGNOSTICS)
         self._pending_app_commands: dict[str, dict[str, Any]] = {}
         self._command_result_timeout_s = max(0.01, float(command_result_timeout_s))
 
@@ -366,6 +380,9 @@ class DeviceChannel:
             },
             "status_bar": status_bar,
             "last_command": dict(self._last_command_state),
+            "diagnostics": {
+                "device": dict(self._device_diagnostics),
+            },
         }
 
     @staticmethod
@@ -474,6 +491,72 @@ class DeviceChannel:
             color = payload.get("led_color")
             if isinstance(color, str) and color.strip():
                 self._control_state["led_color"] = color.strip()
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        try:
+            if value is None or str(value).strip() == "":
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _optional_bool(value: Any) -> bool | None:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "true":
+                return True
+            if normalized == "false":
+                return False
+        return None
+
+    def _merge_device_diagnostics(self, payload: dict[str, Any]) -> None:
+        touch_payload = payload.get("touch")
+        touch = touch_payload if isinstance(touch_payload, dict) else {}
+
+        int_fields = {
+            "touch_raw_value": (payload.get("touch_raw_value"), touch.get("raw")),
+            "touch_baseline": (payload.get("touch_baseline"), touch.get("baseline")),
+            "touch_press_threshold": (
+                payload.get("touch_press_threshold"),
+                touch.get("press_threshold"),
+            ),
+            "touch_release_threshold": (
+                payload.get("touch_release_threshold"),
+                touch.get("release_threshold"),
+            ),
+        }
+        for field, candidates in int_fields.items():
+            for candidate in candidates:
+                parsed = self._optional_int(candidate)
+                if parsed is not None:
+                    self._device_diagnostics[field] = parsed
+                    break
+
+        bool_fields = {
+            "touch_baseline_ready": (
+                payload.get("touch_baseline_ready"),
+                touch.get("baseline_ready"),
+            ),
+            "touch_pressed": (payload.get("touch_pressed"), touch.get("pressed")),
+            "touch_raw_pressed": (
+                payload.get("touch_raw_pressed"),
+                touch.get("raw_pressed"),
+            ),
+            "touch_can_voice": (payload.get("touch_can_voice"), touch.get("can_voice")),
+            "touch_can_tap": (payload.get("touch_can_tap"), touch.get("can_tap")),
+            "voice_touch_active": (payload.get("voice_touch_active"), touch.get("voice_active")),
+            "playback_active": (payload.get("playback_active"), touch.get("playback_active")),
+        }
+        for field, candidates in bool_fields.items():
+            for candidate in candidates:
+                parsed = self._optional_bool(candidate)
+                if parsed is not None:
+                    self._device_diagnostics[field] = parsed
+                    break
 
     def _merge_device_info_state(self, payload: dict[str, Any]) -> None:
         battery_capability = bool(self.device_info.get("battery_capability"))
@@ -918,9 +1001,14 @@ class DeviceChannel:
         except asyncio.CancelledError:
             pass
 
-    async def interrupt_current_activity(self, notice: str = "已取消") -> None:
+    async def interrupt_current_activity(
+        self,
+        notice: str = "已取消",
+        *,
+        stop_agent: bool | None = None,
+    ) -> None:
         """打断当前录音 / 识别 / 播放，并恢复到 IDLE。"""
-        should_stop_agent = self.state == DeviceState.PROCESSING
+        should_stop_agent = self.state == DeviceState.PROCESSING if stop_agent is None else stop_agent
         self.audio_buffer.clear()
         await self._cancel_task(self._recording_timeout_task)
         await self._cancel_task(self._asr_task)
@@ -1245,6 +1333,7 @@ class DeviceChannel:
             "voice_path": "device_mic",
             "interaction_surface": "device_press",
             "capture_source": "device_mic",
+            "reply_language": "English",
             "asr_ms": asr_ms,
         }
         if isinstance(app_session_id, str) and app_session_id.startswith("app:"):
@@ -1286,6 +1375,7 @@ class DeviceChannel:
                     "hold": bool(data.get("hold")),
                     "action": action,
                     "source": "tap",
+                    "reply_language": str(data.get("reply_language") or "English"),
                 },
             )
             return
@@ -1298,42 +1388,53 @@ class DeviceChannel:
 
         elif action == "long_press":
             # 长按开始：进入 LISTENING
-            if self.state == DeviceState.IDLE:
-                bridge = self._desktop_voice_bridge
-                if bridge is None:
-                    await self._send_display_update("桌面麦克风未连接")
-                    await self._record_hold_interaction(
-                        action="long_press",
-                        operation_status="failed",
-                        blocked_reason="desktop_bridge_unavailable",
+            if self.state != DeviceState.IDLE:
+                if self.state in {DeviceState.PROCESSING, DeviceState.SPEAKING}:
+                    bridge = self._desktop_voice_bridge
+                    if (
+                        self.state == DeviceState.PROCESSING
+                        and self._desktop_voice_status(bridge) == "transcribing"
+                    ):
+                        logger.info("long_press 在桌面语音 ASR 识别中触发；等待 ASR 超时保护或自然完成")
+                        await self._send_display_update("正在识别，请稍后再按")
+                        await self._record_hold_interaction(
+                            action="long_press",
+                            operation_status="failed",
+                            blocked_reason="voice_busy",
+                        )
+                        return
+                    logger.info("long_press 请求打断当前语音流程并重新进入聆听；当前状态={}", self.state.value)
+                    await self.interrupt_current_activity(
+                        notice="",
+                        stop_agent=self._should_stop_agent_for_barge_in(bridge),
                     )
+                    if bridge is not None:
+                        cancel = getattr(bridge, "cancel_device_push_to_talk", None)
+                        if callable(cancel):
+                            try:
+                                await cancel(reason="barge_in")
+                            except Exception:
+                                logger.exception("取消桌面麦克风当前流程失败")
+                    await self._start_desktop_hold_to_talk(action="long_press")
                     return
+                blocked_reason = (
+                    "voice_busy"
+                    if self.state in {DeviceState.PROCESSING, DeviceState.SPEAKING}
+                    else "device_busy"
+                )
+                logger.info(
+                    "忽略 long_press；当前状态={} blocked_reason={}",
+                    self.state.value,
+                    blocked_reason,
+                )
+                await self._record_hold_interaction(
+                    action="long_press",
+                    operation_status="failed",
+                    blocked_reason=blocked_reason,
+                )
+                return
 
-                if not getattr(bridge, "is_ready", lambda: False)():
-                    await self._send_display_update("桌面麦克风未连接")
-                    await self._record_hold_interaction(
-                        action="long_press",
-                        operation_status="failed",
-                        blocked_reason="desktop_bridge_unavailable",
-                    )
-                    return
-
-                started = await bridge.start_device_push_to_talk()
-                if started:
-                    await self._set_state(DeviceState.LISTENING)
-                    await self._record_hold_interaction(
-                        action="long_press",
-                        operation_status="accepted",
-                    )
-                else:
-                    await self._send_display_update("桌面麦克风不可用")
-                    if self.state != DeviceState.IDLE:
-                        await self._set_state(DeviceState.IDLE)
-                    await self._record_hold_interaction(
-                        action="long_press",
-                        operation_status="failed",
-                        blocked_reason="desktop_mic_unavailable",
-                    )
+            await self._start_desktop_hold_to_talk(action="long_press")
 
         elif action == "long_release":
             # 长按松开：结束录音
@@ -1364,6 +1465,64 @@ class DeviceChannel:
         else:
             logger.warning("未知触摸动作: {}", action)
 
+    def _should_stop_agent_for_barge_in(self, bridge: Any | None) -> bool:
+        if self.state != DeviceState.PROCESSING:
+            return False
+        return self._desktop_voice_status(bridge) != "transcribing"
+
+    @staticmethod
+    def _desktop_voice_status(bridge: Any | None) -> str:
+        if bridge is None:
+            return ""
+        get_snapshot = getattr(bridge, "get_snapshot", None)
+        if not callable(get_snapshot):
+            return ""
+        try:
+            snapshot = get_snapshot()
+        except Exception:
+            logger.exception("读取桌面麦克风状态失败")
+            return ""
+        if not isinstance(snapshot, dict):
+            return ""
+        return str(snapshot.get("status") or "").strip().lower()
+
+    async def _start_desktop_hold_to_talk(self, *, action: str) -> None:
+        bridge = self._desktop_voice_bridge
+        if bridge is None:
+            await self._send_display_update("桌面麦克风未连接")
+            await self._record_hold_interaction(
+                action=action,
+                operation_status="failed",
+                blocked_reason="desktop_bridge_unavailable",
+            )
+            return
+
+        if not getattr(bridge, "is_ready", lambda: False)():
+            await self._send_display_update("桌面麦克风未连接")
+            await self._record_hold_interaction(
+                action=action,
+                operation_status="failed",
+                blocked_reason="desktop_bridge_unavailable",
+            )
+            return
+
+        started = await bridge.start_device_push_to_talk()
+        if started:
+            await self._set_state(DeviceState.LISTENING)
+            await self._record_hold_interaction(
+                action=action,
+                operation_status="accepted",
+            )
+        else:
+            await self._send_display_update("桌面麦克风不可用")
+            if self.state != DeviceState.IDLE:
+                await self._set_state(DeviceState.IDLE)
+            await self._record_hold_interaction(
+                action=action,
+                operation_status="failed",
+                blocked_reason="desktop_mic_unavailable",
+            )
+
     # ── 摇一摇事件处理 (Phase 5.4) ───────────────────────────
 
     async def _on_shake_event(self, data: dict) -> None:
@@ -1374,6 +1533,7 @@ class DeviceChannel:
             {
                 **dict(data),
                 "source": "shake",
+                "reply_language": str(data.get("reply_language") or "English"),
             },
         )
 
@@ -1392,6 +1552,7 @@ class DeviceChannel:
                 "operation_status": operation_status,
                 "blocked_reason": blocked_reason,
                 "feedback_mode": "record_only",
+                "reply_language": "English",
             },
         )
 
@@ -1405,8 +1566,10 @@ class DeviceChannel:
         self._merge_control_state(data)
         self._merge_device_info_state(data)
         self._merge_status_bar_state(data)
+        self._merge_device_diagnostics(data)
+        diagnostics = self._device_diagnostics
         logger.info(
-            "设备状态更新: 电量={}({}/{}) WiFi={}dBm 充电={}({}/{})",
+            "设备状态更新: 电量={}({}/{}) WiFi={}dBm 充电={}({}/{}) touch_raw={} baseline={} threshold={}/{} pressed={} raw_pressed={} can_voice={} can_tap={} playback={} voice_touch={}",
             self.device_info["battery"],
             self.device_info["battery_capability"],
             self.device_info["battery_validity"],
@@ -1414,6 +1577,16 @@ class DeviceChannel:
             self.device_info["charging"],
             self.device_info["charging_capability"],
             self.device_info["charging_validity"],
+            diagnostics["touch_raw_value"],
+            diagnostics["touch_baseline"],
+            diagnostics["touch_press_threshold"],
+            diagnostics["touch_release_threshold"],
+            diagnostics["touch_pressed"],
+            diagnostics["touch_raw_pressed"],
+            diagnostics["touch_can_voice"],
+            diagnostics["touch_can_tap"],
+            diagnostics["playback_active"],
+            diagnostics["voice_touch_active"],
         )
         if not previous_status_bar_capability and self._status_bar_capable():
             now = datetime.now()
@@ -1794,7 +1967,10 @@ class DeviceChannel:
             raise ValueError("INVALID_ARGUMENT")
 
         normalized = dict(params)
-        if command == "set_volume":
+        if command == "toggle_led":
+            if "enabled" in normalized and not isinstance(normalized.get("enabled"), bool):
+                raise ValueError("INVALID_ARGUMENT")
+        elif command == "set_volume":
             level = normalized.get("level")
             if not isinstance(level, int) or level < 0 or level > 100:
                 raise ValueError("INVALID_ARGUMENT")
@@ -1802,11 +1978,6 @@ class DeviceChannel:
             level = normalized.get("level")
             if not isinstance(level, int) or level < 0 or level > 100:
                 raise ValueError("INVALID_ARGUMENT")
-        elif command == "set_led_color":
-            color = normalized.get("color")
-            if not isinstance(color, str) or not color.strip():
-                raise ValueError("INVALID_ARGUMENT")
-            normalized["color"] = color.strip()
         return normalized
 
     async def send_outbound(self, out_msg: OutboundMessage) -> None:
@@ -1879,7 +2050,7 @@ class DeviceChannel:
             finally:
                 if self._tts_task is playback_task and playback_task.done():
                     self._tts_task = None
-                if self.state != DeviceState.IDLE:
+                if self.state == DeviceState.SPEAKING:
                     await self._set_state(DeviceState.IDLE)
 
     async def _stream_voice_reply(

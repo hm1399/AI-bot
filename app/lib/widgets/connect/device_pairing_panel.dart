@@ -118,21 +118,21 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
               ? '$endpointScheme://<lan-host>:$endpointPort$endpointPath'
               : '$endpointScheme://$endpointHost:$endpointPort$endpointPath'
         : appState.isDemoMode
-        ? 'Demo mode 不提供真实设备回连端点。'
+        ? 'Demo mode does not provide a real device callback endpoint.'
         : !canPreviewCurrentConnection
-        ? '请先完成 Step 1，连接 live backend 后再生成设备回连端点。'
+        ? 'Complete Step 1 and connect to a live backend to generate the device callback endpoint.'
         : endpointHost.isEmpty
         ? '$endpointScheme://<lan-host>:$endpointPort$endpointPath'
         : '$endpointScheme://$endpointHost:$endpointPort$endpointPath';
     final authSummary = pairing.bundle == null
         ? appState.isDemoMode
-              ? 'Demo mode 不会请求真实 bundle'
+              ? 'Demo mode does not request a real bundle'
               : canPreviewCurrentConnection
-              ? '发送时会向当前 backend 请求最新 bundle'
-              : '连接 live backend 后会请求最新 bundle'
+              ? 'Will request the latest bundle from the current backend on send'
+              : 'Will request the latest bundle after connecting to a live backend'
         : pairing.bundle!.requiresDeviceToken
-        ? '发送时会带 device token'
-        : '当前无需 device token';
+        ? 'Will include device token on send'
+        : 'No device token required';
     final fieldsEnabled =
         usbReady &&
         !pairing.isBusy &&
@@ -160,8 +160,8 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
               children: <Widget>[
                 _StepHeader(
                   stepLabel: 'Step 2',
-                  title: '连接机器人并长按触摸盘',
-                  description: '这一页只处理 USB：接线、选串口、打开 USB，然后长按触摸盘进入配对态。',
+                  title: 'Connect Robot & Long-Press Touch Pad',
+                  description: 'This step handles USB only: plug in, select serial port, open USB, then long-press the touch pad to enter pairing mode.',
                   trailing: FilledButton.tonalIcon(
                     onPressed: !backendReady || pairing.isBusy
                         ? null
@@ -173,9 +173,9 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
                 const SizedBox(height: LinearSpacing.lg),
                 _InstructionCard(
                   items: const <String>[
-                    '把机器人用数据线接到这台电脑。',
-                    '点 Refresh USB，选中正确的串口设备。',
-                    '点 Open USB，然后长按触摸盘约 5 秒，直到机器人进入 Armed。',
+                    'Connect the robot to this computer with a data cable.',
+                    'Click Refresh USB and select the correct serial device.',
+                    'Click Open USB, then long-press the touch pad for about 5 seconds until the robot enters Armed mode.',
                   ],
                 ),
                 const SizedBox(height: LinearSpacing.lg),
@@ -220,15 +220,15 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
                   _InlineNotice(
                     tone: StatusPillTone.warning,
                     message: appState.isDemoMode
-                        ? 'Demo mode 不能给真实机器人配对。请先回到 Step 1 连接 live backend。'
-                        : '请先完成 Step 1。当前还没有 live backend，所以不会进入 USB 配对。',
+                        ? 'Demo mode cannot pair a real robot. Please go back to Step 1 and connect to a live backend.'
+                        : 'Please complete Step 1 first. Without a live backend, USB pairing cannot proceed.',
                   )
                 else ...<Widget>[
                   if (pairing.availablePorts.isEmpty &&
                       !pairing.isBusy) ...<Widget>[
                     const _InlineNotice(
                       tone: StatusPillTone.neutral,
-                      message: '还没有读到任何串口设备。请确认机器人已接线，然后点 Refresh USB。',
+                      message: 'No serial devices detected. Make sure the robot is plugged in, then click Refresh USB.',
                     ),
                     const SizedBox(height: LinearSpacing.md),
                   ],
@@ -281,15 +281,15 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
                 ],
                 const SizedBox(height: LinearSpacing.lg),
                 _SummaryCard(
-                  title: '当前状态',
+                  title: 'Current Status',
                   rows: <_SummaryRow>[
                     _SummaryRow(
                       label: 'USB',
                       value: pairing.connectedPortName.isNotEmpty
                           ? pairing.connectedPortName
                           : pairing.draft.trimmedPortName.isNotEmpty
-                          ? '${pairing.draft.trimmedPortName} 已选中，尚未打开'
-                          : '还没有选择串口设备',
+                          ? '${pairing.draft.trimmedPortName} selected, not yet opened'
+                          : 'No serial device selected',
                     ),
                     _SummaryRow(
                       label: 'Pairing',
@@ -322,15 +322,15 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
               children: <Widget>[
                 const _StepHeader(
                   stepLabel: 'Step 3',
-                  title: '填写 WiFi 和局域网地址',
-                  description: '这一页只填写机器人要连接的 WiFi，以及机器人回连这台电脑时要使用的局域网地址。',
+                  title: 'Enter WiFi & LAN Address',
+                  description: 'Enter the WiFi the robot should connect to, and the LAN address it will use to reach this computer.',
                 ),
                 const SizedBox(height: LinearSpacing.lg),
                 _InstructionCard(
                   items: const <String>[
-                    '填写机器人要连接的 WiFi 名称。',
-                    '填写 WiFi 密码；开放网络可留空。',
-                    '填写这台电脑在局域网里的 IPv4 地址，不要填 localhost。',
+                    'Enter the WiFi network name the robot should connect to.',
+                    'Enter the WiFi password. Leave blank for open networks.',
+                    'Enter this computer\'s LAN IPv4 address. Do not use localhost.',
                   ],
                 ),
                 const SizedBox(height: LinearSpacing.lg),
@@ -418,7 +418,7 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
                   decoration: const InputDecoration(
                     labelText: 'LAN Host',
                     hintText: '192.168.1.23',
-                    helperText: '机器人会用这个地址回连到这台电脑。',
+                    helperText: 'The robot will use this address to connect back to this computer.',
                     prefixIcon: Icon(Icons.router_outlined),
                   ),
                 ),
@@ -427,23 +427,23 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
                   const _InlineNotice(
                     tone: StatusPillTone.warning,
                     message:
-                        '这里要填你电脑的局域网 IPv4 地址。localhost、127.0.0.1、0.0.0.0、::1 只在本机有效，机器人不能用。',
+                        'Enter your computer\'s LAN IPv4 address. localhost, 127.0.0.1, 0.0.0.0, and ::1 only work locally and cannot be used by the robot.',
                   ),
                 ],
                 const SizedBox(height: LinearSpacing.lg),
                 _SummaryCard(
-                  title: '发送预览',
+                  title: 'Send Preview',
                   rows: <_SummaryRow>[
                     _SummaryRow(
                       label: 'USB',
                       value: pairing.connectedPortName.isNotEmpty
                           ? pairing.connectedPortName
-                          : 'USB 还未连接好',
+                          : 'USB not connected',
                     ),
                     _SummaryRow(
                       label: 'LAN Host',
                       value: endpointHost.isEmpty
-                          ? '需要填写 LAN Host'
+                          ? 'LAN Host required'
                           : endpointHost,
                       monospace: endpointHost.isNotEmpty,
                     ),
@@ -467,10 +467,10 @@ class _DevicePairingPanelState extends ConsumerState<DevicePairingPanel> {
                   message:
                       pairing.stage == DevicePairingStage.paired ||
                           pairing.deviceOnline
-                      ? '配对已完成。右下角现在可以直接进入工作台。'
+                      ? 'Pairing complete. You can now proceed to the workspace from the bottom-right.'
                       : fieldsEnabled && pairing.draft.canSubmit
-                      ? '信息已齐。现在点击右下角“发送配对”。'
-                      : '把 WiFi 和 LAN Host 填完整后，右下角会允许发送配对。',
+                      ? 'All info provided. Click “Send Pairing” in the bottom-right.'
+                      : 'Fill in WiFi and LAN Host to enable the send button in the bottom-right.',
                 ),
                 if (pairing.statusMessage != null) ...<Widget>[
                   const SizedBox(height: LinearSpacing.md),
@@ -742,36 +742,36 @@ class _SummaryRow {
     return (pairing.errorMessage!, StatusPillTone.danger);
   }
   if (!pairing.platformSupported) {
-    return ('当前平台不支持 USB 首配。请在桌面版 App 上操作。', StatusPillTone.warning);
+    return ('USB pairing is not supported on this platform. Please use the desktop app.', StatusPillTone.warning);
   }
   if (!backendReady) {
     return (
       appState.isDemoMode
-          ? 'Demo mode 不能继续机器人首配。先回到 Step 1 连接 live backend。'
-          : '请先完成 Step 1；当前 backend 还没连好。',
+          ? 'Demo mode cannot pair a real robot. Go back to Step 1 and connect to a live backend.'
+          : 'Please complete Step 1 first. The backend is not connected yet.',
       StatusPillTone.warning,
     );
   }
   if (pairing.stage == DevicePairingStage.refreshingPorts) {
-    return ('正在刷新串口列表。', StatusPillTone.accent);
+    return ('Refreshing serial port list.', StatusPillTone.accent);
   }
   if (pairing.stage == DevicePairingStage.paired || pairing.deviceOnline) {
-    return ('USB 步骤已完成，机器人已经在线。', StatusPillTone.success);
+    return ('USB step complete. The robot is online.', StatusPillTone.success);
   }
   if (pairing.stage == DevicePairingStage.sending ||
       pairing.stage == DevicePairingStage.awaitingOnline) {
-    return ('机器人已经收到了配对信息，请保持接线和供电，等待它重新上线。', StatusPillTone.success);
+    return ('The robot has received the pairing info. Keep it plugged in and powered on while it reconnects.', StatusPillTone.success);
   }
   if (pairing.connectedPortName.isEmpty && !pairing.draft.hasSelectedPort) {
-    return ('先选中机器人的串口设备。', StatusPillTone.neutral);
+    return ('Select the robot\'s serial device first.', StatusPillTone.neutral);
   }
   if (pairing.connectedPortName.isEmpty) {
-    return ('串口已选中，但还没打开。请点 Open USB。', StatusPillTone.neutral);
+    return ('Serial device selected but not opened. Click Open USB.', StatusPillTone.neutral);
   }
   if (!pairing.isArmed) {
-    return ('USB 已打开。现在长按触摸盘约 5 秒，直到机器人进入 Armed。', StatusPillTone.accent);
+    return ('USB is open. Now long-press the touch pad for about 5 seconds until the robot enters Armed mode.', StatusPillTone.accent);
   }
-  return ('机器人已 Armed。右下角现在可以进入下一步。', StatusPillTone.success);
+  return ('Robot is Armed. You can proceed to the next step from the bottom-right.', StatusPillTone.success);
 }
 
 (String, StatusPillTone) _step3Guide(
@@ -783,43 +783,43 @@ class _SummaryRow {
     return (pairing.errorMessage!, StatusPillTone.danger);
   }
   if (!pairing.platformSupported) {
-    return ('当前平台不支持 USB 首配。', StatusPillTone.warning);
+    return ('USB pairing is not supported on this platform.', StatusPillTone.warning);
   }
   if (!backendReady) {
-    return ('请先完成 Step 1。', StatusPillTone.warning);
+    return ('Please complete Step 1 first.', StatusPillTone.warning);
   }
   if (pairing.stage == DevicePairingStage.sending) {
-    return ('正在通过 USB 下发配对信息。', StatusPillTone.accent);
+    return ('Sending pairing info via USB.', StatusPillTone.accent);
   }
   if (pairing.stage == DevicePairingStage.awaitingOnline) {
-    return ('配对信息已发出，正在等待机器人重新连上 WiFi。', StatusPillTone.accent);
+    return ('Pairing info sent. Waiting for the robot to reconnect via WiFi.', StatusPillTone.accent);
   }
   if (pairing.stage == DevicePairingStage.paired || pairing.deviceOnline) {
-    return ('机器人已经重新上线。', StatusPillTone.success);
+    return ('The robot is back online.', StatusPillTone.success);
   }
   if (pairing.connectedPortName.isEmpty || !pairing.isArmed) {
-    return ('请先完成 Step 2：USB 打开并且机器人进入 Armed。', StatusPillTone.warning);
+    return ('Please complete Step 2 first: open USB and get the robot into Armed mode.', StatusPillTone.warning);
   }
   if (!pairing.draft.hasWifiSsid) {
-    return ('先填写机器人要连接的 WiFi 名称。', StatusPillTone.neutral);
+    return ('Enter the WiFi network name the robot should connect to.', StatusPillTone.neutral);
   }
   if (pairing.draft.requiresExplicitLanHost) {
-    return ('再填写这台电脑的局域网 IPv4 地址。', StatusPillTone.warning);
+    return ('Enter this computer\'s LAN IPv4 address.', StatusPillTone.warning);
   }
-  return ('信息已齐。点右下角“发送配对”。', StatusPillTone.accent);
+  return ('All info provided. Click “Send Pairing” in the bottom-right.', StatusPillTone.accent);
 }
 
 String _pairingStageDescription(DevicePairingStateModel pairing) {
   return switch (pairing.stage) {
-    DevicePairingStage.unavailable => '当前平台不支持 USB 首配。',
-    DevicePairingStage.refreshingPorts => '正在刷新串口列表。',
-    DevicePairingStage.portReady => '串口已选中，等待打开 USB。',
-    DevicePairingStage.usbLinked => 'USB 已连通，等待进入 Armed。',
-    DevicePairingStage.armed => '机器人已进入 Armed，可继续发送配对。',
-    DevicePairingStage.sending => '正在发送配对信息。',
-    DevicePairingStage.awaitingOnline => '已发送，正在等待机器人上线。',
-    DevicePairingStage.paired => '机器人已完成配对并重新在线。',
-    DevicePairingStage.failed => '本次配对失败，需要重新尝试。',
-    DevicePairingStage.idle => '等待选择 USB 串口。',
+    DevicePairingStage.unavailable => 'USB pairing is not supported on this platform.',
+    DevicePairingStage.refreshingPorts => 'Refreshing serial port list.',
+    DevicePairingStage.portReady => 'Serial device selected. Waiting to open USB.',
+    DevicePairingStage.usbLinked => 'USB connected. Waiting for Armed mode.',
+    DevicePairingStage.armed => 'Robot is Armed. Ready to send pairing.',
+    DevicePairingStage.sending => 'Sending pairing info.',
+    DevicePairingStage.awaitingOnline => 'Sent. Waiting for robot to come online.',
+    DevicePairingStage.paired => 'Robot paired and back online.',
+    DevicePairingStage.failed => 'Pairing failed. Please try again.',
+    DevicePairingStage.idle => 'Waiting for USB serial device selection.',
   };
 }

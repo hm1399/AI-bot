@@ -48,7 +48,7 @@ def _scale_pcm_16bit_le(pcm_data: bytes, volume_scale: float) -> bytes:
 class TTSService:
     """基于 edge-tts 的语音合成服务。"""
 
-    def __init__(self, voice: str = "zh-CN-XiaoxiaoNeural", volume_scale: float = 0.55):
+    def __init__(self, voice: str = "en-US-AriaNeural", volume_scale: float = 0.55):
         self.voice = voice
         self.english_voice = voice if voice.startswith("en-") else "en-US-AriaNeural"
         self.chinese_voice = voice if voice.startswith("zh-") else "zh-CN-XiaoxiaoNeural"

@@ -409,6 +409,22 @@ class SettingsServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(updated["llm_api_key_configured"])
             self.assertNotIn("llm_api_key", updated)
 
+    async def test_public_settings_default_tts_voice_is_english(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_dir = Path(tmpdir)
+            service = SettingsService(
+                {
+                    "server": {"host": "192.168.1.100", "port": 8000},
+                    "nanobot": {"provider": "openai", "model": "gpt-4o"},
+                    "app": {"settings": {"device_volume": 60}},
+                },
+                runtime_dir,
+            )
+
+            public = service.get_public_settings()
+
+            self.assertEqual(public["tts_voice"], "en-US-AriaNeural")
+
     async def test_llm_test_maps_timeout_and_auth_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             runtime_dir = Path(tmpdir)

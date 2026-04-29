@@ -89,6 +89,53 @@ class ComputerControlService:
     def get_action(self, action_id: str) -> dict[str, Any] | None:
         return self.store.get(action_id)
 
+    def _recover_missing_arguments(
+        self,
+        *,
+        kind: str,
+        arguments: dict[str, Any],
+        reason: str | None,
+        metadata: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        recovered = dict(arguments)
+        if kind not in {"open_app", "focus_app_or_window"}:
+            return recovered
+
+        app = recovered.get("app")
+        if isinstance(app, str) and app.strip():
+            return recovered
+
+        inferred_app = self._infer_app_from_context(reason=reason, metadata=metadata)
+        if inferred_app is not None:
+            recovered["app"] = inferred_app
+        return recovered
+
+    def _infer_app_from_context(
+        self,
+        *,
+        reason: str | None,
+        metadata: Mapping[str, Any] | None,
+    ) -> str | None:
+        candidates: list[str] = []
+        if metadata:
+            for key in ("scheduled_action_target", "app", "app_name", "target_app"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip():
+                    candidates.append(value.strip())
+        if reason and reason.strip():
+            candidates.append(reason.strip())
+
+        for candidate in candidates:
+            resolved = self.policy.resolve_allowed_app(candidate)
+            if resolved is not None:
+                return resolved
+
+        for candidate in candidates:
+            inferred = self.policy.infer_allowed_app(candidate)
+            if inferred is not None:
+                return inferred
+        return None
+
     async def request_action(
         self,
         payload: dict[str, Any] | None = None,
@@ -156,14 +203,22 @@ class ComputerControlService:
                 status=400,
             )
 
-        request = ComputerActionRequest(
+        normalized_metadata = dict(metadata or {})
+        normalized_arguments = self._recover_missing_arguments(
             kind=kind,
             arguments=dict(arguments or {}),
+            reason=reason,
+            metadata=normalized_metadata,
+        )
+
+        request = ComputerActionRequest(
+            kind=kind,
+            arguments=normalized_arguments,
             requested_via=requested_via,
             source_session_id=source_session_id,
             reason=reason,
             requires_confirmation=requires_confirmation,
-            metadata=dict(metadata or {}),
+            metadata=normalized_metadata,
         )
         decision = self.policy.evaluate(request)
         action = ComputerActionRecord(

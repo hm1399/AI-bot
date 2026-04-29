@@ -95,6 +95,118 @@ String? _readAppControllerVoiceEventTaskId(AppEventModel event) {
   return null;
 }
 
+const Set<String> _physicalInteractionSettingFields = <String>{
+  'physical_interaction_enabled',
+  'shake_enabled',
+  'tap_confirmation_enabled',
+};
+
+bool _payloadContainsAnyPhysicalInteractionSetting(dynamic payload) {
+  if (payload is! Map) {
+    return false;
+  }
+  for (final field in _physicalInteractionSettingFields) {
+    if (payload.containsKey(field)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool _payloadContainsAnyPhysicalInteractionApplyResult(dynamic payload) {
+  if (payload is! Map) {
+    return false;
+  }
+  for (final key in payload.keys) {
+    if (_physicalInteractionSettingFields.contains(key.toString())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool _settingsUpdatedTouchesPhysicalInteraction(
+  Map<String, dynamic> payload,
+  AppSettingsModel settings,
+) {
+  if (settings.applyResults.keys.any(
+    _physicalInteractionSettingFields.contains,
+  )) {
+    return true;
+  }
+  if (_payloadContainsAnyPhysicalInteractionSetting(payload) ||
+      _payloadContainsAnyPhysicalInteractionApplyResult(
+        payload['apply_results'],
+      )) {
+    return true;
+  }
+  final nestedSettings = payload['settings'];
+  if (_payloadContainsAnyPhysicalInteractionSetting(nestedSettings)) {
+    return true;
+  }
+  if (nestedSettings is Map<String, dynamic> &&
+      _payloadContainsAnyPhysicalInteractionApplyResult(
+        nestedSettings['apply_results'],
+      )) {
+    return true;
+  }
+  return false;
+}
+
+void _syncPhysicalInteractionRuntimeFromSettings(
+  AppController controller,
+  AppSettingsModel settings,
+) {
+  final currentExperience = controller.state.runtimeState.experience;
+  final currentInteraction = currentExperience.physicalInteraction;
+  final physicalEnabled = settings.physicalInteractionEnabled;
+  final nextInteraction = PhysicalInteractionStateModel(
+    enabled: physicalEnabled,
+    shakeEnabled: settings.shakeEnabled,
+    tapConfirmationEnabled: settings.tapConfirmationEnabled,
+    holdToTalkAvailable:
+        physicalEnabled && currentInteraction.holdToTalkAvailable,
+    ready: physicalEnabled && currentInteraction.ready,
+    status: physicalEnabled
+        ? currentInteraction.status == 'disabled'
+              ? 'waiting'
+              : currentInteraction.status
+        : 'disabled',
+    shakeMode: currentInteraction.shakeMode,
+    firstShakeUsedToday: currentInteraction.firstShakeUsedToday,
+    recentShakeMode: currentInteraction.recentShakeMode,
+    dailyShakeDate: currentInteraction.dailyShakeDate,
+    dailyShakeCount: currentInteraction.dailyShakeCount,
+    dailyShakeFirstResultMode: currentInteraction.dailyShakeFirstResultMode,
+    dailyShakeLastMode: currentInteraction.dailyShakeLastMode,
+    dailyShakeLastInteractionAt: currentInteraction.dailyShakeLastInteractionAt,
+    statusMessage: physicalEnabled
+        ? currentInteraction.statusMessage
+        : 'Physical Interaction Enabled is off.',
+    blockedReason: physicalEnabled
+        ? currentInteraction.blockedReason
+        : 'Physical Interaction Enabled is off.',
+    awaitingConfirmation:
+        settings.tapConfirmationEnabled &&
+        currentInteraction.awaitingConfirmation,
+    latestInteractionAt: currentInteraction.latestInteractionAt,
+    history: currentInteraction.history,
+    debug: currentInteraction.debug,
+  );
+  controller.state = controller.state.copyWith(
+    runtimeState: controller.state.runtimeState.copyWithExperience(
+      ExperienceRuntimeModel(
+        reportedByBackend: currentExperience.reportedByBackend,
+        activeSceneMode: currentExperience.activeSceneMode,
+        activePersona: currentExperience.activePersona,
+        overrideSource: currentExperience.overrideSource,
+        physicalInteraction: nextInteraction,
+        lastInteractionResult: currentExperience.lastInteractionResult,
+      ),
+    ),
+  );
+}
+
 void _handleAppControllerEvent(AppController controller, AppEventModel event) {
   if (event.eventId.isNotEmpty) {
     final nextConnection = controller.state.connection.copyWith(
@@ -491,6 +603,10 @@ void _handleAppControllerEvent(AppController controller, AppEventModel event) {
         settingsMessage:
             settings.applySummary ?? 'Settings refreshed from backend.',
       );
+      if (_settingsUpdatedTouchesPhysicalInteraction(event.payload, settings)) {
+        _syncPhysicalInteractionRuntimeFromSettings(controller, settings);
+        unawaited(controller.refreshRuntime());
+      }
       break;
     case 'device.command.accepted':
       final command = event.payload['command']?.toString();

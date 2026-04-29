@@ -234,31 +234,31 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     final bool backEnabled;
     switch (step) {
       case _ConnectWizardStep.backend:
-        title = '先连接电脑端服务';
-        description = '先把 App 连到 live backend。没连上之前，不显示后面的 USB 和配网内容。';
-        primaryLabel = backendReady ? '下一步' : '请先完成连接';
+        title = 'Connect to Backend';
+        description = 'Connect the app to a live backend first. USB and network configuration won\'t appear until connected.';
+        primaryLabel = backendReady ? 'Next' : 'Complete connection first';
         primaryEnabled = backendReady;
         backEnabled = false;
         break;
       case _ConnectWizardStep.usb:
-        title = '连接机器人并长按触摸盘';
-        description = '这一页只做 USB 配对准备：接线、选串口、打开 USB、长按触摸盘进入 Armed。';
-        primaryLabel = usbReady ? '下一步' : '等待机器人就绪';
+        title = 'Connect Robot & Long-Press Touch Pad';
+        description = 'This step handles USB pairing prep: plug in, select serial port, open USB, and long-press the touch pad to enter Armed mode.';
+        primaryLabel = usbReady ? 'Next' : 'Waiting for robot';
         primaryEnabled = usbReady;
         backEnabled = true;
         break;
       case _ConnectWizardStep.config:
-        title = pairingDone ? '机器人已完成配对' : '填写 WiFi 和局域网地址';
+        title = pairingDone ? 'Robot Pairing Complete' : 'Enter WiFi & LAN Address';
         description = pairingDone
-            ? '机器人已经回到在线状态。你可以进入工作台继续使用。'
-            : '这一页只填写要发给机器人的网络信息，然后从右下角发送配对。';
+            ? 'The robot is back online. You can proceed to the workspace.'
+            : 'Enter the network info to send to the robot, then submit pairing from the bottom-right.';
         primaryLabel = pairingDone
-            ? '打开工作台'
+            ? 'Open Workspace'
             : pairing.stage == DevicePairingStage.awaitingOnline
-            ? '等待机器人上线'
+            ? 'Waiting for robot'
             : pairing.stage == DevicePairingStage.sending
-            ? '正在发送'
-            : '发送配对';
+            ? 'Sending...'
+            : 'Send Pairing';
         primaryEnabled =
             pairingDone ||
             (usbReady &&
@@ -358,7 +358,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                                 ? () => _handleBackAction(step)
                                 : null,
                             icon: const Icon(Icons.arrow_back),
-                            label: const Text('返回'),
+                            label: const Text('Back'),
                           ),
                         ),
                         const SizedBox(width: LinearSpacing.md),
@@ -421,7 +421,7 @@ class _WizardProgress extends StatelessWidget {
           Expanded(
             child: _ProgressNode(
               index: 1,
-              title: '连接服务',
+              title: 'Connect',
               state: backendReady
                   ? _ProgressNodeState.complete
                   : currentStep == _ConnectWizardStep.backend
@@ -435,7 +435,7 @@ class _WizardProgress extends StatelessWidget {
           Expanded(
             child: _ProgressNode(
               index: 2,
-              title: 'USB 配对',
+              title: 'USB Pairing',
               state: usbReady
                   ? _ProgressNodeState.complete
                   : currentStep == _ConnectWizardStep.usb
@@ -451,7 +451,7 @@ class _WizardProgress extends StatelessWidget {
           Expanded(
             child: _ProgressNode(
               index: 3,
-              title: '填写并发送',
+              title: 'Config & Send',
               state: pairingDone
                   ? _ProgressNodeState.complete
                   : currentStep == _ConnectWizardStep.config
@@ -692,7 +692,7 @@ class _BackendStepCard extends ConsumerWidget {
           if (state.isConnected && !state.isDemoMode)
             _InfoNotice(
               tone: StatusPillTone.success,
-              message: '连接成功。现在点右下角“下一步”，进入 USB 配对页。',
+              message: 'Connected successfully. Click “Next” in the bottom-right to proceed to USB pairing.',
             )
           else
             _InfoNotice(
@@ -700,8 +700,8 @@ class _BackendStepCard extends ConsumerWidget {
                   ? StatusPillTone.warning
                   : StatusPillTone.neutral,
               message: state.isDemoMode
-                  ? 'Demo mode 不能继续机器人首配。请连接 live backend。'
-                  : '先完成 live backend 连接；没连上前，不会显示 USB 和 WiFi 配对页。',
+                  ? 'Demo mode cannot proceed with robot pairing. Please connect to a live backend.'
+                  : 'Complete the live backend connection first. USB and WiFi pairing pages won\'t appear until connected.',
             ),
           const SizedBox(height: LinearSpacing.md),
           Container(

@@ -27,6 +27,7 @@ class DevicePairingController extends StateNotifier<DevicePairingStateModel> {
   Timer? _devicePollTimer;
   Completer<Map<String, dynamic>>? _pendingApplyResult;
   int _devicePollAttempts = 0;
+  int _transportStatusProbeGeneration = 0;
 
   Future<void> _restoreDraft() async {
     final saved = await _storage.loadDraft();
@@ -180,6 +181,7 @@ class DevicePairingController extends StateNotifier<DevicePairingStateModel> {
             'USB linked. Hold the touch pad until the device reports pairing armed.',
         errorMessage: null,
       );
+      _scheduleTransportStatusProbe();
     } catch (error) {
       _setFailure(
         'Unable to open the selected USB serial device.',
@@ -190,6 +192,7 @@ class DevicePairingController extends StateNotifier<DevicePairingStateModel> {
 
   Future<void> closePort() async {
     _cancelDevicePolling();
+    _cancelTransportStatusProbe();
     _pendingApplyResult = null;
     await _serial.disconnect();
     final nextStage = state.draft.hasSelectedPort
@@ -207,6 +210,46 @@ class DevicePairingController extends StateNotifier<DevicePairingStateModel> {
           : 'Select a USB serial device to start pairing.',
       errorMessage: null,
     );
+  }
+
+  void _scheduleTransportStatusProbe() {
+    final generation = ++_transportStatusProbeGeneration;
+    const probeDelays = <Duration>[
+      Duration.zero,
+      Duration(milliseconds: 300),
+      Duration(milliseconds: 1200),
+    ];
+    for (final delay in probeDelays) {
+      unawaited(_probeTransportStatusAfterDelay(delay, generation));
+    }
+  }
+
+  void _cancelTransportStatusProbe() {
+    _transportStatusProbeGeneration += 1;
+  }
+
+  Future<void> _probeTransportStatusAfterDelay(
+    Duration delay,
+    int generation,
+  ) async {
+    if (delay > Duration.zero) {
+      await Future<void>.delayed(delay);
+    }
+    if (_transportStatusProbeGeneration != generation) {
+      return;
+    }
+    if (state.connectedPortName.isEmpty ||
+        state.isArmed ||
+        state.stage == DevicePairingStage.sending ||
+        state.stage == DevicePairingStage.awaitingOnline ||
+        state.stage == DevicePairingStage.paired) {
+      return;
+    }
+    try {
+      await _serial.sendJson(const <String, dynamic>{'type': 'pairing.status'});
+    } catch (_) {
+      // The port may still be settling or already closed; a later probe can retry.
+    }
   }
 
   Future<void> updateWifiSsid(String value) async {
@@ -408,6 +451,7 @@ class DevicePairingController extends StateNotifier<DevicePairingStateModel> {
         }
         break;
       case 'serial.closed':
+        _cancelTransportStatusProbe();
         if (state.stage == DevicePairingStage.awaitingOnline) {
           state = state.copyWith(
             connectedPortName: '',
@@ -495,6 +539,7 @@ class DevicePairingController extends StateNotifier<DevicePairingStateModel> {
   @override
   void dispose() {
     _cancelDevicePolling();
+    _cancelTransportStatusProbe();
     _serialSubscription?.cancel();
     super.dispose();
   }

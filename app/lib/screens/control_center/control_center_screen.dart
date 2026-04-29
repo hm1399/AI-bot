@@ -5,6 +5,7 @@ import '../../models/control/computer_action_model.dart';
 import '../../models/home/runtime_state_model.dart';
 import '../../models/planning/planning_editor_models.dart';
 import '../../models/reminders/reminder_model.dart';
+import '../../models/settings/settings_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
@@ -27,12 +28,9 @@ class ControlCenterScreen extends ConsumerStatefulWidget {
 class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
   double _volume = 70;
   double _brightness = 50;
-  late final TextEditingController _colorController;
-  late final FocusNode _colorFocusNode;
   bool _volumeDirty = false;
   bool _brightnessDirty = false;
-  bool _colorDirty = false;
-  bool _settingColorText = false;
+  String? _pendingPhysicalSettingKey;
 
   @override
   void initState() {
@@ -44,8 +42,6 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
         .controls;
     _volume = controls.volume.toDouble();
     _brightness = controls.ledBrightness.toDouble();
-    _colorController = TextEditingController(text: controls.ledColor);
-    _colorFocusNode = FocusNode()..addListener(_handleColorFocusChanged);
     Future<void>.microtask(() async {
       await ref.read(appControllerProvider.notifier).loadNotifications();
       await ref.read(appControllerProvider.notifier).loadReminders();
@@ -59,18 +55,7 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
 
   @override
   void dispose() {
-    _colorController.dispose();
-    _colorFocusNode
-      ..removeListener(_handleColorFocusChanged)
-      ..dispose();
     super.dispose();
-  }
-
-  void _handleColorFocusChanged() {
-    if (_colorFocusNode.hasFocus || _colorDirty) {
-      return;
-    }
-    _syncDraftsFromRuntime(ref.read(appControllerProvider).runtimeState.device);
   }
 
   bool _controlsChanged(
@@ -82,22 +67,9 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     }
     return previous.volume != next.volume ||
         previous.ledBrightness != next.ledBrightness ||
-        previous.ledColor != next.ledColor ||
         previous.ledEnabled != next.ledEnabled ||
         previous.muted != next.muted ||
         previous.sleeping != next.sleeping;
-  }
-
-  void _setColorText(String value) {
-    if (_colorController.text == value) {
-      return;
-    }
-    _settingColorText = true;
-    _colorController.value = TextEditingValue(
-      text: value,
-      selection: TextSelection.collapsed(offset: value.length),
-    );
-    _settingColorText = false;
   }
 
   void _syncDraftsFromRuntime(DeviceStatusModel device) {
@@ -112,9 +84,6 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
       _brightness = controls.ledBrightness.toDouble();
       shouldSetState = true;
     }
-    if (!_colorDirty && !_colorFocusNode.hasFocus) {
-      _setColorText(controls.ledColor);
-    }
 
     if (shouldSetState && mounted) {
       setState(() {});
@@ -128,9 +97,6 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
         break;
       case 'set_led_brightness':
         _brightnessDirty = false;
-        break;
-      case 'set_led_color':
-        _colorDirty = false;
         break;
       default:
         break;
@@ -183,18 +149,30 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     });
   }
 
-  void _handleColorChanged(String value) {
-    if (_settingColorText) {
+  Future<void> _togglePhysicalInteractionSetting({
+    required String key,
+    required AppSettingsModel? settings,
+    required AppSettingsModel Function(AppSettingsModel current) buildNext,
+  }) async {
+    if (_pendingPhysicalSettingKey != null || settings == null) {
       return;
     }
-    final runtimeValue = ref
-        .read(appControllerProvider)
-        .runtimeState
-        .device
-        .controls
-        .ledColor
-        .trim();
-    _colorDirty = value.trim() != runtimeValue;
+
+    setState(() {
+      _pendingPhysicalSettingKey = key;
+    });
+
+    final controller = ref.read(appControllerProvider.notifier);
+    try {
+      await controller.saveSettings(buildNext(settings));
+      await controller.refreshRuntime();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pendingPhysicalSettingKey = null;
+        });
+      }
+    }
   }
 
   @override
@@ -208,7 +186,6 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
 
     final state = ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
-    final settings = state.settings;
     final runtime = state.runtimeState;
     final chrome = context.linear;
     final computerControl =
@@ -228,6 +205,10 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
     );
     final planning = _ControlCenterPlanningSnapshot.fromSources(state: state);
     final experience = state.currentExperience;
+    final physicalInteraction = experience.physicalInteraction;
+    final settings = state.settings;
+    final canTogglePhysicalSettings = settings != null;
+    final physicalToggleBusy = _pendingPhysicalSettingKey != null;
 
     return ListView(
       children: <Widget>[
@@ -273,12 +254,103 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
             ),
             OutlinedButton.icon(
               onPressed: commandsAvailable
-                  ? () => controller.sendDeviceCommand('toggle_led')
+                  ? () => controller.sendDeviceCommand(
+                      'toggle_led',
+                      params: <String, dynamic>{
+                        'enabled': !runtime.device.controls.ledEnabled,
+                      },
+                    )
                   : null,
               icon: const Icon(Icons.lightbulb_circle_outlined, size: 16),
-              label: const Text('Toggle LED'),
+              label: Text(
+                runtime.device.controls.ledEnabled
+                    ? 'Turn Light Off'
+                    : 'Turn Light On',
+              ),
             ),
           ],
+        ),
+        const SizedBox(height: LinearSpacing.md),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(LinearSpacing.md),
+          decoration: BoxDecoration(
+            color: chrome.panel,
+            borderRadius: LinearRadius.card,
+            border: Border.all(color: chrome.borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Speech Triggers',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Turn off shake and tap speech triggers here without scrolling into the lower physical interaction panel.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+              ),
+              const SizedBox(height: LinearSpacing.sm),
+              Wrap(
+                spacing: LinearSpacing.sm,
+                runSpacing: LinearSpacing.sm,
+                children: <Widget>[
+                  OutlinedButton.icon(
+                    onPressed: canTogglePhysicalSettings && !physicalToggleBusy
+                        ? () => _togglePhysicalInteractionSetting(
+                            key: 'shake',
+                            settings: settings,
+                            buildNext: (AppSettingsModel current) => current
+                                .copyWith(shakeEnabled: !current.shakeEnabled),
+                          )
+                        : null,
+                    icon: Icon(
+                      physicalInteraction.shakeEnabled
+                          ? Icons.motion_photos_off_outlined
+                          : Icons.motion_photos_on_outlined,
+                      size: 16,
+                    ),
+                    label: Text(
+                      _pendingPhysicalSettingKey == 'shake'
+                          ? 'Saving...'
+                          : physicalInteraction.shakeEnabled
+                          ? 'Turn Shake Off'
+                          : 'Turn Shake On',
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: canTogglePhysicalSettings && !physicalToggleBusy
+                        ? () => _togglePhysicalInteractionSetting(
+                            key: 'tap',
+                            settings: settings,
+                            buildNext: (AppSettingsModel current) =>
+                                current.copyWith(
+                                  tapConfirmationEnabled:
+                                      !current.tapConfirmationEnabled,
+                                ),
+                          )
+                        : null,
+                    icon: Icon(
+                      physicalInteraction.tapConfirmationEnabled
+                          ? Icons.touch_app_outlined
+                          : Icons.pan_tool_alt_outlined,
+                      size: 16,
+                    ),
+                    label: Text(
+                      _pendingPhysicalSettingKey == 'tap'
+                          ? 'Saving...'
+                          : physicalInteraction.tapConfirmationEnabled
+                          ? 'Turn Tap Off'
+                          : 'Turn Tap On',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: LinearSpacing.md),
         _CompatibilityPlanningCard(snapshot: planning),
@@ -310,14 +382,10 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
               controls: runtime.device.controls,
               statusBar: runtime.device.statusBar,
               lastCommand: runtime.device.lastCommand,
-              ledMode: settings?.ledMode ?? 'breathing',
               volume: _volume,
               brightness: _brightness,
-              colorController: _colorController,
-              colorFocusNode: _colorFocusNode,
               onVolumeChanged: _handleVolumeChanged,
               onBrightnessChanged: _handleBrightnessChanged,
-              onColorChanged: _handleColorChanged,
               onSendVolume: () => controller.sendDeviceCommand(
                 'set_volume',
                 params: <String, dynamic>{'level': _volume.round()},
@@ -326,16 +394,17 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
                 'set_led_brightness',
                 params: <String, dynamic>{'level': _brightness.round()},
               ),
-              onSendColor: () => controller.sendDeviceCommand(
-                'set_led_color',
-                params: <String, dynamic>{
-                  'color': _colorController.text.trim(),
-                },
-              ),
               onWake: () => controller.sendDeviceCommand('wake'),
               onSleep: () => controller.sendDeviceCommand('sleep'),
               onMute: () => controller.sendDeviceCommand('mute'),
-              onToggleLed: () => controller.sendDeviceCommand('toggle_led'),
+              onTurnLightOn: () => controller.sendDeviceCommand(
+                'toggle_led',
+                params: const <String, dynamic>{'enabled': true},
+              ),
+              onTurnLightOff: () => controller.sendDeviceCommand(
+                'toggle_led',
+                params: const <String, dynamic>{'enabled': false},
+              ),
             );
 
             final notificationPanel = NotificationPanel(
@@ -377,6 +446,24 @@ class _ControlCenterScreenState extends ConsumerState<ControlCenterScreen> {
           lastResult: experience.lastInteractionResult,
           deviceConnected: runtime.device.connected,
           desktopBridgeReady: runtime.voice.desktopBridgeReady,
+          pendingSettingToggleKey: _pendingPhysicalSettingKey,
+          onToggleShakeEnabled: canTogglePhysicalSettings
+              ? () => _togglePhysicalInteractionSetting(
+                  key: 'shake',
+                  settings: settings,
+                  buildNext: (AppSettingsModel current) =>
+                      current.copyWith(shakeEnabled: !current.shakeEnabled),
+                )
+              : null,
+          onToggleTapTriggerEnabled: canTogglePhysicalSettings
+              ? () => _togglePhysicalInteractionSetting(
+                  key: 'tap',
+                  settings: settings,
+                  buildNext: (AppSettingsModel current) => current.copyWith(
+                    tapConfirmationEnabled: !current.tapConfirmationEnabled,
+                  ),
+                )
+              : null,
           pendingDebugTriggerKey: state.physicalInteractionDebugPendingKey,
           onTriggerPhysicalInteraction:
               (String kind, Map<String, dynamic> payload) => controller
@@ -425,21 +512,17 @@ class _DeviceCommandPanel extends StatelessWidget {
     required this.controls,
     required this.statusBar,
     required this.lastCommand,
-    required this.ledMode,
     required this.volume,
     required this.brightness,
-    required this.colorController,
-    required this.colorFocusNode,
     required this.onVolumeChanged,
     required this.onBrightnessChanged,
-    required this.onColorChanged,
     required this.onSendVolume,
     required this.onSendBrightness,
-    required this.onSendColor,
     required this.onWake,
     required this.onSleep,
     required this.onMute,
-    required this.onToggleLed,
+    required this.onTurnLightOn,
+    required this.onTurnLightOff,
   });
 
   final String runtimeState;
@@ -448,21 +531,17 @@ class _DeviceCommandPanel extends StatelessWidget {
   final DeviceControlsModel controls;
   final DeviceStatusBarModel statusBar;
   final DeviceCommandModel lastCommand;
-  final String ledMode;
   final double volume;
   final double brightness;
-  final TextEditingController colorController;
-  final FocusNode colorFocusNode;
   final ValueChanged<double> onVolumeChanged;
   final ValueChanged<double> onBrightnessChanged;
-  final ValueChanged<String> onColorChanged;
   final Future<void> Function() onSendVolume;
   final Future<void> Function() onSendBrightness;
-  final Future<void> Function() onSendColor;
   final Future<void> Function() onWake;
   final Future<void> Function() onSleep;
   final Future<void> Function() onMute;
-  final Future<void> Function() onToggleLed;
+  final Future<void> Function() onTurnLightOn;
+  final Future<void> Function() onTurnLightOff;
 
   @override
   Widget build(BuildContext context) {
@@ -533,7 +612,7 @@ class _DeviceCommandPanel extends StatelessWidget {
               ),
               StatusPill(label: commandStatusLabel, tone: commandStatusTone),
               StatusPill(
-                label: controls.ledEnabled ? 'LED $ledMode' : 'LED Disabled',
+                label: controls.ledEnabled ? 'Light On' : 'Light Off',
                 tone: controls.ledEnabled
                     ? StatusPillTone.accent
                     : StatusPillTone.neutral,
@@ -564,9 +643,9 @@ class _DeviceCommandPanel extends StatelessWidget {
               ),
               _MetricPill(label: 'Runtime Volume', value: '${controls.volume}'),
               _MetricPill(
-                label: 'LED',
+                label: 'Light',
                 value:
-                    '${controls.ledBrightness}% · ${controls.ledColor.toUpperCase()}',
+                    '${controls.ledEnabled ? 'On' : 'Off'} · ${controls.ledBrightness}%',
               ),
             ],
           ),
@@ -606,7 +685,7 @@ class _DeviceCommandPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: LinearSpacing.md),
-          Text('LED Brightness ${brightness.round()}'),
+          Text('Light Brightness ${brightness.round()}'),
           Slider(
             value: brightness,
             min: 0,
@@ -620,25 +699,6 @@ class _DeviceCommandPanel extends StatelessWidget {
             child: FilledButton.tonal(
               onPressed: canSendCommands ? onSendBrightness : null,
               child: const Text('Send Brightness'),
-            ),
-          ),
-          const SizedBox(height: LinearSpacing.md),
-          TextField(
-            controller: colorController,
-            focusNode: colorFocusNode,
-            enabled: canSendCommands,
-            onChanged: onColorChanged,
-            decoration: const InputDecoration(
-              labelText: 'LED Color',
-              hintText: '#2563eb',
-            ),
-          ),
-          const SizedBox(height: LinearSpacing.sm),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.tonal(
-              onPressed: canSendCommands ? onSendColor : null,
-              child: const Text('Send Color'),
             ),
           ),
           const SizedBox(height: LinearSpacing.md),
@@ -659,8 +719,16 @@ class _DeviceCommandPanel extends StatelessWidget {
                 child: Text(controls.muted ? 'Unmute' : 'Mute'),
               ),
               FilledButton.tonal(
-                onPressed: canSendCommands ? onToggleLed : null,
-                child: const Text('Toggle LED'),
+                onPressed: canSendCommands && !controls.ledEnabled
+                    ? onTurnLightOn
+                    : null,
+                child: const Text('Turn Light On'),
+              ),
+              FilledButton.tonal(
+                onPressed: canSendCommands && controls.ledEnabled
+                    ? onTurnLightOff
+                    : null,
+                child: const Text('Turn Light Off'),
               ),
             ],
           ),

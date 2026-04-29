@@ -28,7 +28,7 @@ from services.app_api import (
 )
 from services.app_realtime_hub import AppRealtimeHub
 from services.computer_control import ComputerControlError, ComputerControlService
-from services.experience import ExperienceService
+from services.experience import ExperienceService, SCENE_MODE_LABELS
 from services.planning_runtime_service import PlanningRuntimeService
 from services.planning import PlanningBundleService
 from services.reminder_scheduler import ReminderScheduler
@@ -221,6 +221,7 @@ class AppRuntimeService:
             desktop_voice_snapshot_provider=self._desktop_voice_runtime,
             computer_state_provider=self._computer_control_runtime_state,
             notifications_provider=self.resources.list_notifications,
+            planning_context_provider=self._experience_planning_context,
             confirm_computer_action=self.computer_control_service.confirm_action,
             cancel_computer_action=self.computer_control_service.cancel_action,
         )
@@ -1440,6 +1441,11 @@ class AppRuntimeService:
             content=content,
             metadata=metadata,
         )
+        # Preallocate IDs before publish_inbound(). The bus observer fills the same
+        # fields asynchronously, so relying on it here causes a response-time race.
+        msg.metadata.setdefault("task_id", self._new_id("task"))
+        msg.metadata.setdefault("message_id", self._new_id("msg"))
+        msg.metadata.setdefault("assistant_message_id", self._new_id("msg"))
         client_message_id = str(payload.get("client_message_id") or "").strip()
         if client_message_id:
             msg.metadata["client_message_id"] = client_message_id
@@ -2222,6 +2228,22 @@ class AppRuntimeService:
     def get_planning_conflicts(self) -> list[dict[str, Any]]:
         return self.planning_runtime_service.get_planning_conflicts()
 
+    def _experience_planning_context(self) -> dict[str, Any]:
+        try:
+            timeline = self.get_planning_timeline()
+        except Exception:
+            timeline = []
+        try:
+            overview = self.get_planning_overview()
+        except Exception:
+            overview = {}
+        return {
+            "todo_summary": self.get_todo_summary(),
+            "calendar_summary": self.get_calendar_summary(),
+            "overview": overview if isinstance(overview, dict) else {},
+            "timeline": timeline[:12] if isinstance(timeline, list) else [],
+        }
+
     async def set_todo_summary(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         """更新 Todo 摘要，并在变更时广播事件。"""
         updated, error, changed = await self.planning_runtime_service.set_todo_summary(
@@ -2284,10 +2306,10 @@ class AppRuntimeService:
             "device_volume",
             "led_enabled",
             "led_brightness",
-            "led_color",
         }
         config_only_fields = {
             "led_mode",
+            "led_color",
             "wake_word",
             "auto_listen",
         }
@@ -2336,9 +2358,6 @@ class AppRuntimeService:
         elif field == "led_brightness":
             command = "set_led_brightness"
             params = {"level": int(value)}
-        elif field == "led_color":
-            command = "set_led_color"
-            params = {"color": str(value)}
         else:
             return {
                 "mode": "save_and_apply",
@@ -2411,8 +2430,20 @@ class AppRuntimeService:
             task["updated_at"] = self._now_iso()
             current_payload = self._build_current_task_event_payload_unlocked()
             queue_payload = self._build_queue_event_payload_unlocked()
-            should_emit_failed = bool(self._app_session_id_from_message(msg)) and status in {"failed", "cancelled"}
+            app_session_id = self._app_session_id_from_message(msg)
+            should_emit_failed = bool(app_session_id) and status in {"failed", "cancelled"}
             session_id = task["source_session_id"]
+            user_message = None
+            if app_session_id:
+                user_message = self._build_message_payload(
+                    message_id=msg.metadata.get("message_id") or self._new_id("msg"),
+                    session_id=session_id,
+                    role="user",
+                    content=msg.content,
+                    status="completed" if status == "completed" else "failed",
+                    created_at=str(task.get("created_at") or self._now_iso()),
+                    metadata=self._session_message_metadata(msg.metadata, task_id),
+                )
 
         await self._broadcast_event(
             "runtime.task.current_changed",
@@ -2428,6 +2459,15 @@ class AppRuntimeService:
             session_id=session_key,
             task_id=msg.metadata.get("task_id"),
         )
+
+        if user_message is not None:
+            await self._broadcast_event(
+                "session.message.completed",
+                payload={"message": user_message},
+                scope="session",
+                session_id=session_id,
+                task_id=msg.metadata.get("task_id"),
+            )
 
         if should_emit_failed:
             await self._broadcast_event(
@@ -3135,6 +3175,8 @@ class AppRuntimeService:
         response_text = self._build_experience_command_response(
             command=command,
             before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+            metadata=metadata,
         )
 
         task_id = str((metadata or {}).get("task_id") or self._new_id("task"))
@@ -3300,33 +3342,109 @@ class AppRuntimeService:
         return None
 
     @staticmethod
+    def _normalize_reply_language(value: Any) -> str | None:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            return None
+        lowered = cleaned.lower()
+        if lowered.startswith("en") or lowered.startswith("english"):
+            return "English"
+        if lowered.startswith("zh") or lowered.startswith("chinese"):
+            return "Chinese"
+        return cleaned
+
+    @classmethod
+    def _prefers_english_reply(cls, metadata: dict[str, Any] | None = None) -> bool:
+        return cls._normalize_reply_language((metadata or {}).get("reply_language")) == "English"
+
+    @staticmethod
+    def _scene_response_label(
+        *,
+        scene_id: str,
+        fallback: str,
+        prefer_english: bool,
+    ) -> str:
+        if prefer_english:
+            return str(SCENE_MODE_LABELS.get(scene_id) or fallback or scene_id)
+        return fallback or scene_id
+
+    @staticmethod
+    def _persona_response_label(
+        *,
+        persona_id: str,
+        fallback: str,
+        after_snapshot: dict[str, Any],
+        prefer_english: bool,
+    ) -> str:
+        if not prefer_english:
+            return fallback or persona_id
+        active_persona = after_snapshot.get("active_persona") or {}
+        label = str(active_persona.get("label") or "").strip()
+        return label or fallback or persona_id
+
+    @classmethod
     def _build_experience_command_response(
+        cls,
         *,
         command: dict[str, Any],
         before_snapshot: dict[str, Any],
+        after_snapshot: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
     ) -> str:
+        prefer_english = cls._prefers_english_reply(metadata)
         parts: list[str] = []
         scene = command.get("scene")
         if isinstance(scene, dict):
             scene_id = str(scene.get("id") or "").strip()
-            scene_label = str(scene.get("label") or scene_id).strip()
+            scene_label = cls._scene_response_label(
+                scene_id=scene_id,
+                fallback=str(scene.get("label") or scene_id).strip(),
+                prefer_english=prefer_english,
+            )
             if scene_id and scene_id == before_snapshot.get("active_scene_mode"):
-                parts.append(f"当前会话已经是{scene_label}。")
+                parts.append(
+                    f"Current session is already in {scene_label}."
+                    if prefer_english
+                    else f"当前会话已经是{scene_label}。"
+                )
             elif scene_label:
-                parts.append(f"已切换到{scene_label}。")
+                parts.append(
+                    f"Switched to {scene_label}."
+                    if prefer_english
+                    else f"已切换到{scene_label}。"
+                )
 
         persona = command.get("persona")
         if isinstance(persona, dict):
             persona_id = str(persona.get("id") or "").strip()
-            persona_label = str(persona.get("label") or persona_id).strip()
+            persona_label = cls._persona_response_label(
+                persona_id=persona_id,
+                fallback=str(persona.get("label") or persona_id).strip(),
+                after_snapshot=after_snapshot,
+                prefer_english=prefer_english,
+            )
             active_persona = before_snapshot.get("active_persona") or {}
             active_persona_id = str(active_persona.get("preset") or "").strip()
             if persona_id and persona_id == active_persona_id:
-                parts.append(f"当前人格已经是{persona_label}。")
+                parts.append(
+                    f"Persona is already set to {persona_label}."
+                    if prefer_english
+                    else f"当前人格已经是{persona_label}。"
+                )
             elif persona_label:
-                parts.append(f"已将人格切换为{persona_label}。")
+                parts.append(
+                    f"Switched persona to {persona_label}."
+                    if prefer_english
+                    else f"已将人格切换为{persona_label}。"
+                )
 
-        return "".join(parts) or "已更新当前会话的人格和场景。"
+        if parts:
+            return " ".join(parts) if prefer_english else "".join(parts)
+        return (
+            "Updated the current session persona and scene."
+            if prefer_english
+            else "已更新当前会话的人格和场景。"
+        )
 
     @staticmethod
     def _normalize_experience_command_text(content: str) -> str:

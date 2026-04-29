@@ -53,6 +53,19 @@ RISK_BY_ACTION = {
 
 PENDING_STATUSES = {"requested", "awaiting_confirmation", "running"}
 
+APP_ALIASES = {
+    "微信": "WeChat",
+    "wechat": "WeChat",
+    "whatsapp": "WhatsApp",
+    "whats app": "WhatsApp",
+    "chrome": "Google Chrome",
+    "google chrome": "Google Chrome",
+    "谷歌浏览器": "Google Chrome",
+    "谷歌瀏覽器": "Google Chrome",
+    "访达": "Finder",
+    "finder": "Finder",
+}
+
 
 class ComputerControlPolicy:
     def __init__(self, cfg: dict[str, Any], *, runtime_dir: Path) -> None:
@@ -64,6 +77,10 @@ class ComputerControlPolicy:
             str(item).strip()
             for item in list(cfg.get("allowed_apps") or [])
             if str(item).strip()
+        }
+        self._allowed_apps_casefold = {
+            item.casefold(): item
+            for item in self.allowed_apps
         }
         self.allowed_shortcuts = {
             str(item).strip()
@@ -344,6 +361,40 @@ class ComputerControlPolicy:
             )
         return {"prepared_action_id": prepared_action_id.strip()}
 
+    def resolve_allowed_app(self, value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        if cleaned in self.allowed_apps:
+            return cleaned
+
+        matched = self._allowed_apps_casefold.get(cleaned.casefold())
+        if matched is not None:
+            return matched
+
+        alias_target = APP_ALIASES.get(cleaned.casefold()) or APP_ALIASES.get(cleaned)
+        if alias_target in self.allowed_apps:
+            return alias_target
+        return None
+
+    def infer_allowed_app(self, text: Any) -> str | None:
+        if not isinstance(text, str):
+            return None
+        haystack = text.casefold().strip()
+        if not haystack:
+            return None
+
+        for app in sorted(self.allowed_apps, key=len, reverse=True):
+            if app.casefold() in haystack:
+                return app
+
+        for alias, canonical in APP_ALIASES.items():
+            if alias.casefold() in haystack and canonical in self.allowed_apps:
+                return canonical
+        return None
+
     def _require_allowed_app(self, value: Any) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ComputerControlError(
@@ -352,13 +403,14 @@ class ComputerControlPolicy:
                 status=400,
             )
         cleaned = value.strip()
-        if cleaned not in self.allowed_apps:
+        resolved = self.resolve_allowed_app(cleaned)
+        if resolved is None:
             raise ComputerControlError(
                 code="target_not_allowed",
                 message=f"app is not allowlisted: {cleaned}",
                 status=403,
             )
-        return cleaned
+        return resolved
 
     def _normalize_existing_path(self, value: Any) -> Path:
         if not isinstance(value, str) or not value.strip():

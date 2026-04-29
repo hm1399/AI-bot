@@ -31,7 +31,7 @@ app:
   default_session_id: app:main
   settings:
     device_volume: 75
-    led_enabled: true
+    led_enabled: false
     led_brightness: 50
     led_mode: breathing
     led_color: "#0000ff"
@@ -47,7 +47,9 @@ computer_control:
   allowed_apps:
     - Safari
     - Finder
+    - Google Chrome
     - WeChat
+    - WhatsApp
   allowed_shortcuts:
     - daily-brief
   allowed_scripts:

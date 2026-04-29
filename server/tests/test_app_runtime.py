@@ -280,9 +280,34 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(msg.metadata["client_message_id"], "flutter_local_001")
 
         runtime = await self.service.get_runtime_state()
+        for _ in range(10):
+            if len(runtime["task_queue"]) == 1:
+                break
+            await asyncio.sleep(0)
+            runtime = await self.service.get_runtime_state()
+
         self.assertIsNone(runtime["current_task"])
         self.assertEqual(len(runtime["task_queue"]), 1)
         self.assertEqual(runtime["task_queue"][0]["task_id"], task_id)
+
+    async def test_post_message_returns_accepted_payload_without_observer_race(self) -> None:
+        with patch.object(self.bus, "_schedule_notify", return_value=None):
+            response = await self.service.handle_post_message(FakeRequest(
+                headers=self.headers,
+                match_info={"session_id": "app:main"},
+                json_body={"content": "打开微信"},
+            ))
+
+        self.assertEqual(response.status, 202)
+        payload = json.loads(response.text)
+        accepted = payload["data"]["accepted_message"]
+        self.assertTrue(accepted["message_id"].startswith("msg_"))
+        self.assertTrue(payload["data"]["task_id"].startswith("task_"))
+        self.assertEqual(accepted["metadata"]["task_id"], payload["data"]["task_id"])
+
+        msg = await self.bus.consume_inbound()
+        self.assertEqual(msg.metadata["message_id"], accepted["message_id"])
+        self.assertEqual(msg.metadata["task_id"], payload["data"]["task_id"])
 
     async def test_post_experience_interaction_reuses_real_runtime_guards(self) -> None:
         response = await self.service.handle_post_experience_interaction(FakeRequest(
@@ -411,6 +436,27 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("session.message.created", event_types)
         self.assertIn("session.message.completed", event_types)
         self.assertIn("runtime.experience.updated", event_types)
+
+    def test_experience_command_response_uses_english_when_requested(self) -> None:
+        response = AppRuntimeService._build_experience_command_response(
+            command={
+                "scene": {"id": "meeting", "label": "会议模式"},
+                "persona": {"id": "companion_warm", "label": "温暖陪伴"},
+            },
+            before_snapshot={
+                "active_scene_mode": "focus",
+                "active_persona": {"preset": "balanced"},
+            },
+            after_snapshot={
+                "active_persona": {"preset": "companion_warm", "label": "Companion Warm"},
+            },
+            metadata={"reply_language": "English"},
+        )
+
+        self.assertEqual(
+            response,
+            "Switched to Meeting. Switched persona to Companion Warm.",
+        )
 
     async def test_desktop_voice_transcript_persona_command_returns_direct_confirmation(self) -> None:
         ws = FakeWebSocket()
@@ -853,6 +899,51 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
             ["runtime.task.current_changed", "runtime.task.queue_changed"],
         )
 
+    async def test_task_finish_marks_pending_user_message_completed(self) -> None:
+        msg = InboundMessage(
+            channel="desktop_voice",
+            sender_id="desktop_mic",
+            chat_id="desktop",
+            content="W.",
+            metadata={
+                "app_session_id": "app:main",
+                "task_id": "task_voice_001",
+                "message_id": "msg_user_voice_001",
+                "assistant_message_id": "msg_assistant_voice_001",
+                "source_channel": "desktop_voice",
+                "interaction_surface": "device_press",
+                "capture_source": "desktop_mic",
+            },
+            session_key_override="app:main",
+        )
+
+        await self.service.on_inbound_published(msg)
+        await self.service.on_task_started(msg=msg, session_key="app:main")
+        await self.service.on_task_finished(
+            msg=msg,
+            session_key="app:main",
+            response=None,
+        )
+
+        history = list(self.service.realtime_hub._event_history)
+        user_events = [
+            event
+            for event in history
+            if event["event_type"] in {
+                "session.message.created",
+                "session.message.completed",
+            }
+            and event["payload"]["message"]["message_id"] == "msg_user_voice_001"
+        ]
+
+        self.assertEqual(
+            [event["event_type"] for event in user_events],
+            ["session.message.created", "session.message.completed"],
+        )
+        self.assertEqual(user_events[0]["payload"]["message"]["status"], "pending")
+        self.assertEqual(user_events[1]["payload"]["message"]["status"], "completed")
+        self.assertEqual(user_events[1]["payload"]["message"]["content"], "W.")
+
     async def test_completed_session_message_event_keeps_source_metadata(self) -> None:
         ws = FakeWebSocket()
         self.service._ws_clients.add(ws)
@@ -1018,17 +1109,20 @@ class AppRuntimeApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated_payload["apply_results"]["device_volume"]["status"], "pending")
         self.assertEqual(updated_payload["apply_results"]["led_enabled"]["status"], "pending")
         self.assertEqual(updated_payload["apply_results"]["led_brightness"]["status"], "pending")
-        self.assertEqual(updated_payload["apply_results"]["led_color"]["status"], "pending")
+        self.assertEqual(updated_payload["apply_results"]["led_color"]["status"], "saved_only")
+        self.assertEqual(
+            updated_payload["apply_results"]["led_color"]["reason"],
+            "config_saved_but_not_runtime_applied",
+        )
         self.assertEqual(updated_payload["apply_results"]["led_mode"]["status"], "saved_only")
         self.assertEqual(updated_payload["apply_results"]["auto_listen"]["mode"], "config_only")
         self.assertEqual(
             [item["command"] for item in self.device.command_history],
-            ["set_volume", "toggle_led", "set_led_brightness", "set_led_color"],
+            ["set_volume", "toggle_led", "set_led_brightness"],
         )
         self.assertEqual(self.device.command_history[0]["params"]["level"], 42)
         self.assertEqual(self.device.command_history[1]["params"]["enabled"], False)
         self.assertEqual(self.device.command_history[2]["params"]["level"], 33)
-        self.assertEqual(self.device.command_history[3]["params"]["color"], "#112233")
 
     async def test_tasks_events_notifications_and_reminders_crud(self) -> None:
         ws = FakeWebSocket()

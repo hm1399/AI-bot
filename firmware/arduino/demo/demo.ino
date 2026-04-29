@@ -45,24 +45,36 @@
 #define SPEAKER_LRC 18
 #define SPEAKER_DOUT 21
 #define SPEAKER_SD_MODE_PIN 2
+
+// ===== 灯光输出引脚 =====
+#define LIGHT_PIN 38
 #define SPEAKER_SAMPLE_RATE 16000
 #define PLAYBACK_BATCH_SAMPLES 256
 
 constexpr unsigned long NTP_UPDATE_INTERVAL = 30000;
 constexpr unsigned long DEVICE_STATUS_INTERVAL = 15000;
 constexpr unsigned long TOUCH_SAMPLE_INTERVAL = 20;
-constexpr unsigned long TOUCH_DEBOUNCE_MS = 60;
+// Keep press/release hysteresis intact; re-tune thresholds after real-device
+// touchRead() sampling if the full top cover changes the capacitance profile.
+constexpr unsigned long TOUCH_DEBOUNCE_MS = 90;
 constexpr unsigned long TOUCH_TAP_WINDOW_MS = 320;
-constexpr unsigned long TOUCH_HOLD_TRIGGER_MS = 240;
+constexpr unsigned long TOUCH_HOLD_TRIGGER_MS = 320;
 constexpr unsigned long REPAIR_TOUCH_HOLD_MS = 5000;
 constexpr unsigned long MOTION_SAMPLE_INTERVAL = 50;
 constexpr unsigned long SHAKE_WINDOW_MS = 400;
-constexpr unsigned long SHAKE_COOLDOWN_MS = 1200;
+constexpr unsigned long SHAKE_COOLDOWN_MS = 1800;
 constexpr unsigned long WIFI_RETRY_DELAY_MS = 500;
 constexpr const char* FIRMWARE_VERSION = "demo-2026-04-11";
-constexpr float SHAKE_DELTA_THRESHOLD_G = 0.75f;
-constexpr int SHAKE_MIN_PEAKS = 2;
+constexpr float SHAKE_DELTA_THRESHOLD_G = 1.05f;
+constexpr int SHAKE_MIN_PEAKS = 3;
 constexpr uint32_t TOUCH_RELEASE_THRESHOLD = 38000;
+constexpr uint32_t TOUCH_DYNAMIC_PRESS_DELTA = 7000;
+constexpr uint32_t TOUCH_DYNAMIC_RELEASE_DELTA = 4500;
+constexpr uint32_t TOUCH_NEAR_THRESHOLD_MARGIN = 2500;
+constexpr unsigned long TOUCH_DIAGNOSTIC_INTERVAL_MS = 1000;
+constexpr unsigned long PLAYBACK_ACTIVE_TIMEOUT_MS = 45000;
+constexpr int LIGHT_DEFAULT_BRIGHTNESS = 50;
+constexpr bool LIGHT_ACTIVE_HIGH = true;
 
 enum SpeakerSdMode {
   SPEAKER_SD_SHUTDOWN = 0,
@@ -96,6 +108,7 @@ bool touchHoldTriggered = false;
 bool repairHoldHandled = false;
 bool motionReady = false;
 bool speakerReady = false;
+bool lightHardwareReady = false;
 bool playbackActive = false;
 SpeakerSdMode currentSpeakerMode = SPEAKER_SD_SHUTDOWN;
 String lastReply = "";
@@ -111,6 +124,13 @@ unsigned long lastShakeEventAt = 0;
 unsigned long lastShakeMotionAt = 0;
 unsigned long lastNtpUpdate = 0;
 unsigned long lastDeviceStatusPush = 0;
+unsigned long playbackStartedAt = 0;
+unsigned long lastTouchDiagnosticAt = 0;
+uint32_t touchBaseline = 0;
+uint32_t lastTouchRawValue = 0;
+uint32_t lastTouchPressThreshold = TOUCH_THRESHOLD;
+uint32_t lastTouchReleaseThreshold = TOUCH_RELEASE_THRESHOLD;
+bool touchBaselineReady = false;
 float previousMotionTotalG = 1.0f;
 int shakeMotionPeaks = 0;
 uint8_t pendingTapCount = 0;
@@ -118,25 +138,175 @@ uint8_t pendingTapCount = 0;
 void sendTouchEvent(const char* action, int tapCount = 0, bool hold = false);
 void sendShakeEvent();
 void flushPendingTapSequence();
+bool canSendVoiceTouch();
+bool canSendTapEvent();
 String translateFaceStatusHint(const char* text);
 void clearFaceStatusHint();
 void setFaceStatusHint(const char* text);
 void setFaceReplySubtitle(const char* text);
 bool protocolValidityIsValid(const char* value);
+void initLightHardware();
+void applyLightOutput();
+void appendAppliedLightState(JsonObject applied);
+void startPlaybackWindow(const char* reason);
+void stopPlaybackWindow(const char* reason);
+void expirePlaybackWindowIfStale();
+uint32_t currentTouchPressThreshold();
+uint32_t currentTouchReleaseThreshold();
 
 int currentVolume = 70;
 bool currentMuted = false;
 bool currentSleeping = false;
-bool ledEnabled = true;
+bool ledEnabled = false;
 int ledBrightness = 50;
 String ledColor = "#2563eb";
-const bool LED_HARDWARE_AVAILABLE = false;
 const bool STATUS_BAR_HARDWARE_AVAILABLE = false;
 const bool WEATHER_STATUS_BAR_AVAILABLE = false;
 const bool BATTERY_TELEMETRY_AVAILABLE = false;
 const bool CHARGING_TELEMETRY_AVAILABLE = false;
 
 // ===== 屏幕显示（通过 face_display 模块） =====
+
+void initLightHardware() {
+  pinMode(LIGHT_PIN, OUTPUT);
+  lightHardwareReady = true;
+  applyLightOutput();
+  Serial.printf(
+      "Light output initialized: IO%d, mode=digital, active=%s, enabled=%d\n",
+      LIGHT_PIN,
+      LIGHT_ACTIVE_HIGH ? "HIGH" : "LOW",
+      ledEnabled ? 1 : 0);
+}
+
+void applyLightOutput() {
+  if (!lightHardwareReady) {
+    digitalWrite(LIGHT_PIN, LIGHT_ACTIVE_HIGH ? LOW : HIGH);
+    return;
+  }
+  const bool lightOn = ledEnabled && ledBrightness > 0;
+  const uint8_t pinValue =
+      lightOn
+          ? (LIGHT_ACTIVE_HIGH ? HIGH : LOW)
+          : (LIGHT_ACTIVE_HIGH ? LOW : HIGH);
+  digitalWrite(LIGHT_PIN, pinValue);
+}
+
+void appendAppliedLightState(JsonObject applied) {
+  applied["led_enabled"] = ledEnabled;
+  applied["led_brightness"] = ledBrightness;
+  applied["led_color"] = ledColor;
+  JsonObject led = applied["led"].to<JsonObject>();
+  led["enabled"] = ledEnabled;
+  led["brightness"] = ledBrightness;
+  led["color"] = ledColor;
+}
+
+uint32_t addTouchDelta(uint32_t base, uint32_t delta) {
+  if (UINT32_MAX - base < delta) {
+    return UINT32_MAX;
+  }
+  return base + delta;
+}
+
+uint32_t currentTouchPressThreshold() {
+  if (!touchBaselineReady) {
+    return TOUCH_THRESHOLD;
+  }
+
+  const uint32_t dynamicThreshold =
+      addTouchDelta(touchBaseline, TOUCH_DYNAMIC_PRESS_DELTA);
+  if (touchBaseline >= TOUCH_RELEASE_THRESHOLD) {
+    return dynamicThreshold;
+  }
+  return min(static_cast<uint32_t>(TOUCH_THRESHOLD), dynamicThreshold);
+}
+
+uint32_t currentTouchReleaseThreshold() {
+  if (!touchBaselineReady) {
+    return TOUCH_RELEASE_THRESHOLD;
+  }
+
+  const uint32_t dynamicThreshold =
+      addTouchDelta(touchBaseline, TOUCH_DYNAMIC_RELEASE_DELTA);
+  if (touchBaseline >= TOUCH_RELEASE_THRESHOLD) {
+    return dynamicThreshold;
+  }
+  return min(static_cast<uint32_t>(TOUCH_RELEASE_THRESHOLD), dynamicThreshold);
+}
+
+void updateTouchBaseline(uint32_t touchVal, bool rawTouched) {
+  if (!touchBaselineReady) {
+    touchBaseline = touchVal;
+    touchBaselineReady = true;
+    return;
+  }
+
+  if (!rawTouched && !touchPressed && !touchRawPressed) {
+    touchBaseline = ((touchBaseline * 31U) + touchVal) / 32U;
+  }
+}
+
+void maybeLogTouchDiagnostic(
+    uint32_t touchVal,
+    uint32_t pressThreshold,
+    uint32_t releaseThreshold,
+    bool rawTouched,
+    bool touched) {
+  const unsigned long now = millis();
+  if (now - lastTouchDiagnosticAt < TOUCH_DIAGNOSTIC_INTERVAL_MS) {
+    return;
+  }
+
+  const bool nearThreshold =
+      touchVal + TOUCH_NEAR_THRESHOLD_MARGIN >= pressThreshold;
+  if (!nearThreshold && !rawTouched && !touched && !playbackActive) {
+    return;
+  }
+
+  lastTouchDiagnosticAt = now;
+  Serial.printf(
+      "Touch diag: raw=%lu baseline=%lu press_thr=%lu release_thr=%lu raw_pressed=%d pressed=%d playback=%d voice=%d can_voice=%d can_tap=%d\n",
+      static_cast<unsigned long>(touchVal),
+      static_cast<unsigned long>(touchBaseline),
+      static_cast<unsigned long>(pressThreshold),
+      static_cast<unsigned long>(releaseThreshold),
+      rawTouched ? 1 : 0,
+      touched ? 1 : 0,
+      playbackActive ? 1 : 0,
+      voiceTouchActive ? 1 : 0,
+      canSendVoiceTouch() ? 1 : 0,
+      canSendTapEvent() ? 1 : 0);
+}
+
+void startPlaybackWindow(const char* reason) {
+  playbackActive = true;
+  playbackStartedAt = millis();
+  Serial.printf(
+      "[audio_play] start%s%s\n",
+      reason && reason[0] ? ": " : "",
+      reason && reason[0] ? reason : "");
+}
+
+void stopPlaybackWindow(const char* reason) {
+  if (playbackActive) {
+    Serial.printf(
+        "[audio_play] stop%s%s\n",
+        reason && reason[0] ? ": " : "",
+        reason && reason[0] ? reason : "");
+  }
+  playbackActive = false;
+  playbackStartedAt = 0;
+}
+
+void expirePlaybackWindowIfStale() {
+  if (!playbackActive || playbackStartedAt == 0) {
+    return;
+  }
+  if (millis() - playbackStartedAt < PLAYBACK_ACTIVE_TIMEOUT_MS) {
+    return;
+  }
+  stopPlaybackWindow("timeout_without_audio_play_end");
+}
 
 void displayInit() {
   faceInit(tft);
@@ -308,7 +478,7 @@ void enterPairingPrompt(const char* reason, const char* faceMessage = nullptr) {
   wsConnected = false;
   introSent = false;
   voiceTouchActive = false;
-  playbackActive = false;
+  stopPlaybackWindow("pairing_prompt");
   WiFi.mode(WIFI_OFF);
   faceSetState(FACE_IDLE);
   setFaceStatusHint(faceMessage != nullptr ? faceMessage : "请插线并长按配对");
@@ -323,7 +493,7 @@ void stopRuntimeForPairing(const char* faceMessage) {
 
   voiceTouchActive = false;
   introSent = false;
-  playbackActive = false;
+  stopPlaybackWindow("pairing_stop_runtime");
   wsConnected = false;
   webSocket.disconnect();
   WiFi.disconnect(false, false);
@@ -352,8 +522,7 @@ void enterPairingMode(const char* reason) {
 bool canSendVoiceTouch() {
   return pairingPhase == PAIRING_DISABLED &&
          wsConnected &&
-         !currentSleeping &&
-         !playbackActive;
+         !currentSleeping;
 }
 
 bool canSendTapEvent() {
@@ -676,6 +845,27 @@ void sendDeviceStatus() {
   led["enabled"] = ledEnabled;
   led["brightness"] = ledBrightness;
   led["color"] = ledColor;
+  data["playback_active"] = playbackActive;
+  data["voice_touch_active"] = voiceTouchActive;
+  data["touch_raw_value"] = lastTouchRawValue;
+  data["touch_baseline"] = touchBaselineReady ? touchBaseline : 0;
+  data["touch_baseline_ready"] = touchBaselineReady;
+  data["touch_press_threshold"] = currentTouchPressThreshold();
+  data["touch_release_threshold"] = currentTouchReleaseThreshold();
+  data["touch_pressed"] = touchPressed;
+  data["touch_raw_pressed"] = touchRawPressed;
+  data["touch_can_voice"] = canSendVoiceTouch();
+  data["touch_can_tap"] = canSendTapEvent();
+  JsonObject touch = data["touch"].to<JsonObject>();
+  touch["raw"] = lastTouchRawValue;
+  touch["baseline"] = touchBaselineReady ? touchBaseline : 0;
+  touch["baseline_ready"] = touchBaselineReady;
+  touch["press_threshold"] = currentTouchPressThreshold();
+  touch["release_threshold"] = currentTouchReleaseThreshold();
+  touch["pressed"] = touchPressed;
+  touch["raw_pressed"] = touchRawPressed;
+  touch["can_voice"] = canSendVoiceTouch();
+  touch["can_tap"] = canSendTapEvent();
   JsonObject statusBar = data["status_bar"].to<JsonObject>();
   const bool weatherCapability =
       STATUS_BAR_HARDWARE_AVAILABLE && WEATHER_STATUS_BAR_AVAILABLE;
@@ -702,11 +892,17 @@ void sendDeviceStatus() {
   serializeJson(doc, json);
   webSocket.sendTXT(json);
   Serial.printf(
-      "Sent device_status: wifi=%d volume=%d muted=%d sleeping=%d\n",
+      "Sent device_status: wifi=%d volume=%d muted=%d sleeping=%d touch_raw=%lu touch_base=%lu touch_thr=%lu/%lu touch_pressed=%d playback=%d\n",
       WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0,
       currentVolume,
       currentMuted ? 1 : 0,
-      currentSleeping ? 1 : 0);
+      currentSleeping ? 1 : 0,
+      static_cast<unsigned long>(lastTouchRawValue),
+      static_cast<unsigned long>(touchBaseline),
+      static_cast<unsigned long>(currentTouchPressThreshold()),
+      static_cast<unsigned long>(currentTouchReleaseThreshold()),
+      touchPressed ? 1 : 0,
+      playbackActive ? 1 : 0);
 }
 
 JsonObject beginDeviceCommandResult(
@@ -785,7 +981,7 @@ void handleDeviceCommand(JsonObject data) {
   if (command == "mute") {
     currentMuted = !currentMuted;
     if (currentMuted) {
-      playbackActive = false;
+      stopPlaybackWindow("muted");
     }
     JsonDocument doc;
     JsonObject result = beginDeviceCommandResult(
@@ -824,7 +1020,7 @@ void handleDeviceCommand(JsonObject data) {
 
   if (command == "sleep") {
     currentSleeping = true;
-    playbackActive = false;
+    stopPlaybackWindow("sleep");
     faceSetState(FACE_IDLE);
     setFaceStatusHint("设备休眠中");
     updateStatusBar();
@@ -861,10 +1057,8 @@ void handleDeviceCommand(JsonObject data) {
     return;
   }
 
-  if (command == "toggle_led" ||
-      command == "set_led_brightness" ||
-      command == "set_led_color") {
-    if (!LED_HARDWARE_AVAILABLE) {
+  if (command == "toggle_led") {
+    if (!lightHardwareReady) {
       sendDeviceCommandFailure(
           commandId,
           clientCommandId,
@@ -872,6 +1066,82 @@ void handleDeviceCommand(JsonObject data) {
           "hardware_unavailable");
       return;
     }
+
+    bool nextEnabled = !ledEnabled;
+    if (!params.isNull() && params["enabled"].is<bool>()) {
+      nextEnabled = params["enabled"].as<bool>();
+    } else if (!params.isNull() && !params["enabled"].isNull()) {
+      sendDeviceCommandFailure(commandId, clientCommandId, command, "invalid_params");
+      return;
+    }
+    if (nextEnabled && ledBrightness <= 0) {
+      ledBrightness = LIGHT_DEFAULT_BRIGHTNESS;
+    }
+    ledEnabled = nextEnabled;
+    applyLightOutput();
+
+    JsonDocument doc;
+    JsonObject result = beginDeviceCommandResult(
+        doc,
+        commandId,
+        clientCommandId,
+        command,
+        true,
+        "");
+    JsonObject applied = result["applied_state"].to<JsonObject>();
+    appendAppliedLightState(applied);
+    sendCommandResultDoc(doc);
+    sendDeviceStatus();
+    return;
+  }
+
+  if (command == "set_led_brightness") {
+    if (!lightHardwareReady) {
+      sendDeviceCommandFailure(
+          commandId,
+          clientCommandId,
+          command,
+          "hardware_unavailable");
+      return;
+    }
+    if (params.isNull() || !params["level"].is<int>()) {
+      sendDeviceCommandFailure(commandId, clientCommandId, command, "invalid_params");
+      return;
+    }
+    ledBrightness = constrain(params["level"].as<int>(), 0, 100);
+    ledEnabled = ledBrightness > 0;
+    applyLightOutput();
+
+    JsonDocument doc;
+    JsonObject result = beginDeviceCommandResult(
+        doc,
+        commandId,
+        clientCommandId,
+        command,
+        true,
+        "");
+    JsonObject applied = result["applied_state"].to<JsonObject>();
+    appendAppliedLightState(applied);
+    sendCommandResultDoc(doc);
+    sendDeviceStatus();
+    return;
+  }
+
+  if (command == "set_led_color") {
+    if (!lightHardwareReady) {
+      sendDeviceCommandFailure(
+          commandId,
+          clientCommandId,
+          command,
+          "hardware_unavailable");
+      return;
+    }
+    sendDeviceCommandFailure(
+        commandId,
+        clientCommandId,
+        command,
+        "unsupported_command");
+    return;
   }
 
   sendDeviceCommandFailure(commandId, clientCommandId, command, "unsupported_command");
@@ -983,12 +1253,10 @@ void handleServerMessage(uint8_t* payload, size_t length) {
     handleDeviceCommand(data);
 
   } else if (strcmp(type, "audio_play") == 0) {
-    playbackActive = true;
-    Serial.println("[audio_play] start");
+    startPlaybackWindow("server");
 
   } else if (strcmp(type, "audio_play_end") == 0) {
-    playbackActive = false;
-    Serial.println("[audio_play_end] done");
+    stopPlaybackWindow("server_done");
 
   } else {
     Serial.printf("[unknown type] %s\n", type);
@@ -1001,7 +1269,7 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       wsConnected = false;
       introSent = false;
       voiceTouchActive = false;
-      playbackActive = false;
+      stopPlaybackWindow("websocket_disconnected");
       Serial.println("WebSocket disconnected");
       updateStatusBar();
       if (pairingPhase == PAIRING_DISABLED) {
@@ -1285,15 +1553,20 @@ void handleMotion() {
 }
 
 void handleTouch() {
+  expirePlaybackWindowIfStale();
   const uint32_t touchVal = touchRead(TOUCH_PIN);
+  lastTouchRawValue = touchVal;
   const unsigned long now = millis();
-  // Touch input is noisy around press/release edges, and speaker playback can
-  // induce false positives, so only stable samples become real state changes.
-  const bool allowNewTouch = !playbackActive || touchPressed || voiceTouchActive;
+  const uint32_t pressThreshold = currentTouchPressThreshold();
+  const uint32_t releaseThreshold = currentTouchReleaseThreshold();
+  lastTouchPressThreshold = pressThreshold;
+  lastTouchReleaseThreshold = releaseThreshold;
+  // Touch input is noisy around press/release edges, so only stable samples
+  // become real state changes. Playback no longer blocks the first touch edge:
+  // a stale playback flag must not make top-touch hold-to-talk unreachable.
   const bool rawTouched =
-      allowNewTouch &&
-      (touchPressed ? touchVal > TOUCH_RELEASE_THRESHOLD
-                    : touchVal > TOUCH_THRESHOLD);
+      touchPressed ? touchVal > releaseThreshold : touchVal > pressThreshold;
+  updateTouchBaseline(touchVal, rawTouched);
 
   if (rawTouched != touchRawPressed) {
     touchRawPressed = rawTouched;
@@ -1304,6 +1577,12 @@ void handleTouch() {
       (rawTouched == touchPressed || now - touchRawChangedAt >= TOUCH_DEBOUNCE_MS)
           ? rawTouched
           : touchPressed;
+  maybeLogTouchDiagnostic(
+      touchVal,
+      pressThreshold,
+      releaseThreshold,
+      rawTouched,
+      touched);
 
   if (!touchPressed &&
       pendingTapCount > 0 &&
@@ -1333,6 +1612,9 @@ void handleTouch() {
       touchHoldTriggered = true;
       voiceTouchActive = true;
       resetPendingTapSequence();
+      if (playbackActive) {
+        stopPlaybackWindow("touch_barge_in");
+      }
       Serial.println("Touch long_press");
       faceSetState(FACE_LISTENING);
       setFaceStatusHint("请对电脑说话...");
@@ -1381,6 +1663,7 @@ void setup() {
   delay(2000);
   Serial.println("\n=== AI-Bot Demo (runtime pairing + speaker playback) ===");
 
+  initLightHardware();
   displayInit();
   delay(500);
 

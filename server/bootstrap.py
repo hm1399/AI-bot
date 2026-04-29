@@ -458,7 +458,7 @@ def create_device_channel(cfg: dict[str, Any], bus: MessageBus) -> tuple[DeviceC
         use_itn=asr_cfg.get("use_itn", True),
     )
     tts_service = TTSService(
-        voice=tts_cfg.get("voice", "zh-CN-XiaoxiaoNeural"),
+        voice=tts_cfg.get("voice", "en-US-AriaNeural"),
     )
     device_channel = DeviceChannel(
         bus,
@@ -596,7 +596,7 @@ def create_http_app(
             "model": nanobot_cfg.get("model", "unknown"),
             "provider": nanobot_cfg.get("provider", "unknown"),
             "asr_model": cfg.get("asr", {}).get("model", "base"),
-            "tts_voice": cfg.get("tts", {}).get("voice", "zh-CN-XiaoxiaoNeural"),
+            "tts_voice": cfg.get("tts", {}).get("voice", "en-US-AriaNeural"),
             "server_port": request.app.get("server_config", {}).get(
                 "port",
                 cfg.get("server", {}).get("port", 8765),

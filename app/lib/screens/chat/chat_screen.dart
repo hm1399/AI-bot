@@ -8,8 +8,8 @@ import '../../providers/app_providers.dart';
 import '../../providers/app_state.dart';
 import '../../theme/linear_tokens.dart';
 import '../../widgets/chat/chat_session_dialog.dart';
+import '../../widgets/chat/conversation_message_list.dart';
 import '../../widgets/chat/experience_chip_bar.dart';
-import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/message_input.dart';
 
 enum _ActiveConversationAction { rename, togglePin, toggleArchive, copyId }
@@ -458,15 +458,10 @@ class _ConversationPanel extends StatelessWidget {
                       onCreateSession: onCreateSession,
                       onShowSessions: onShowSessions,
                     )
-                  : Scrollbar(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(LinearSpacing.md),
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        itemCount: messageItems.length,
-                        itemBuilder: (BuildContext context, int index) {
-                          return MessageBubble(message: messageItems[index]);
-                        },
-                      ),
+                  : ConversationMessageList(
+                      sessionId:
+                          activeSession?.sessionId ?? state.currentSessionId,
+                      messages: messageItems,
                     ),
             ),
           ),

@@ -14,7 +14,10 @@ class PhysicalInteractionPanel extends StatelessWidget {
     required this.lastResult,
     required this.deviceConnected,
     required this.desktopBridgeReady,
+    required this.onToggleShakeEnabled,
+    required this.onToggleTapTriggerEnabled,
     required this.onTriggerPhysicalInteraction,
+    this.pendingSettingToggleKey,
     this.pendingDebugTriggerKey,
     super.key,
   });
@@ -25,14 +28,18 @@ class PhysicalInteractionPanel extends StatelessWidget {
   final InteractionResultModel lastResult;
   final bool deviceConnected;
   final bool desktopBridgeReady;
+  final Future<void> Function()? onToggleShakeEnabled;
+  final Future<void> Function()? onToggleTapTriggerEnabled;
   final Future<void> Function(String kind, Map<String, dynamic> payload)
   onTriggerPhysicalInteraction;
+  final String? pendingSettingToggleKey;
   final String? pendingDebugTriggerKey;
 
   @override
   Widget build(BuildContext context) {
     final chrome = context.linear;
     final history = interaction.history.reversed.take(5).toList();
+    final toggleControlsEnabled = pendingSettingToggleKey == null;
 
     return Container(
       width: double.infinity,
@@ -51,7 +58,7 @@ class PhysicalInteractionPanel extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Read-only runtime state for hold, tap confirmation, and shake routing. State only follows backend runtime; debug buttons send triggers but do not synthesize success locally.',
+            'Physical Interaction Enabled is the master switch. When it is off, hold-to-talk, tap confirmation, and shake are all unavailable. The quick controls below only change Shake Enabled and Tap Confirmation Enabled.',
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
@@ -62,7 +69,9 @@ class PhysicalInteractionPanel extends StatelessWidget {
             runSpacing: LinearSpacing.xs,
             children: <Widget>[
               StatusPill(
-                label: interaction.enabled ? 'Enabled' : 'Disabled',
+                label: interaction.enabled
+                    ? 'Physical Interaction On'
+                    : 'Physical Interaction Off',
                 tone: interaction.enabled
                     ? StatusPillTone.accent
                     : StatusPillTone.neutral,
@@ -76,18 +85,58 @@ class PhysicalInteractionPanel extends StatelessWidget {
                     : StatusPillTone.neutral,
               ),
               StatusPill(
-                label: interaction.shakeEnabled ? 'Shake On' : 'Shake Off',
+                label: interaction.shakeEnabled
+                    ? 'Shake Enabled'
+                    : 'Shake Disabled',
                 tone: interaction.shakeEnabled
                     ? StatusPillTone.accent
                     : StatusPillTone.neutral,
               ),
               StatusPill(
                 label: interaction.tapConfirmationEnabled
-                    ? 'Tap Confirm On'
-                    : 'Tap Confirm Off',
+                    ? 'Tap Confirmation On'
+                    : 'Tap Confirmation Off',
                 tone: interaction.tapConfirmationEnabled
                     ? StatusPillTone.accent
                     : StatusPillTone.neutral,
+              ),
+            ],
+          ),
+          const SizedBox(height: LinearSpacing.md),
+          Text('Quick Controls', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          Text(
+            'Shake Enabled only affects shake. Tap Confirmation Enabled only affects tap confirmation. Neither one disables top hold-to-talk.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: chrome.textTertiary),
+          ),
+          const SizedBox(height: LinearSpacing.sm),
+          Wrap(
+            spacing: LinearSpacing.sm,
+            runSpacing: LinearSpacing.sm,
+            children: <Widget>[
+              _SettingToggleButton(
+                label: interaction.shakeEnabled
+                    ? 'Disable Shake'
+                    : 'Enable Shake',
+                icon: interaction.shakeEnabled
+                    ? Icons.motion_photos_off_outlined
+                    : Icons.motion_photos_on_outlined,
+                pending: pendingSettingToggleKey == 'shake',
+                onPressed: toggleControlsEnabled ? onToggleShakeEnabled : null,
+              ),
+              _SettingToggleButton(
+                label: interaction.tapConfirmationEnabled
+                    ? 'Disable Tap Confirmation'
+                    : 'Enable Tap Confirmation',
+                icon: interaction.tapConfirmationEnabled
+                    ? Icons.touch_app_outlined
+                    : Icons.pan_tool_alt_outlined,
+                pending: pendingSettingToggleKey == 'tap',
+                onPressed: toggleControlsEnabled
+                    ? onToggleTapTriggerEnabled
+                    : null,
               ),
             ],
           ),
@@ -118,25 +167,27 @@ class PhysicalInteractionPanel extends StatelessWidget {
           const SizedBox(height: LinearSpacing.md),
           _ReadOnlyRow(
             label: 'Hold-to-talk',
-            value: interaction.holdToTalkAvailable
-                ? 'Available. Voice remains device-first and uses the desktop microphone bridge.'
-                : 'Not currently available.',
+            value: !interaction.enabled
+                ? 'Unavailable because Physical Interaction Enabled is off.'
+                : interaction.holdToTalkAvailable
+                ? 'Available. Shake Enabled does not disable top hold-to-talk.'
+                : 'Not currently available because runtime guards or the desktop microphone path are blocking it.',
           ),
           const SizedBox(height: LinearSpacing.sm),
           _ReadOnlyRow(
             label: 'Tap confirmation',
             value: interaction.tapConfirmationEnabled
                 ? interaction.awaitingConfirmation
-                      ? 'Waiting for a confirmation gesture.'
+                      ? 'Enabled and waiting for a confirmation gesture.'
                       : 'Enabled, but only active when a confirmation context exists.'
-                : 'Off for the current runtime state.',
+                : 'Off. This only disables tap confirmation and does not affect top hold-to-talk.',
           ),
           const SizedBox(height: LinearSpacing.sm),
           _ReadOnlyRow(
             label: 'Shake routing',
             value: interaction.shakeEnabled
                 ? 'Enabled when the current scene and guard rails allow it.'
-                : 'Off for the current runtime state.',
+                : 'Off. Top hold-to-talk can still stay available while shake is off.',
           ),
           const SizedBox(height: LinearSpacing.sm),
           _ReadOnlyRow(
@@ -294,6 +345,39 @@ class _DebugTriggerButton extends StatelessWidget {
             }
           : null,
       child: Text(pending ? 'Sending...' : label),
+    );
+  }
+}
+
+class _SettingToggleButton extends StatelessWidget {
+  const _SettingToggleButton({
+    required this.label,
+    required this.icon,
+    required this.pending,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool pending;
+  final Future<void> Function()? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveOnPressed = pending || onPressed == null
+        ? null
+        : () {
+            unawaited(onPressed!());
+          };
+    return OutlinedButton.icon(
+      onPressed: effectiveOnPressed,
+      icon: pending
+          ? const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon, size: 16),
+      label: Text(pending ? 'Saving...' : label),
     );
   }
 }

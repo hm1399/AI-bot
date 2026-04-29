@@ -27,6 +27,7 @@ PCM_CHANNELS = 1
 PCM_SAMPLE_WIDTH_BYTES = 2
 MIN_AUDIO_BYTES = PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH_BYTES // 2
 MAX_AUDIO_BYTES = PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH_BYTES * 60
+DESKTOP_VOICE_ASR_TIMEOUT_SECONDS = 20.0
 
 STATUS_IDLE = "idle"
 STATUS_LISTENING = "listening"
@@ -55,6 +56,7 @@ class DesktopVoiceService:
         auth_token: str = "",
         default_app_session_id: str = "app:main",
         enable_local_microphone: bool = True,
+        asr_timeout_s: float = DESKTOP_VOICE_ASR_TIMEOUT_SECONDS,
     ) -> None:
         self.bus = bus
         self.asr = asr
@@ -62,6 +64,7 @@ class DesktopVoiceService:
         self.auth_token = auth_token.strip()
         self.default_app_session_id = default_app_session_id
         self.enable_local_microphone = enable_local_microphone
+        self.asr_timeout_s = max(0.05, float(asr_timeout_s))
         self._event_observer: Any | None = None
         self._active_app_session_resolver: Callable[[], str | None] | None = None
         self._clients: set[web.WebSocketResponse] = set()
@@ -147,7 +150,11 @@ class DesktopVoiceService:
         return bool(self._primary_ws and not self._primary_ws.closed) or self._local_microphone_available()
 
     @staticmethod
-    def _preferred_reply_language_from_transcript(transcript: str) -> str | None:
+    def _preferred_reply_language_from_transcript(
+        transcript: str,
+        *,
+        interaction_surface: str | None = None,
+    ) -> str | None:
         normalized = transcript.strip()
         if not normalized:
             return None
@@ -157,6 +164,8 @@ class DesktopVoiceService:
             return "English"
         if _EXPLICIT_CHINESE_REPLY_PATTERN.search(lowered):
             return "Chinese"
+        if str(interaction_surface or "").strip() == "device_press":
+            return "English"
 
         contains_cjk = bool(_CJK_PATTERN.search(normalized))
         contains_latin = bool(re.search(r"[A-Za-z]", normalized))
@@ -269,6 +278,10 @@ class DesktopVoiceService:
     async def cancel_device_push_to_talk(self, *, reason: str) -> None:
         if self._capture and self._capture.get("mode") == "embedded_local":
             await self._cancel_embedded_capture(reason)
+            return
+
+        if self._asr_in_flight():
+            logger.info("忽略桌面麦克风取消请求；ASR 正在运行，等待超时保护或自然完成")
             return
 
         async with self._lock:
@@ -486,12 +499,16 @@ class DesktopVoiceService:
         )
 
         async with self._lock:
-            await self._set_status_unlocked(
-                STATUS_IDLE,
-                interaction_surface=None,
-                last_response=response_text,
-                last_error=None,
-            )
+            if self._capture is not None or self._pending_device_capture:
+                self._state["last_response"] = response_text
+                self._state["last_error"] = None
+            else:
+                await self._set_status_unlocked(
+                    STATUS_IDLE,
+                    interaction_surface=None,
+                    last_response=response_text,
+                    last_error=None,
+                )
 
         await self._notify_event_observer(
             "on_desktop_voice_response",
@@ -746,9 +763,20 @@ class DesktopVoiceService:
 
             started = time.monotonic()
             try:
-                transcript = await self.asr.transcribe(pcm_data)
+                transcript = await self._transcribe_with_timeout(pcm_data)
             except asyncio.CancelledError:
                 raise
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Desktop voice ASR timed out after {:.1f}s",
+                    self.asr_timeout_s,
+                )
+                await self._handle_capture_failure(
+                    code="asr_timeout",
+                    message="语音识别超时，请再试一次",
+                    interaction_surface=interaction_surface,
+                )
+                return
             except Exception:
                 logger.exception("Desktop voice ASR failed")
                 await self._handle_capture_failure(
@@ -800,7 +828,10 @@ class DesktopVoiceService:
                 "app_session_id": app_session_id,
                 "asr_ms": asr_ms,
             }
-            reply_language = self._preferred_reply_language_from_transcript(transcript)
+            reply_language = self._preferred_reply_language_from_transcript(
+                transcript,
+                interaction_surface=interaction_surface,
+            )
             if reply_language:
                 metadata["reply_language"] = reply_language
             if self.asr.last_emotion:
@@ -847,6 +878,35 @@ class DesktopVoiceService:
         finally:
             if self._asr_task is asyncio.current_task():
                 self._asr_task = None
+
+    async def _transcribe_with_timeout(self, pcm_data: bytes) -> str:
+        if not self.asr:
+            return ""
+        transcribe_task = asyncio.create_task(self.asr.transcribe(pcm_data))
+        try:
+            done, pending = await asyncio.wait(
+                {transcribe_task},
+                timeout=self.asr_timeout_s,
+            )
+        except asyncio.CancelledError:
+            if not transcribe_task.done():
+                transcribe_task.cancel()
+            raise
+        if pending:
+            transcribe_task.add_done_callback(self._consume_late_asr_result)
+            raise asyncio.TimeoutError
+        return transcribe_task.result()
+
+    @staticmethod
+    def _consume_late_asr_result(task: asyncio.Task) -> None:
+        try:
+            result = task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Late desktop voice ASR task failed after timeout")
+            return
+        logger.info("Late desktop voice ASR result ignored: '{}'", str(result)[:50])
 
     async def _handle_capture_failure(
         self,

@@ -31,6 +31,9 @@ server/.venv/
 .manager/
 .pytest_cache/
 
+# Local notes and discussion drafts
+功能讨论区/
+
 # IDE
 .vscode/
 .idea/

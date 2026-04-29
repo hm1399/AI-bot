@@ -299,7 +299,11 @@ class MacOSComputerAdapter:
                 message=message or "files and folders permission is required",
                 status=403,
             )
-        if "not found" in lowered or "does not exist" in lowered:
+        if (
+            "not found" in lowered
+            or "does not exist" in lowered
+            or "unable to find application" in lowered
+        ):
             return ComputerControlError(
                 code="target_not_found",
                 message=message or "target not found",

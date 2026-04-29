@@ -31,6 +31,9 @@ class ContextBuilder:
         "app_session_id",
         "scene_mode",
         "persona_profile_id",
+        "persona_tone_style",
+        "persona_reply_length",
+        "persona_proactivity",
         "persona_voice_style",
         "interaction_kind",
         "interaction_mode",
@@ -39,6 +42,9 @@ class ContextBuilder:
     _TRUSTED_RUNTIME_LABELS = (
         ("scene_mode", "Scene Mode"),
         ("persona_profile_id", "Persona Profile"),
+        ("persona_tone_style", "Persona Tone Style"),
+        ("persona_reply_length", "Persona Reply Length"),
+        ("persona_proactivity", "Persona Proactivity"),
         ("persona_voice_style", "Persona Voice Style"),
         ("interaction_kind", "Interaction Kind"),
         ("interaction_mode", "Interaction Mode"),
@@ -174,17 +180,39 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             )
             if normalized_persona_id is not None:
                 normalized["persona_profile_id"] = normalized_persona_id
-        if "persona_voice_style" not in normalized:
-            normalized_voice_style = cls._extract_persona_field(
-                persona_profile,
+        persona_field_candidates = {
+            "persona_tone_style": (
+                "persona_tone_style",
+                "tone_style",
+                "tone",
+            ),
+            "persona_reply_length": (
+                "persona_reply_length",
+                "reply_length",
+                "length",
+            ),
+            "persona_proactivity": (
+                "persona_proactivity",
+                "proactivity",
+                "initiative",
+            ),
+            "persona_voice_style": (
                 "persona_voice_style",
                 "voice_style",
                 "voice",
                 "speaking_style",
                 "style",
+            ),
+        }
+        for target_key, candidate_keys in persona_field_candidates.items():
+            if target_key in normalized:
+                continue
+            normalized_value = cls._extract_persona_field(
+                persona_profile,
+                *candidate_keys,
             )
-            if normalized_voice_style is not None:
-                normalized["persona_voice_style"] = normalized_voice_style
+            if normalized_value is not None:
+                normalized[target_key] = normalized_value
         return normalized
 
     @classmethod
@@ -228,6 +256,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         runtime_ctx = self._build_runtime_context(channel, chat_id, metadata)
         trusted_runtime = self._build_trusted_runtime_metadata(channel, chat_id, metadata)
         directive = self._build_reply_language_directive(metadata)
+        conversation_style = self._build_everyday_conversation_style(metadata)
         message_text = current_message
         if directive:
             message_text = f"{directive}\n\n{current_message}"
@@ -243,6 +272,8 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         system_prompt = self.build_system_prompt(skill_names)
         if trusted_runtime:
             system_prompt = f"{system_prompt}\n\n---\n\n{trusted_runtime}"
+        if conversation_style:
+            system_prompt = f"{system_prompt}\n\n---\n\n{conversation_style}"
 
         return [
             {"role": "system", "content": system_prompt},
@@ -261,8 +292,45 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         return (
             f"[Internal Response Directive]\n"
             f"Reply in {reply_language} for this turn.\n"
-            f"Keep the reply short, natural, and easy to speak aloud."
+            f"Keep the reply natural and easy to speak aloud; match the active persona's reply length."
         )
+
+    @classmethod
+    def _build_everyday_conversation_style(
+        cls,
+        metadata: Mapping[str, Any] | None,
+    ) -> str:
+        runtime_metadata = cls.extract_runtime_metadata(metadata)
+        scene_mode = runtime_metadata.get("scene_mode") or "focus"
+        tone_style = runtime_metadata.get("persona_tone_style") or "clear"
+        reply_length = runtime_metadata.get("persona_reply_length") or "medium"
+        proactivity = runtime_metadata.get("persona_proactivity") or "balanced"
+
+        lines = [
+            "# Everyday Conversation Style",
+            "Use this for ordinary chat, voice replies, and personal-assistant turns. "
+            "Task instructions, safety rules, and tool results still take priority.",
+            "- Sound like a capable person nearby, not a formal report. Mirror the user's language and energy.",
+            "- For Chinese, use natural spoken Mandarin: short sentences, concrete wording, and light everyday phrasing.",
+            "- Acknowledge the user's real-life situation when it is visible: tiredness, rushing, meals, errands, classes, work, travel, plans, or device trouble.",
+            "- Prefer one concrete next step over generic encouragement. Ask at most one follow-up question when a detail is missing.",
+            "- Avoid canned openings like 'As an AI', corporate wording, excessive apologies, emojis, and long markdown for casual voice turns.",
+            "- Natural Chinese examples to adapt, not copy mechanically: '我懂，先别急。', '可以，我帮你先处理这一步。', '那我们先把它拆小一点。'",
+            f"- Active scene: {scene_mode}. Tone: {tone_style}. Reply length: {reply_length}. Proactivity: {proactivity}.",
+        ]
+        if scene_mode == "meeting":
+            lines.append("- Meeting mode: stay very brief and quiet, but still sound natural.")
+        elif scene_mode == "offwork":
+            lines.append("- Off-work mode: warmer and more relaxed is okay, while still being useful.")
+        else:
+            lines.append("- Focus mode: concise, practical, and gently momentum-building.")
+        if reply_length == "short":
+            lines.append("- Keep most replies to one or two sentences unless the user asks for detail.")
+        elif reply_length == "expanded":
+            lines.append("- Expanded replies may include a small observation plus one practical next step.")
+        if proactivity == "high":
+            lines.append("- When useful, volunteer one specific action you can take next.")
+        return "\n".join(lines)
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
         """Build user message content with optional base64-encoded images."""

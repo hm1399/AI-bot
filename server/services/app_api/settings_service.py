@@ -156,7 +156,7 @@ class SettingsService:
             "stt_language": asr_cfg.get("language", "auto"),
             "tts_provider": tts_cfg.get("provider", "edge_tts"),
             "tts_model": tts_cfg.get("model", "edge_tts"),
-            "tts_voice": tts_cfg.get("voice", "zh-CN-XiaoxiaoNeural"),
+            "tts_voice": tts_cfg.get("voice", "en-US-AriaNeural"),
             "tts_speed": app_settings.get("tts_speed", 1.0),
             "device_volume": app_settings.get("device_volume", 75),
             "led_enabled": app_settings.get("led_enabled", True),

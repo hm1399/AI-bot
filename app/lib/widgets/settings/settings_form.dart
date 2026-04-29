@@ -44,8 +44,6 @@ class _SettingsFormState extends State<SettingsForm> {
   late final TextEditingController _llmBaseUrlController;
   late final TextEditingController _sttLanguageController;
   late final TextEditingController _ttsVoiceController;
-  late final TextEditingController _ledModeController;
-  late final TextEditingController _ledColorController;
   late final TextEditingController _wakeWordController;
 
   @override
@@ -56,8 +54,6 @@ class _SettingsFormState extends State<SettingsForm> {
     _llmBaseUrlController = TextEditingController();
     _sttLanguageController = TextEditingController();
     _ttsVoiceController = TextEditingController();
-    _ledModeController = TextEditingController();
-    _ledColorController = TextEditingController();
     _wakeWordController = TextEditingController();
     _syncControllers(widget.settings);
   }
@@ -76,8 +72,6 @@ class _SettingsFormState extends State<SettingsForm> {
     _setText(_llmBaseUrlController, settings.llmBaseUrl ?? '');
     _setText(_sttLanguageController, settings.sttLanguage);
     _setText(_ttsVoiceController, settings.ttsVoice);
-    _setText(_ledModeController, settings.ledMode);
-    _setText(_ledColorController, settings.ledColor);
     _setText(_wakeWordController, settings.wakeWord);
   }
 
@@ -99,8 +93,6 @@ class _SettingsFormState extends State<SettingsForm> {
     _llmBaseUrlController.dispose();
     _sttLanguageController.dispose();
     _ttsVoiceController.dispose();
-    _ledModeController.dispose();
-    _ledColorController.dispose();
     _wakeWordController.dispose();
     super.dispose();
   }
@@ -310,7 +302,7 @@ class _SettingsFormState extends State<SettingsForm> {
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Physical Interaction Enabled'),
                 subtitle: const Text(
-                  'This only exposes runtime routing state. It does not invent desktop recording or message send capabilities.',
+                  'Master switch for runtime physical interaction. Turning this off disables top hold-to-talk, tap confirmation, and shake.',
                 ),
               ),
               _FieldApplyHints(
@@ -326,6 +318,9 @@ class _SettingsFormState extends State<SettingsForm> {
                     : null,
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Shake Enabled'),
+                subtitle: const Text(
+                  'Only controls shake gestures. Turning this off does not disable top hold-to-talk listening.',
+                ),
               ),
               _FieldApplyHints(
                 result: settings.applyResultFor('shake_enabled'),
@@ -340,6 +335,9 @@ class _SettingsFormState extends State<SettingsForm> {
                     : null,
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Tap Confirmation Enabled'),
+                subtitle: const Text(
+                  'Only controls tap confirmation. It does not affect top hold-to-talk or shake routing.',
+                ),
               ),
               _FieldApplyHints(
                 result: settings.applyResultFor('tap_confirmation_enabled'),
@@ -472,11 +470,11 @@ class _SettingsFormState extends State<SettingsForm> {
                           widget.onChanged(settings.copyWith(ledEnabled: value))
                     : null,
                 contentPadding: EdgeInsets.zero,
-                title: const Text('LED Enabled'),
+                title: const Text('Light Enabled'),
               ),
               _FieldApplyHints(result: settings.applyResultFor('led_enabled')),
               _SliderField(
-                label: 'LED Brightness',
+                label: 'Light Brightness',
                 value: settings.ledBrightness.toDouble(),
                 min: 0,
                 max: 100,
@@ -492,26 +490,6 @@ class _SettingsFormState extends State<SettingsForm> {
               _FieldApplyHints(
                 result: settings.applyResultFor('led_brightness'),
               ),
-              const SizedBox(height: LinearSpacing.sm),
-              TextField(
-                controller: _ledModeController,
-                enabled: widget.canEdit,
-                decoration: const InputDecoration(labelText: 'LED Mode'),
-                onChanged: (String value) =>
-                    widget.onChanged(settings.copyWith(ledMode: value)),
-              ),
-              const SizedBox(height: LinearSpacing.xs),
-              _FieldApplyHints(result: settings.applyResultFor('led_mode')),
-              const SizedBox(height: LinearSpacing.sm),
-              TextField(
-                controller: _ledColorController,
-                enabled: widget.canEdit,
-                decoration: const InputDecoration(labelText: 'LED Color'),
-                onChanged: (String value) =>
-                    widget.onChanged(settings.copyWith(ledColor: value)),
-              ),
-              const SizedBox(height: LinearSpacing.xs),
-              _FieldApplyHints(result: settings.applyResultFor('led_color')),
             ],
           ),
         ),
@@ -748,6 +726,10 @@ class _FieldApplyHints extends StatelessWidget {
     final chrome = context.linear;
     final helper = result!.message?.trim().isNotEmpty == true
         ? result!.message!.trim()
+        : result!.status == 'idle'
+        ? 'Backend has not reported a recent apply result for this field yet.'
+        : result!.isRuntimeApplied
+        ? 'Saved and mirrored into the current runtime state.'
         : result!.isConfigOnly
         ? 'Saved as config only. Runtime effect is not guaranteed yet.'
         : result!.isPending
@@ -936,10 +918,10 @@ String _applyFieldLabel(String field) {
     'shake_enabled' => 'Shake',
     'tap_confirmation_enabled' => 'Tap Confirmation',
     'device_volume' => 'Device Volume',
-    'led_enabled' => 'LED Enabled',
-    'led_brightness' => 'LED Brightness',
-    'led_mode' => 'LED Mode',
-    'led_color' => 'LED Color',
+    'led_enabled' => 'Light Enabled',
+    'led_brightness' => 'Light Brightness',
+    'led_mode' => 'Light Mode',
+    'led_color' => 'Light Color',
     'wake_word' => 'Wake Word',
     'auto_listen' => 'Auto Listen',
     _ => field.replaceAll('_', ' '),

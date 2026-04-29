@@ -49,6 +49,7 @@ class ExperienceService:
         desktop_voice_snapshot_provider: StateProvider | None = None,
         computer_state_provider: StateProvider | None = None,
         notifications_provider: NotificationProvider | None = None,
+        planning_context_provider: StateProvider | None = None,
         confirm_computer_action: ActionCallback | None = None,
         cancel_computer_action: ActionCallback | None = None,
         store: ExperienceStore | None = None,
@@ -62,6 +63,7 @@ class ExperienceService:
         self.desktop_voice_snapshot_provider = desktop_voice_snapshot_provider or (lambda: {})
         self.computer_state_provider = computer_state_provider or (lambda: {})
         self.notifications_provider = notifications_provider or (lambda: [])
+        self.planning_context_provider = planning_context_provider or (lambda: {})
         self.confirm_computer_action = confirm_computer_action or _noop_action
         self.cancel_computer_action = cancel_computer_action or _noop_action
         self.store = store or ExperienceStore(
@@ -81,6 +83,7 @@ class ExperienceService:
         desktop_voice_snapshot_provider: StateProvider | None = None,
         computer_state_provider: StateProvider | None = None,
         notifications_provider: NotificationProvider | None = None,
+        planning_context_provider: StateProvider | None = None,
         confirm_computer_action: ActionCallback | None = None,
         cancel_computer_action: ActionCallback | None = None,
     ) -> None:
@@ -94,10 +97,38 @@ class ExperienceService:
             self.computer_state_provider = computer_state_provider
         if notifications_provider is not None:
             self.notifications_provider = notifications_provider
+        if planning_context_provider is not None:
+            self.planning_context_provider = planning_context_provider
         if confirm_computer_action is not None:
             self.confirm_computer_action = confirm_computer_action
         if cancel_computer_action is not None:
             self.cancel_computer_action = cancel_computer_action
+
+    @staticmethod
+    def _normalize_reply_language(value: Any) -> str | None:
+        cleaned = clean_optional_string(value)
+        if cleaned is None:
+            return None
+        lowered = cleaned.lower()
+        if lowered.startswith("en") or lowered.startswith("english"):
+            return "English"
+        if lowered.startswith("zh") or lowered.startswith("chinese"):
+            return "Chinese"
+        return cleaned
+
+    @classmethod
+    def _prefers_english_reply(cls, value: Any) -> bool:
+        return cls._normalize_reply_language(value) == "English"
+
+    @classmethod
+    def _reply_text(
+        cls,
+        metadata: Mapping[str, Any],
+        *,
+        english: str,
+        chinese: str,
+    ) -> str:
+        return english if cls._prefers_english_reply((metadata or {}).get("reply_language")) else chinese
 
     def get_runtime_snapshot(
         self,
@@ -290,6 +321,9 @@ class ExperienceService:
         active_persona = snapshot.get("active_persona") or {}
         payload.setdefault("scene_mode", snapshot.get("active_scene_mode"))
         payload.setdefault("persona_profile_id", active_persona.get("preset"))
+        payload.setdefault("persona_tone_style", active_persona.get("tone_style"))
+        payload.setdefault("persona_reply_length", active_persona.get("reply_length"))
+        payload.setdefault("persona_proactivity", active_persona.get("proactivity"))
         payload.setdefault("persona_voice_style", active_persona.get("voice_style"))
         if interaction_kind:
             payload["interaction_kind"] = interaction_kind
@@ -321,18 +355,40 @@ class ExperienceService:
         metadata = {
             "scene_mode": snapshot["active_scene_mode"],
             "persona_profile_id": snapshot["active_persona"].get("preset"),
+            "persona_tone_style": snapshot["active_persona"].get("tone_style"),
+            "persona_reply_length": snapshot["active_persona"].get("reply_length"),
+            "persona_proactivity": snapshot["active_persona"].get("proactivity"),
             "persona_voice_style": snapshot["active_persona"].get("voice_style"),
             "override_source": snapshot["override_source"],
         }
+        reply_language = self._normalize_reply_language(request.get("reply_language"))
+        if reply_language is None and clean_optional_string(request.get("source")) in {
+            "tap",
+            "shake",
+            "hold",
+        }:
+            reply_language = "English"
+        if reply_language is not None:
+            metadata["reply_language"] = reply_language
 
         throttle_ttl = INTERACTION_THROTTLE_SECONDS.get(interaction_kind, 0.0)
         if self.store.is_throttled(interaction_kind, ttl_s=throttle_ttl):
+            feedback_mode = clean_optional_string(request.get("feedback_mode"))
             result = self._blocked_result(
                 interaction_kind=interaction_kind,
                 mode="blocked",
-                title="交互节流",
-                display_text="触发太快了，稍等一下再试。",
+                title=self._reply_text(
+                    metadata,
+                    english="Interaction Busy",
+                    chinese="交互节流",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="Triggered too quickly. Please wait a moment and try again.",
+                    chinese="触发太快了，稍等一下再试。",
+                ),
                 blocked_reason="throttled",
+                feedback_mode=feedback_mode,
                 metadata=metadata,
             )
             return self.store.record_interaction_result(result)
@@ -352,6 +408,7 @@ class ExperienceService:
                 snapshot=snapshot,
                 session_id=session_id,
                 metadata=metadata,
+                current_task=current_task,
             )
         elif interaction_kind == "hold":
             result = self._handle_hold(
@@ -363,8 +420,16 @@ class ExperienceService:
             result = self._blocked_result(
                 interaction_kind=interaction_kind,
                 mode="blocked",
-                title="未知交互",
-                display_text="当前不支持这个物理交互。",
+                title=self._reply_text(
+                    metadata,
+                    english="Unsupported Interaction",
+                    chinese="未知交互",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="This physical interaction is not supported right now.",
+                    chinese="当前不支持这个物理交互。",
+                ),
                 blocked_reason="unsupported_interaction",
                 metadata=metadata,
             )
@@ -603,7 +668,7 @@ class ExperienceService:
             status_message = "物理交互已关闭。"
         elif pending_confirmation:
             status = "awaiting_confirmation"
-            status_message = "当前有待确认动作，可用拍一拍确认，摇一摇会给出决策建议。"
+            status_message = "当前有待确认动作，可用拍一拍确认；摇一摇会随机抽取上下文给一句提示。"
         elif speech_busy:
             status = "busy"
             status_message = "当前语音链路忙碌中，先等当前流程结束。"
@@ -677,8 +742,16 @@ class ExperienceService:
             return self._blocked_result(
                 interaction_kind="tap",
                 mode="blocked",
-                title="拍一拍",
-                display_text="当前只支持 1 / 2 / 3 连拍。",
+                title=self._reply_text(
+                    metadata,
+                    english="Tap",
+                    chinese="拍一拍",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="Only 1, 2, or 3 taps are supported right now.",
+                    chinese="当前只支持 1 / 2 / 3 连拍。",
+                ),
                 blocked_reason="invalid_tap_count",
                 metadata=metadata,
             )
@@ -688,18 +761,38 @@ class ExperienceService:
                 return self._blocked_result(
                     interaction_kind="tap",
                     mode="interrupt",
-                    title="打断",
-                    display_text="当前没有可打断的流程。",
+                    title=self._reply_text(
+                        metadata,
+                        english="Interrupt",
+                        chinese="打断",
+                    ),
+                    display_text=self._reply_text(
+                        metadata,
+                        english="There is nothing to interrupt right now.",
+                        chinese="当前没有可打断的流程。",
+                    ),
                     blocked_reason="no_active_operation",
                     metadata=metadata,
                 )
             return build_physical_interaction_result(
                 interaction_kind="tap",
                 mode="interrupt",
-                title="打断",
+                title=self._reply_text(
+                    metadata,
+                    english="Interrupt",
+                    chinese="打断",
+                ),
                 short_result="interrupted",
-                display_text="已请求打断当前流程。",
-                voice_text="已请求打断当前流程。",
+                display_text=self._reply_text(
+                    metadata,
+                    english="Requested an interrupt for the current flow.",
+                    chinese="已请求打断当前流程。",
+                ),
+                voice_text=self._reply_text(
+                    metadata,
+                    english="Requested an interrupt for the current flow.",
+                    chinese="已请求打断当前流程。",
+                ),
                 animation_hint="interrupt",
                 led_hint="blue",
                 approval_source="physical_tap_thrice",
@@ -711,8 +804,16 @@ class ExperienceService:
             return self._blocked_result(
                 interaction_kind="tap",
                 mode="blocked",
-                title="拍一拍确认",
-                display_text="当前没有可用的拍一拍确认上下文。",
+                title=self._reply_text(
+                    metadata,
+                    english="Tap Confirmation",
+                    chinese="拍一拍确认",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="No tap confirmation context is available right now.",
+                    chinese="当前没有可用的拍一拍确认上下文。",
+                ),
                 blocked_reason=str(physical.get("tap_blocked_reason") or "tap_unavailable"),
                 metadata=metadata,
             )
@@ -722,8 +823,16 @@ class ExperienceService:
             return self._blocked_result(
                 interaction_kind="tap",
                 mode="blocked",
-                title="拍一拍确认",
-                display_text="当前没有待确认动作。",
+                title=self._reply_text(
+                    metadata,
+                    english="Tap Confirmation",
+                    chinese="拍一拍确认",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="There is no pending action to confirm right now.",
+                    chinese="当前没有待确认动作。",
+                ),
                 blocked_reason="no_pending_confirmation",
                 metadata=metadata,
             )
@@ -731,13 +840,29 @@ class ExperienceService:
         action = pending_actions[0]
         action_id = str(action.get("action_id") or "").strip()
         action_kind = str(action.get("kind") or action.get("action") or "").strip() or None
-        action_title = str(action.get("title") or action_kind or "待确认动作")
+        action_title = str(
+            action.get("title")
+            or action_kind
+            or self._reply_text(
+                metadata,
+                english="pending action",
+                chinese="待确认动作",
+            )
+        )
         if not action_id:
             return self._blocked_result(
                 interaction_kind="tap",
                 mode="blocked",
-                title="拍一拍确认",
-                display_text="当前待确认动作缺少标识，暂时无法处理。",
+                title=self._reply_text(
+                    metadata,
+                    english="Tap Confirmation",
+                    chinese="拍一拍确认",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="The pending action is missing its identifier and cannot be handled yet.",
+                    chinese="当前待确认动作缺少标识，暂时无法处理。",
+                ),
                 blocked_reason="invalid_pending_action",
                 metadata=metadata,
             )
@@ -749,22 +874,49 @@ class ExperienceService:
                 return self._blocked_result(
                     interaction_kind="tap",
                     mode="blocked",
-                    title="允许执行",
-                    display_text="允许执行失败，请在应用内重试。",
+                    title=self._reply_text(
+                        metadata,
+                        english="Allow Action",
+                        chinese="允许执行",
+                    ),
+                    display_text=self._reply_text(
+                        metadata,
+                        english="Allow failed. Please retry in the app.",
+                        chinese="允许执行失败，请在应用内重试。",
+                    ),
                     blocked_reason="confirm_failed",
                     metadata=metadata,
                 )
             result_metadata = self._normalize_action_result_metadata(result)
             action_kind = result_metadata.get("kind") or action_kind
-            display_text = "已允许继续执行待确认动作。"
-            voice_text = "已允许继续执行待确认动作。"
+            display_text = self._reply_text(
+                metadata,
+                english="Allowed the pending action to continue.",
+                chinese="已允许继续执行待确认动作。",
+            )
+            voice_text = self._reply_text(
+                metadata,
+                english="Allowed the pending action to continue.",
+                chinese="已允许继续执行待确认动作。",
+            )
             if action_kind == "wechat_prepare_message":
-                display_text = "已允许继续准备微信消息，仍需你手动确认发送。"
-                voice_text = "已允许继续准备微信消息，仍需你手动确认发送。"
+                display_text = self._reply_text(
+                    metadata,
+                    english=(
+                        "Allowed WeChat message preparation to continue. "
+                        "Manual send confirmation is still required."
+                    ),
+                    chinese="已允许继续准备微信消息，仍需你手动确认发送。",
+                )
+                voice_text = display_text
             return build_physical_interaction_result(
                 interaction_kind="tap",
                 mode="allow",
-                title="允许执行",
+                title=self._reply_text(
+                    metadata,
+                    english="Allow Action",
+                    chinese="允许执行",
+                ),
                 short_result="allowed",
                 display_text=display_text,
                 voice_text=voice_text,
@@ -790,8 +942,16 @@ class ExperienceService:
             return self._blocked_result(
                 interaction_kind="tap",
                 mode="blocked",
-                title="拒绝执行",
-                display_text="拒绝执行失败，请在应用内重试。",
+                title=self._reply_text(
+                    metadata,
+                    english="Reject Action",
+                    chinese="拒绝执行",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="Reject failed. Please retry in the app.",
+                    chinese="拒绝执行失败，请在应用内重试。",
+                ),
                 blocked_reason="cancel_failed",
                 metadata=metadata,
             )
@@ -799,10 +959,22 @@ class ExperienceService:
         return build_physical_interaction_result(
             interaction_kind="tap",
             mode="reject",
-            title="拒绝执行",
+            title=self._reply_text(
+                metadata,
+                english="Reject Action",
+                chinese="拒绝执行",
+            ),
             short_result="rejected",
-            display_text=f"已拒绝：{action_title}",
-            voice_text="已拒绝待确认动作。",
+            display_text=self._reply_text(
+                metadata,
+                english=f"Rejected: {action_title}",
+                chinese=f"已拒绝：{action_title}",
+            ),
+            voice_text=self._reply_text(
+                metadata,
+                english="Rejected the pending action.",
+                chinese="已拒绝待确认动作。",
+            ),
             animation_hint="deny",
             led_hint="amber",
             approval_source="physical_tap_twice",
@@ -826,30 +998,300 @@ class ExperienceService:
         snapshot: Mapping[str, Any],
         session_id: str,
         metadata: Mapping[str, Any],
+        current_task: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
         physical = snapshot.get("physical_interaction") or {}
         blocked_reason = str(physical.get("shake_blocked_reason") or "")
         if not physical.get("shake_available"):
-            return self._blocked_result(
+            feedback_mode = None
+            if (
+                blocked_reason == "shake_disabled"
+                and clean_optional_string(payload.get("source")) == "shake"
+            ):
+                feedback_mode = "record_only"
+            result = self._blocked_result(
                 interaction_kind="shake",
                 mode="blocked",
-                title="摇一摇",
-                display_text="当前场景或设备状态不适合摇一摇。",
+                title=self._reply_text(
+                    metadata,
+                    english="Shake",
+                    chinese="摇一摇",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="Shake is not available in the current device state.",
+                    chinese="当前场景或设备状态不适合摇一摇。",
+                ),
                 blocked_reason=blocked_reason or "shake_unavailable",
+                feedback_mode=feedback_mode,
                 metadata=metadata,
             )
+            if feedback_mode == "record_only":
+                result.pop("voice_text", None)
+            return result
         result = self.router.route_shake(
             session_id=session_id,
             scene_mode=str(snapshot.get("active_scene_mode") or DEFAULT_SCENE_MODE),
             physical_state=dict(physical),
             daily_shake_state=dict(snapshot.get("daily_shake_state") or {}),
             requested_mode=clean_optional_string(payload.get("mode")),
+            reply_language=self._normalize_reply_language(metadata.get("reply_language")),
+            context=self._build_shake_context(
+                session_id=session_id,
+                snapshot=snapshot,
+                current_task=current_task,
+            ),
         )
         merged_metadata = dict(metadata)
         merged_metadata["interaction_surface"] = "physical_device"
         result_metadata = dict(result.get("metadata") or {})
         result["metadata"] = {**merged_metadata, **result_metadata}
         return result
+
+    def _build_shake_context(
+        self,
+        *,
+        session_id: str,
+        snapshot: Mapping[str, Any],
+        current_task: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        candidates: list[dict[str, str]] = []
+        if isinstance(current_task, Mapping):
+            title = self._context_title(
+                current_task.get("summary")
+                or current_task.get("title")
+                or current_task.get("kind")
+                or current_task.get("task_id")
+            )
+            if title is not None:
+                candidates.append({
+                    "kind": "current_task",
+                    "source": "runtime",
+                    "title": title,
+                })
+
+        candidates.extend(self._conversation_context_candidates(session_id))
+        candidates.extend(self._planning_context_candidates())
+        candidates.extend(self._notification_context_candidates())
+
+        physical = snapshot.get("physical_interaction")
+        if isinstance(physical, Mapping):
+            pending_title = self._context_title(physical.get("pending_action_title"))
+            if pending_title is not None:
+                candidates.append({
+                    "kind": "pending_action",
+                    "source": "computer_control",
+                    "title": pending_title,
+                })
+
+        return {"candidates": self._dedupe_context_candidates(candidates, limit=20)}
+
+    def _conversation_context_candidates(self, session_id: str) -> list[dict[str, str]]:
+        keys: list[str] = []
+        for candidate in (
+            session_id,
+            self.active_session_id_resolver(),
+            "app:main",
+            "desktop_voice:desktop",
+            "device:esp32",
+        ):
+            if isinstance(candidate, str) and candidate and candidate not in keys:
+                keys.append(candidate)
+
+        out: list[dict[str, str]] = []
+        for key in keys:
+            session = self.sessions.get(key)
+            if session is None:
+                continue
+            for message in reversed(session.messages[-16:]):
+                if not isinstance(message, Mapping):
+                    continue
+                role = str(message.get("role") or "").strip()
+                if role not in {"user", "assistant"}:
+                    continue
+                title = self._context_title(message.get("content"), max_len=48)
+                if title is None or title.startswith("/"):
+                    continue
+                out.append({
+                    "kind": "conversation",
+                    "source": key,
+                    "title": title,
+                })
+                if len(out) >= 6:
+                    return out
+        return out
+
+    def _planning_context_candidates(self) -> list[dict[str, str]]:
+        try:
+            payload = self.planning_context_provider()
+        except Exception:
+            return []
+        if not isinstance(payload, Mapping):
+            return []
+
+        out: list[dict[str, str]] = []
+        todo_summary = payload.get("todo_summary")
+        if isinstance(todo_summary, Mapping):
+            pending_count = self._safe_int(todo_summary.get("pending_count"))
+            overdue_count = self._safe_int(todo_summary.get("overdue_count"))
+            if overdue_count > 0:
+                out.append({
+                    "kind": "summary",
+                    "source": "todo_summary",
+                    "title": f"还有 {overdue_count} 个过期待办",
+                })
+            elif pending_count > 0:
+                out.append({
+                    "kind": "summary",
+                    "source": "todo_summary",
+                    "title": f"还有 {pending_count} 个待办",
+                })
+            next_due = self._context_title(todo_summary.get("next_due_title") or todo_summary.get("next_due_at"))
+            if next_due is not None:
+                out.append({
+                    "kind": "task",
+                    "source": "todo_summary",
+                    "title": next_due,
+                })
+
+        calendar_summary = payload.get("calendar_summary")
+        if isinstance(calendar_summary, Mapping):
+            today_count = self._safe_int(calendar_summary.get("today_count"))
+            next_event_title = self._context_title(calendar_summary.get("next_event_title"))
+            if next_event_title is not None:
+                out.append({
+                    "kind": "event",
+                    "source": "calendar_summary",
+                    "title": next_event_title,
+                })
+            elif today_count > 0:
+                out.append({
+                    "kind": "summary",
+                    "source": "calendar_summary",
+                    "title": f"今天有 {today_count} 个行程",
+                })
+
+        for item in payload.get("timeline") or []:
+            if not isinstance(item, Mapping):
+                continue
+            kind = self._planning_kind(item)
+            title = self._planning_title(item)
+            if title is None:
+                continue
+            out.append({
+                "kind": kind,
+                "source": "planning_timeline",
+                "title": title,
+            })
+            if len(out) >= 12:
+                break
+        return out
+
+    def _notification_context_candidates(self) -> list[dict[str, str]]:
+        try:
+            notifications = self.notifications_provider()
+        except Exception:
+            return []
+        out: list[dict[str, str]] = []
+        for item in notifications or []:
+            if not isinstance(item, Mapping) or bool(item.get("read", False)):
+                continue
+            title = self._context_title(
+                item.get("title")
+                or item.get("message")
+                or item.get("body")
+                or item.get("notification_id")
+            )
+            if title is None:
+                continue
+            out.append({
+                "kind": "notification",
+                "source": "notifications",
+                "title": title,
+            })
+            if len(out) >= 4:
+                break
+        return out
+
+    @classmethod
+    def _planning_title(cls, item: Mapping[str, Any]) -> str | None:
+        title = cls._context_title(
+            item.get("title")
+            or item.get("summary")
+            or item.get("message")
+            or item.get("name")
+            or item.get("resource_id")
+            or item.get("item_id")
+        )
+        if title is None:
+            return None
+        time_hint = cls._context_title(
+            item.get("start_at")
+            or item.get("due_at")
+            or item.get("next_trigger_at")
+            or item.get("time")
+            or item.get("at"),
+            max_len=24,
+        )
+        if time_hint is None:
+            return title
+        return cls._context_title(f"{title}，{time_hint}", max_len=60)
+
+    @staticmethod
+    def _planning_kind(item: Mapping[str, Any]) -> str:
+        raw = str(
+            item.get("resource_type")
+            or item.get("item_type")
+            or item.get("kind")
+            or ""
+        ).strip().lower()
+        if raw in {"task", "event", "reminder"}:
+            return raw
+        if item.get("event_id"):
+            return "event"
+        if item.get("reminder_id"):
+            return "reminder"
+        return "task" if item.get("task_id") else "summary"
+
+    @staticmethod
+    def _context_title(value: Any, *, max_len: int = 60) -> str | None:
+        if value is None:
+            return None
+        text = " ".join(str(value).split()).strip()
+        if not text:
+            return None
+        if len(text) <= max_len:
+            return text
+        return f"{text[: max_len - 1].rstrip()}…"
+
+    @staticmethod
+    def _safe_int(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _dedupe_context_candidates(
+        candidates: list[dict[str, str]],
+        *,
+        limit: int,
+    ) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for item in candidates:
+            title = str(item.get("title") or "").strip()
+            kind = str(item.get("kind") or "").strip()
+            if not title or not kind:
+                continue
+            key = (kind, title)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(dict(item))
+            if len(out) >= limit:
+                break
+        return out
 
     def _handle_hold(
         self,
@@ -867,8 +1309,16 @@ class ExperienceService:
             return self._blocked_result(
                 interaction_kind="hold",
                 mode="blocked",
-                title="按住说话",
-                display_text="桌面麦克风当前不可用。",
+                title=self._reply_text(
+                    metadata,
+                    english="Hold to Talk",
+                    chinese="按住说话",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="Desktop microphone is not available right now.",
+                    chinese="桌面麦克风当前不可用。",
+                ),
                 blocked_reason=str(physical.get("hold_blocked_reason") or "hold_unavailable"),
                 feedback_mode=feedback_mode,
                 metadata=metadata,
@@ -877,20 +1327,40 @@ class ExperienceService:
             return self._blocked_result(
                 interaction_kind="hold",
                 mode="blocked",
-                title="按住说话",
-                display_text="桌面麦克风当前不可用。",
+                title=self._reply_text(
+                    metadata,
+                    english="Hold to Talk",
+                    chinese="按住说话",
+                ),
+                display_text=self._reply_text(
+                    metadata,
+                    english="Desktop microphone is not available right now.",
+                    chinese="桌面麦克风当前不可用。",
+                ),
                 blocked_reason=payload_blocked_reason or "hold_operation_failed",
                 feedback_mode=feedback_mode,
                 metadata=metadata,
             )
         mode = "push_to_talk_stop" if action == "long_release" else "push_to_talk_start"
-        display_text = "桌面麦克风按住说话已接管。"
+        display_text = self._reply_text(
+            metadata,
+            english="Desktop microphone hold-to-talk is active.",
+            chinese="桌面麦克风按住说话已接管。",
+        )
         if mode == "push_to_talk_stop":
-            display_text = "桌面麦克风按住说话已结束。"
+            display_text = self._reply_text(
+                metadata,
+                english="Desktop microphone hold-to-talk has ended.",
+                chinese="桌面麦克风按住说话已结束。",
+            )
         return build_physical_interaction_result(
             interaction_kind="hold",
             mode=mode,
-            title="按住说话",
+            title=self._reply_text(
+                metadata,
+                english="Hold to Talk",
+                chinese="按住说话",
+            ),
             short_result="ready",
             display_text=display_text,
             voice_text=None,
@@ -945,7 +1415,7 @@ class ExperienceService:
             title=title,
             short_result="blocked",
             display_text=display_text,
-            voice_text=display_text,
+            voice_text=None if feedback_mode == "record_only" else display_text,
             animation_hint="idle",
             feedback_mode=feedback_mode,
             metadata={**dict(metadata), "blocked_reason": blocked_reason},

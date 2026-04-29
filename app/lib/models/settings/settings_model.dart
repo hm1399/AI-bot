@@ -264,7 +264,7 @@ class AppSettingsModel {
       sttLanguage: payload['stt_language']?.toString() ?? 'en-US',
       ttsProvider: payload['tts_provider']?.toString() ?? 'server-managed',
       ttsModel: payload['tts_model']?.toString() ?? '',
-      ttsVoice: payload['tts_voice']?.toString() ?? 'alloy',
+      ttsVoice: payload['tts_voice']?.toString() ?? 'en-US-AriaNeural',
       ttsSpeed: payload['tts_speed'] is num
           ? (payload['tts_speed'] as num).toDouble()
           : double.tryParse(payload['tts_speed']?.toString() ?? '') ?? 1.0,
@@ -332,29 +332,53 @@ class SettingApplyResultModel {
   final String? errorCode;
   final String? updatedAt;
 
-  bool get isLiveApply => mode == 'save_and_apply' || mode == 'live_apply';
-  bool get isConfigOnly => mode == 'config_only' || mode == 'save_only';
-  bool get isPending => status == 'pending' || status == 'queued';
-  bool get isSuccessful =>
-      status == 'applied' ||
-      status == 'completed' ||
-      status == 'succeeded' ||
-      status == 'saved_only';
-  bool get isFailure => status == 'failed' || status == 'error';
+  String get effectiveMode {
+    if (_isPhysicalInteractionApplyField(field) &&
+        (mode == 'config_only' || mode == 'save_only')) {
+      return 'runtime_applied';
+    }
+    return mode;
+  }
 
-  String get modeLabel => switch (mode) {
+  String get effectiveStatus {
+    if (_isPhysicalInteractionApplyField(field) && status == 'saved_only') {
+      return 'applied';
+    }
+    return status;
+  }
+
+  bool get isRuntimeApplied => effectiveMode == 'runtime_applied';
+  bool get isLiveApply =>
+      effectiveMode == 'save_and_apply' ||
+      effectiveMode == 'live_apply' ||
+      effectiveMode == 'runtime_applied';
+  bool get isConfigOnly =>
+      effectiveMode == 'config_only' || effectiveMode == 'save_only';
+  bool get isPending =>
+      effectiveStatus == 'pending' || effectiveStatus == 'queued';
+  bool get isSuccessful =>
+      effectiveStatus == 'applied' ||
+      effectiveStatus == 'completed' ||
+      effectiveStatus == 'succeeded' ||
+      effectiveStatus == 'saved_only';
+  bool get isFailure =>
+      effectiveStatus == 'failed' || effectiveStatus == 'error';
+
+  String get modeLabel => switch (effectiveMode) {
+    'runtime_applied' => 'Runtime Applied',
     'config_only' || 'save_only' => 'Config Only',
     'save_and_apply' || 'live_apply' => 'Live Apply',
     _ => 'Unknown Mode',
   };
 
-  String get statusLabel => switch (status) {
+  String get statusLabel => switch (effectiveStatus) {
     'saved_only' => 'Saved Only',
     'applied' || 'completed' || 'succeeded' => 'Applied',
     'pending' || 'queued' => 'Pending',
     'failed' || 'error' => 'Failed',
     'skipped' => 'Skipped',
-    _ => status.replaceAll('_', ' '),
+    'idle' => 'Idle',
+    _ => effectiveStatus.replaceAll('_', ' '),
   };
 
   factory SettingApplyResultModel.fromJson(
@@ -449,8 +473,6 @@ class AppSettingsUpdate {
       'device_volume': deviceVolume,
       'led_enabled': ledEnabled,
       'led_brightness': ledBrightness,
-      'led_mode': ledMode,
-      'led_color': ledColor,
       'wake_word': wakeWord,
       'auto_listen': autoListen,
       'default_scene_mode': defaultSceneMode,
@@ -532,21 +554,19 @@ Map<String, dynamic> _asMap(dynamic value) {
 
 String? _defaultApplyMode(String field) {
   return switch (field) {
-    'device_volume' ||
-    'led_enabled' ||
-    'led_brightness' ||
-    'led_color' => 'save_and_apply',
+    'device_volume' || 'led_enabled' || 'led_brightness' => 'save_and_apply',
     'led_mode' ||
+    'led_color' ||
     'wake_word' ||
     'auto_listen' ||
     'default_scene_mode' ||
     'persona_tone_style' ||
     'persona_reply_length' ||
     'persona_proactivity' ||
-    'persona_voice_style' ||
+    'persona_voice_style' => 'config_only',
     'physical_interaction_enabled' ||
     'shake_enabled' ||
-    'tap_confirmation_enabled' => 'config_only',
+    'tap_confirmation_enabled' => 'runtime_applied',
     _ => null,
   };
 }
@@ -562,10 +582,19 @@ String? _applyReasonMessage(String field, String? reason) {
     case 'invalid_argument':
       return 'Device rejected the runtime payload for this setting.';
     case 'config_saved_but_not_runtime_applied':
+      if (_isPhysicalInteractionApplyField(field)) {
+        return 'Saved and mirrored into the current runtime state.';
+      }
       return 'Saved as config only. Runtime effect is not guaranteed yet.';
     case 'apply_failed':
       return 'Saved, but the device did not confirm runtime apply.';
     default:
       return null;
   }
+}
+
+bool _isPhysicalInteractionApplyField(String field) {
+  return field == 'physical_interaction_enabled' ||
+      field == 'shake_enabled' ||
+      field == 'tap_confirmation_enabled';
 }

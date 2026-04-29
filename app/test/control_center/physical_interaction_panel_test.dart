@@ -13,6 +13,9 @@ void main() {
       title: '',
       shortResult: '',
     ),
+    Future<void> Function()? onToggleShakeEnabled,
+    Future<void> Function()? onToggleTapTriggerEnabled,
+    String? pendingSettingToggleKey,
     String? pendingDebugTriggerKey,
     Future<void> Function(String kind, Map<String, dynamic> payload)?
     onTriggerPhysicalInteraction,
@@ -29,6 +32,9 @@ void main() {
                 lastResult: lastResult,
                 deviceConnected: true,
                 desktopBridgeReady: true,
+                onToggleShakeEnabled: onToggleShakeEnabled,
+                onToggleTapTriggerEnabled: onToggleTapTriggerEnabled,
+                pendingSettingToggleKey: pendingSettingToggleKey,
                 pendingDebugTriggerKey: pendingDebugTriggerKey,
                 onTriggerPhysicalInteraction:
                     onTriggerPhysicalInteraction ?? (_, __) async {},
@@ -70,6 +76,88 @@ void main() {
     expect(find.textContaining('Used'), findsAtLeastNWidgets(1));
     expect(find.text('Recent shake mode'), findsOneWidget);
     expect(find.textContaining('Random'), findsAtLeastNWidgets(1));
+    expect(find.text('Disable Shake'), findsOneWidget);
+    expect(find.text('Disable Tap Confirmation'), findsOneWidget);
+  });
+
+  testWidgets('quick control buttons emit setting toggle callbacks', (
+    WidgetTester tester,
+  ) async {
+    var shakeToggled = false;
+    var tapToggled = false;
+
+    await pumpPanel(
+      tester,
+      interaction: const PhysicalInteractionStateModel(
+        enabled: true,
+        shakeEnabled: true,
+        tapConfirmationEnabled: false,
+        holdToTalkAvailable: true,
+        ready: true,
+        status: 'ready',
+      ),
+      onToggleShakeEnabled: () async {
+        shakeToggled = true;
+      },
+      onToggleTapTriggerEnabled: () async {
+        tapToggled = true;
+      },
+    );
+
+    await tester.tap(find.text('Disable Shake'));
+    await tester.pump();
+    await tester.tap(find.text('Enable Tap Confirmation'));
+    await tester.pump();
+
+    expect(shakeToggled, isTrue);
+    expect(tapToggled, isTrue);
+  });
+
+  testWidgets('copy keeps shake and tap scoped away from hold-to-talk', (
+    WidgetTester tester,
+  ) async {
+    await pumpPanel(
+      tester,
+      interaction: const PhysicalInteractionStateModel(
+        enabled: true,
+        shakeEnabled: false,
+        tapConfirmationEnabled: false,
+        holdToTalkAvailable: true,
+        ready: true,
+        status: 'ready',
+      ),
+    );
+
+    expect(
+      find.text(
+        'Physical Interaction Enabled is the master switch. When it is off, hold-to-talk, tap confirmation, and shake are all unavailable. The quick controls below only change Shake Enabled and Tap Confirmation Enabled.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Shake Enabled only affects shake. Tap Confirmation Enabled only affects tap confirmation. Neither one disables top hold-to-talk.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Available. Shake Enabled does not disable top hold-to-talk.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Off. This only disables tap confirmation and does not affect top hold-to-talk.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Off. Top hold-to-talk can still stay available while shake is off.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Enable Shake'), findsOneWidget);
+    expect(find.text('Enable Tap Confirmation'), findsOneWidget);
   });
 
   testWidgets(
@@ -89,6 +177,12 @@ void main() {
             },
       );
 
+      await tester.dragUntilVisible(
+        find.text('Tap 2'),
+        find.byType(ListView),
+        const Offset(0, -300),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Tap 2'));
       await tester.pump();
 
@@ -118,6 +212,33 @@ void main() {
       isEmpty,
     );
     expect(find.text('Sending...'), findsOneWidget);
+  });
+
+  testWidgets('pending setting toggle shows saving state and disables button', (
+    WidgetTester tester,
+  ) async {
+    await pumpPanel(
+      tester,
+      interaction: PhysicalInteractionStateModel.empty(
+        enabled: true,
+        shakeEnabled: true,
+        tapConfirmationEnabled: true,
+      ),
+      pendingSettingToggleKey: 'shake',
+      onToggleShakeEnabled: () async {},
+      onToggleTapTriggerEnabled: () async {},
+    );
+
+    expect(find.text('Saving...'), findsOneWidget);
+    final outlinedButtons = tester.widgetList<OutlinedButton>(
+      find.byType(OutlinedButton),
+    );
+    expect(
+      outlinedButtons.where(
+        (OutlinedButton button) => button.onPressed != null,
+      ),
+      isEmpty,
+    );
   });
 
   testWidgets(
@@ -163,7 +284,7 @@ void main() {
       );
 
       expect(find.text('Blocked reason'), findsNothing);
-      expect(find.text('Newest'), findsOneWidget);
+      expect(find.text('Newest'), findsWidgets);
       expect(find.text('Old 1'), findsNothing);
     },
   );

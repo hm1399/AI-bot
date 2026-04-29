@@ -299,6 +299,26 @@ class FakePlanningBackend:
 class FakeComputerControlBackend:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.policy = self.FakePolicy()
+
+    class FakePolicy:
+        @staticmethod
+        def infer_allowed_app(text: object) -> str | None:
+            normalized = str(text or "").casefold()
+            if "whatsapp" in normalized or "whats app" in normalized:
+                return "WhatsApp"
+            if "safari" in normalized:
+                return "Safari"
+            return None
+
+        @staticmethod
+        def resolve_allowed_app(value: object) -> str | None:
+            normalized = str(value or "").strip().casefold()
+            if normalized in {"whatsapp", "whats app"}:
+                return "WhatsApp"
+            if normalized == "safari":
+                return "Safari"
+            return None
 
     async def request_action(self, payload: dict[str, object]) -> dict[str, object]:
         self.calls.append(dict(payload))
@@ -1026,6 +1046,9 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
                 "interaction_mode": "ambient",
                 "persona_profile": {
                     "id": "briefing",
+                    "tone_style": "warm",
+                    "reply_length": "expanded",
+                    "proactivity": "high",
                     "voice_style": "short_formal",
                 },
             },
@@ -1040,7 +1063,12 @@ class AgentLoopPlanningToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Interaction Kind: wake_word", system_prompt)
         self.assertIn("Interaction Mode: ambient", system_prompt)
         self.assertIn("Persona Profile: briefing", system_prompt)
+        self.assertIn("Persona Tone Style: warm", system_prompt)
+        self.assertIn("Persona Reply Length: expanded", system_prompt)
+        self.assertIn("Persona Proactivity: high", system_prompt)
         self.assertIn("Persona Voice Style: short_formal", system_prompt)
+        self.assertIn("Everyday Conversation Style", system_prompt)
+        self.assertIn("Natural Chinese examples", system_prompt)
 
 
 class AgentLoopComputerControlToolTests(unittest.IsolatedAsyncioTestCase):
@@ -1202,6 +1230,194 @@ class AgentLoopComputerControlToolTests(unittest.IsolatedAsyncioTestCase):
             persisted[0]["tool_results"]["computer_control"][0]["action_id"],
             "cc_action_confirm",
         )
+
+    async def test_direct_open_app_command_bypasses_model_timeout_path(self) -> None:
+        provider = CapturingProvider([LLMResponse(content="This should not be called.")])
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=self.workspace,
+            computer_control_backend=self.backend,
+        )
+        msg = InboundMessage(
+            channel="desktop_voice",
+            sender_id="desktop_mic",
+            chat_id="desktop",
+            content="Help me open Whatsapp.",
+            metadata={
+                "task_id": "runtime_task",
+                "message_id": "msg_user",
+                "assistant_message_id": "msg_assistant",
+                "source": "voice",
+                "source_channel": "desktop_voice",
+                "interaction_surface": "device_press",
+                "capture_source": "desktop_mic",
+                "voice_path": "desktop_mic",
+                "reply_language": "English",
+                "app_session_id": "app:main",
+            },
+            session_key_override="app:main",
+        )
+
+        response = await agent._process_message(msg, session_key="app:main")
+
+        self.assertEqual(provider.calls, [])
+        self.assertIsNotNone(response)
+        self.assertEqual(response.content, "Opened WhatsApp.")
+        self.assertEqual(self.backend.calls[0]["action"], "open_app")
+        self.assertEqual(self.backend.calls[0]["target"], {"app": "WhatsApp"})
+        self.assertEqual(self.backend.calls[0]["source_session_id"], "app:main")
+        self.assertEqual(
+            self.backend.calls[0]["metadata"]["direct_intent_source"],
+            "agent_pre_llm",
+        )
+        control_results = response.metadata["tool_results"]["computer_control"]
+        self.assertEqual(control_results[0]["action_id"], "cc_action_done")
+
+        session = agent.sessions.get_or_create("app:main")
+        assistant_entry = next(
+            entry
+            for entry in session.messages
+            if entry.get("role") == "assistant"
+            and entry.get("content") == "Opened WhatsApp."
+        )
+        self.assertEqual(assistant_entry["message_id"], "msg_assistant")
+        self.assertEqual(
+            assistant_entry["tool_results"]["computer_control"][0]["action_id"],
+            "cc_action_done",
+        )
+
+    async def test_direct_google_search_command_bypasses_model_timeout_path(self) -> None:
+        provider = CapturingProvider([LLMResponse(content="This should not be called.")])
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=self.workspace,
+            computer_control_backend=self.backend,
+        )
+        msg = InboundMessage(
+            channel="desktop_voice",
+            sender_id="desktop_mic",
+            chat_id="desktop",
+            content="Open Google Com and helpmi search Ctuk.",
+            metadata={
+                "task_id": "runtime_task",
+                "message_id": "msg_user",
+                "assistant_message_id": "msg_assistant",
+                "source": "voice",
+                "source_channel": "desktop_voice",
+                "interaction_surface": "device_press",
+                "capture_source": "desktop_mic",
+                "voice_path": "desktop_mic",
+                "reply_language": "English",
+                "app_session_id": "app:main",
+            },
+            session_key_override="app:main",
+        )
+
+        response = await agent._process_message(msg, session_key="app:main")
+
+        self.assertEqual(provider.calls, [])
+        self.assertIsNotNone(response)
+        self.assertEqual(response.content, "Opened Google search for Ctuk.")
+        self.assertEqual(self.backend.calls[0]["action"], "open_url")
+        self.assertEqual(
+            self.backend.calls[0]["target"],
+            {"url": "https://www.google.com/search?q=Ctuk"},
+        )
+        self.assertEqual(self.backend.calls[0]["metadata"]["search_query"], "Ctuk")
+        control_results = response.metadata["tool_results"]["computer_control"]
+        self.assertEqual(control_results[0]["action"], "open_url")
+
+    async def test_direct_search_command_tolerates_missing_google_target(self) -> None:
+        provider = CapturingProvider([LLMResponse(content="This should not be called.")])
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=self.workspace,
+            computer_control_backend=self.backend,
+        )
+        msg = InboundMessage(
+            channel="desktop_voice",
+            sender_id="desktop_mic",
+            chat_id="desktop",
+            content="Help me open and.Search city, City University.",
+            metadata={"reply_language": "English"},
+            session_key_override="app:main",
+        )
+
+        response = await agent._process_message(msg, session_key="app:main")
+
+        self.assertEqual(provider.calls, [])
+        self.assertIsNotNone(response)
+        self.assertEqual(
+            response.content,
+            "Opened Google search for city, City University.",
+        )
+        self.assertEqual(self.backend.calls[0]["action"], "open_url")
+        self.assertEqual(
+            self.backend.calls[0]["target"],
+            {"url": "https://www.google.com/search?q=city%2C+City+University"},
+        )
+
+    async def test_direct_google_search_tolerates_gocom_without_search_word(self) -> None:
+        provider = CapturingProvider([LLMResponse(content="This should not be called.")])
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=self.workspace,
+            computer_control_backend=self.backend,
+        )
+        msg = InboundMessage(
+            channel="desktop_voice",
+            sender_id="desktop_mic",
+            chat_id="desktop",
+            content="Open Gocom and city University, Hong Kong.",
+            metadata={"reply_language": "English"},
+            session_key_override="app:main",
+        )
+
+        response = await agent._process_message(msg, session_key="app:main")
+
+        self.assertEqual(provider.calls, [])
+        self.assertIsNotNone(response)
+        self.assertEqual(
+            response.content,
+            "Opened Google search for city University, Hong Kong.",
+        )
+        self.assertEqual(self.backend.calls[0]["action"], "open_url")
+        self.assertEqual(
+            self.backend.calls[0]["target"],
+            {"url": "https://www.google.com/search?q=city+University%2C+Hong+Kong"},
+        )
+
+    async def test_scheduled_open_app_request_still_uses_model(self) -> None:
+        provider = CapturingProvider([LLMResponse(content="I can help schedule that.")])
+        agent = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=self.workspace,
+            computer_control_backend=self.backend,
+        )
+        msg = InboundMessage(
+            channel="app",
+            sender_id="flutter",
+            chat_id="main",
+            content="Remind me to open WhatsApp tomorrow.",
+            metadata={
+                "task_id": "runtime_task",
+                "message_id": "msg_user",
+                "assistant_message_id": "msg_assistant",
+                "reply_language": "English",
+            },
+        )
+
+        response = await agent._process_message(msg)
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.content, "I can help schedule that.")
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(self.backend.calls, [])
 
 
 class BootstrapPlanningInjectionTests(unittest.TestCase):

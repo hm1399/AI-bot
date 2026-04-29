@@ -10,6 +10,7 @@ from contextlib import AsyncExitStack
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from urllib.parse import quote_plus
 
 from loguru import logger
 
@@ -35,6 +36,52 @@ if TYPE_CHECKING:
     from nanobot.cron.service import CronService
     from nanobot.agent.tools.computer_control import ComputerControlBackend
     from nanobot.agent.tools.planning import PlanningBackend
+
+
+_DIRECT_OPEN_APP_EN_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"
+    r"(?:help\s+me\s+)?(?:to\s+)?"
+    r"(?P<verb>open(?:\s+up)?|launch|start|bring\s+up|focus)\s+"
+    r"(?:the\s+)?(?P<target>.+?)\s*$",
+    re.IGNORECASE,
+)
+_DIRECT_OPEN_APP_ZH_RE = re.compile(
+    r"(?:帮我|請|请|麻烦你|麻煩你|可以)?\s*"
+    r"(?:打开|打開|开启|開啟|启动|啟動|开一下|開一下|唤起|喚起)\s*(?P<target>.+)"
+)
+_DIRECT_OPEN_APP_NEGATIVE_RE = re.compile(
+    r"\b(?:why|how|what|where|when|failed|failure|timeout|timed\s+out)\b"
+    r"|(?:为什么|為什麼|为何|為何|怎么|怎麼|没打开|沒打開|打不开|打不開|无法|無法|不能|失败|失敗|超时|超時)"
+)
+_DIRECT_OPEN_APP_SCHEDULE_RE = re.compile(
+    r"\b(?:remind|schedule|later|tomorrow|tonight|today\s+at|at\s+\d|after\s+\d|in\s+\d|every)\b"
+    r"|(?:提醒|定时|定時|安排|稍后|稍後|等会|等會|待会|待會|明天|后天|後天|今晚|每天|每周|每週|\d+\s*点|\d+\s*點|分钟后|分鐘後|小时后|小時後)"
+)
+_DIRECT_GOOGLE_SEARCH_EN_RE = re.compile(
+    r"\bopen\s+"
+    r"(?:google(?:\s+com|\.com)?|go\s*com|gocom|google\s+chrome|chrome|browser|safari)\b"
+    r".*?\b(?:help\s*m(?:e|i)|helpme|helpmi)?\s*"
+    r"search(?:\s+(?:for|about))?\s+(?P<query>.+?)\s*$",
+    re.IGNORECASE,
+)
+_DIRECT_ANY_SEARCH_EN_RE = re.compile(
+    r"\b(?:help\s*m(?:e|i)|helpme|helpmi)?\s*"
+    r"(?:search|research|look\s+up|google)"
+    r"(?:\s+(?:for|about))?\s+(?P<query>.+?)\s*$",
+    re.IGNORECASE,
+)
+_DIRECT_GOOGLE_AND_QUERY_EN_RE = re.compile(
+    r"\bopen\s+"
+    r"(?:google(?:\s+com|\.com)?|go\s*com|gocom|google\s+chrome|chrome|browser|safari)\b"
+    r"\s+(?:and|for|to)\s+(?P<query>.+?)\s*$",
+    re.IGNORECASE,
+)
+_DIRECT_GOOGLE_SEARCH_ZH_RE = re.compile(
+    r"(?:打开|打開|开启|開啟|启动|啟動)\s*"
+    r"(?:google|谷歌|浏览器|瀏覽器|chrome|safari|网页|網頁).*?"
+    r"(?:搜索|搜一下|查一下|查询|查詢)\s*(?P<query>.+?)\s*$",
+    re.IGNORECASE,
+)
 
 
 class AgentLoop:
@@ -300,6 +347,356 @@ class AgentLoop:
             return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
         return ", ".join(_fmt(tc) for tc in tool_calls)
 
+    async def _maybe_handle_direct_computer_control(
+        self,
+        msg: InboundMessage,
+        *,
+        session: Session,
+        session_key: str,
+    ) -> OutboundMessage | None:
+        """Handle low-risk, explicit computer-control commands before the LLM."""
+        command = self._parse_direct_computer_control_command(msg.content)
+        if command is None:
+            return None
+
+        backend = self.computer_control_backend
+        if backend is None:
+            response_text = self._direct_computer_control_reply(
+                app=str(command.get("app") or "app"),
+                action=command["action"],
+                search_query=command.get("search_query"),
+                status="failed",
+                metadata=msg.metadata,
+                error_message="computer control is not available",
+            )
+            result = {
+                "action": command["action"],
+                "status": "failed",
+                "error": {
+                    "code": "adapter_unavailable",
+                    "message": "computer control is not available",
+                },
+                "metadata": ContextBuilder.extract_runtime_metadata(msg.metadata),
+            }
+            return self._persist_direct_computer_control_turn(
+                msg,
+                session=session,
+                response_text=response_text,
+                result=result,
+            )
+
+        runtime_metadata = ContextBuilder.extract_runtime_metadata(msg.metadata)
+        request_metadata = {
+            **runtime_metadata,
+            "direct_intent": command["action"],
+            "direct_intent_source": "agent_pre_llm",
+        }
+        app = str(command.get("app") or "").strip()
+        if app:
+            request_metadata["target_app"] = app
+        url = str(command.get("url") or "").strip()
+        if url:
+            request_metadata["target_url"] = url
+        search_query = str(command.get("search_query") or "").strip()
+        if search_query:
+            request_metadata["search_query"] = search_query
+
+        target: dict[str, Any] = {}
+        if command["action"] == "open_app" and app:
+            target["app"] = app
+        elif command["action"] == "open_url" and url:
+            target["url"] = url
+        payload = {
+            "action": command["action"],
+            "target": target,
+            "created_via": "agent_direct_intent",
+            "requested_via": self._direct_computer_control_requested_via(msg),
+            "source_channel": msg.channel,
+            "source_session_id": session_key,
+            "source_message_id": msg.metadata.get("message_id"),
+            "task_id": msg.metadata.get("task_id"),
+            "reason": msg.content,
+            "metadata": request_metadata,
+        }
+
+        try:
+            result = await backend.request_action(payload)
+        except Exception as exc:  # noqa: BLE001 - adapters surface product errors as exceptions.
+            result = {
+                "action": command["action"],
+                "status": "failed",
+                "error": self._computer_control_exception_payload(exc),
+                "metadata": request_metadata,
+            }
+
+        if not isinstance(result, dict):
+            result = {
+                "action": command["action"],
+                "status": "failed",
+                "error": {
+                    "code": "invalid_backend_response",
+                    "message": "computer control backend returned an invalid response",
+                },
+                "metadata": request_metadata,
+            }
+
+        resolved_app = self._app_name_from_computer_control_result(result, fallback=app)
+        response_text = self._direct_computer_control_reply(
+            app=resolved_app or app or "app",
+            action=command["action"],
+            search_query=command.get("search_query"),
+            target_url=url or None,
+            status=str(result.get("status") or ""),
+            metadata=msg.metadata,
+            error_message=self._computer_control_error_message(result),
+        )
+        return self._persist_direct_computer_control_turn(
+            msg,
+            session=session,
+            response_text=response_text,
+            result=result,
+        )
+
+    def _parse_direct_computer_control_command(self, content: str) -> dict[str, str] | None:
+        search_command = self._parse_direct_web_search_command(content)
+        if search_command is not None:
+            return search_command
+
+        if not self._looks_like_direct_open_app_request(content):
+            return None
+        app = self._resolve_direct_open_app_target(content)
+        if app is None:
+            return None
+        return {
+            "action": "open_app",
+            "app": app,
+        }
+
+    def _parse_direct_web_search_command(self, content: str) -> dict[str, str] | None:
+        if not self._looks_like_direct_control_request(content):
+            return None
+        for pattern in (
+            _DIRECT_GOOGLE_SEARCH_EN_RE,
+            _DIRECT_ANY_SEARCH_EN_RE,
+            _DIRECT_GOOGLE_AND_QUERY_EN_RE,
+            _DIRECT_GOOGLE_SEARCH_ZH_RE,
+        ):
+            match = pattern.search(content)
+            if not match:
+                continue
+            query = self._clean_direct_search_query(match.group("query"))
+            if not query:
+                continue
+            return {
+                "action": "open_url",
+                "url": f"https://www.google.com/search?q={quote_plus(query)}",
+                "search_query": query,
+            }
+        return None
+
+    def _looks_like_direct_control_request(self, content: str) -> bool:
+        cleaned = str(content or "").strip()
+        if not cleaned:
+            return False
+        lowered = cleaned.casefold()
+        if _DIRECT_OPEN_APP_NEGATIVE_RE.search(lowered):
+            return False
+        if _DIRECT_OPEN_APP_SCHEDULE_RE.search(lowered):
+            return False
+        return True
+
+    def _looks_like_direct_open_app_request(self, content: str) -> bool:
+        if not self._looks_like_direct_control_request(content):
+            return False
+        return bool(
+            _DIRECT_OPEN_APP_EN_RE.search(content)
+            or _DIRECT_OPEN_APP_ZH_RE.search(content)
+        )
+
+    def _resolve_direct_open_app_target(self, content: str) -> str | None:
+        backend = self.computer_control_backend
+        policy = getattr(backend, "policy", None)
+        infer_allowed_app = getattr(policy, "infer_allowed_app", None)
+        if callable(infer_allowed_app):
+            inferred = infer_allowed_app(content)
+            if isinstance(inferred, str) and inferred.strip():
+                return inferred.strip()
+
+        candidate = self._direct_open_app_candidate(content)
+        resolve_allowed_app = getattr(policy, "resolve_allowed_app", None)
+        if candidate and callable(resolve_allowed_app):
+            resolved = resolve_allowed_app(candidate)
+            if isinstance(resolved, str) and resolved.strip():
+                return resolved.strip()
+        return candidate
+
+    @staticmethod
+    def _clean_direct_search_query(value: Any) -> str | None:
+        query = str(value or "").strip()
+        query = re.sub(r"(?i)\s+(?:for\s+me|please|now)\s*$", "", query).strip()
+        query = query.strip(" \t\r\n\"'“”‘’.,!?！？。")
+        return query or None
+
+    @staticmethod
+    def _direct_open_app_candidate(content: str) -> str | None:
+        for pattern in (_DIRECT_OPEN_APP_EN_RE, _DIRECT_OPEN_APP_ZH_RE):
+            match = pattern.search(content)
+            if not match:
+                continue
+            candidate = str(match.group("target") or "").strip()
+            candidate = re.sub(
+                r"(?i)\s+(?:for\s+me|please|now|app|application)\s*$",
+                "",
+                candidate,
+            ).strip()
+            candidate = candidate.strip(" \t\r\n\"'“”‘’.,!?！？。")
+            if candidate:
+                return candidate
+        return None
+
+    @staticmethod
+    def _direct_computer_control_requested_via(msg: InboundMessage) -> str:
+        source = str(msg.metadata.get("source") or "").strip()
+        if source:
+            return source
+        if msg.channel in {"device", "desktop_voice"}:
+            return "voice"
+        return msg.channel or "agent"
+
+    @staticmethod
+    def _computer_control_exception_payload(exc: Exception) -> dict[str, Any]:
+        to_dict = getattr(exc, "to_dict", None)
+        if callable(to_dict):
+            payload = to_dict()
+            if isinstance(payload, dict):
+                return payload
+        return {
+            "code": getattr(exc, "code", exc.__class__.__name__),
+            "message": str(exc) or "computer control action failed",
+        }
+
+    @staticmethod
+    def _app_name_from_computer_control_result(
+        result: dict[str, Any],
+        *,
+        fallback: str | None = None,
+    ) -> str | None:
+        for container_key in ("arguments", "target"):
+            container = result.get(container_key)
+            if isinstance(container, dict):
+                app = str(container.get("app") or "").strip()
+                if app:
+                    return app
+        result_payload = result.get("result")
+        if isinstance(result_payload, dict):
+            for key in ("opened", "focused_app", "app"):
+                app = str(result_payload.get(key) or "").strip()
+                if app:
+                    return app
+        return str(fallback or "").strip() or None
+
+    @staticmethod
+    def _computer_control_error_message(result: dict[str, Any]) -> str | None:
+        error = result.get("error")
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("code") or "").strip() or None
+        if isinstance(error, str):
+            return error.strip() or None
+        return None
+
+    @classmethod
+    def _direct_computer_control_reply(
+        cls,
+        *,
+        app: str,
+        action: str | None = None,
+        search_query: str | None = None,
+        target_url: str | None = None,
+        status: str,
+        metadata: dict[str, Any] | None = None,
+        error_message: str | None = None,
+    ) -> str:
+        prefer_english = cls._prefers_english_reply(metadata)
+        normalized_status = status.strip().lower()
+        normalized_action = str(action or "").strip()
+        query = str(search_query or "").strip()
+        app_name = app.strip() or ("the app" if prefer_english else "应用")
+        if normalized_status == "completed":
+            if normalized_action == "open_url" and query:
+                return (
+                    f"Opened Google search for {query}."
+                    if prefer_english
+                    else f"已打开 Google 搜索：{query}。"
+                )
+            if normalized_action == "open_url":
+                target = str(target_url or "").strip() or "the page"
+                return f"Opened {target}." if prefer_english else f"已打开 {target}。"
+            return f"Opened {app_name}." if prefer_english else f"已打开 {app_name}。"
+        if normalized_status == "awaiting_confirmation":
+            if normalized_action == "open_url" and query:
+                return (
+                    f"Ready to search Google for {query}. Please confirm first."
+                    if prefer_english
+                    else f"已准备搜索 {query}，请先确认。"
+                )
+            return (
+                f"Ready to open {app_name}. Please confirm first."
+                if prefer_english
+                else f"已准备打开 {app_name}，请先确认。"
+            )
+        detail = error_message or (
+            "computer control action failed"
+            if prefer_english
+            else "电脑控制动作失败"
+        )
+        if normalized_action == "open_url" and query:
+            return (
+                f"I couldn't open Google search for {query}: {detail}."
+                if prefer_english
+                else f"没能打开 Google 搜索 {query}：{detail}。"
+            )
+        return (
+            f"I couldn't open {app_name}: {detail}."
+            if prefer_english
+            else f"没能打开 {app_name}：{detail}。"
+        )
+
+    @staticmethod
+    def _prefers_english_reply(metadata: dict[str, Any] | None = None) -> bool:
+        reply_language = str((metadata or {}).get("reply_language") or "").strip().lower()
+        if reply_language.startswith("en") or reply_language.startswith("english"):
+            return True
+        if reply_language.startswith("zh") or reply_language.startswith("chinese"):
+            return False
+        return False
+
+    def _persist_direct_computer_control_turn(
+        self,
+        msg: InboundMessage,
+        *,
+        session: Session,
+        response_text: str,
+        result: dict[str, Any],
+    ) -> OutboundMessage:
+        tool_results = {"computer_control": [deepcopy(result)]}
+        self._save_turn(
+            session,
+            [
+                {"role": "user", "content": msg.content},
+                {"role": "assistant", "content": response_text},
+            ],
+            0,
+            msg_metadata=msg.metadata,
+            assistant_tool_results=tool_results,
+        )
+        self.sessions.save(session)
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=response_text,
+            metadata=self._merge_outbound_metadata(msg.metadata, tool_results),
+        )
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -559,6 +956,14 @@ class AgentLoop:
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands")
+
+        direct_response = await self._maybe_handle_direct_computer_control(
+            msg,
+            session=session,
+            session_key=resolved_session_key,
+        )
+        if direct_response is not None:
+            return direct_response
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):

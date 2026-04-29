@@ -160,6 +160,74 @@ class ComputerControlServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(state["recent_actions"]), 1)
         self.assertEqual(state["recent_actions"][0]["action_id"], action["action_id"])
 
+    async def test_request_action_recovers_missing_open_app_target_from_reason(self) -> None:
+        adapter = FakeMacOSAdapter()
+        service = self._service(adapter=adapter)
+
+        action = await service.request_action({
+            "action": "open_app",
+            "target": {},
+            "reason": "用户要求打开微信",
+            "requested_via": "agent",
+            "source_session_id": "desktop_voice:desktop",
+        })
+
+        self.assertEqual(action["status"], "completed")
+        self.assertEqual(action["arguments"], {"app": "WeChat"})
+        self.assertEqual(adapter.calls[0], ("open_app", {"app": "WeChat"}))
+
+    async def test_request_action_recovers_missing_open_app_target_from_scheduled_metadata(self) -> None:
+        adapter = FakeMacOSAdapter()
+        service = self._service(
+            adapter=adapter,
+            config={"computer_control": {"allowed_apps": ["Safari", "WeChat", "WhatsApp"]}},
+        )
+
+        action = await service.request_action({
+            "action": "open_app",
+            "target": {},
+            "reason": "现在打开。",
+            "requested_via": "agent",
+            "metadata": {
+                "scheduled_action_target": "WhatsApp",
+            },
+        })
+
+        self.assertEqual(action["status"], "completed")
+        self.assertEqual(action["arguments"], {"app": "WhatsApp"})
+        self.assertEqual(adapter.calls[0], ("open_app", {"app": "WhatsApp"}))
+
+    async def test_request_action_accepts_allowlisted_app_alias(self) -> None:
+        adapter = FakeMacOSAdapter()
+        service = self._service(adapter=adapter)
+
+        action = await service.request_action(
+            kind="open_app",
+            arguments={"app": "微信"},
+            requested_via="app",
+        )
+
+        self.assertEqual(action["status"], "completed")
+        self.assertEqual(action["arguments"], {"app": "WeChat"})
+        self.assertEqual(adapter.calls[0], ("open_app", {"app": "WeChat"}))
+
+    async def test_request_action_accepts_google_chrome_alias_when_allowlisted(self) -> None:
+        adapter = FakeMacOSAdapter()
+        service = self._service(
+            adapter=adapter,
+            config={"computer_control": {"allowed_apps": ["Safari", "WeChat", "Google Chrome"]}},
+        )
+
+        action = await service.request_action(
+            kind="open_app",
+            arguments={"app": "chrome"},
+            requested_via="app",
+        )
+
+        self.assertEqual(action["status"], "completed")
+        self.assertEqual(action["arguments"], {"app": "Google Chrome"})
+        self.assertEqual(adapter.calls[0], ("open_app", {"app": "Google Chrome"}))
+
     async def test_request_action_requires_confirmation_and_supports_confirm_and_cancel(self) -> None:
         adapter = FakeMacOSAdapter()
         service = self._service(
